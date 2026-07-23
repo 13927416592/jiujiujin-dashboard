@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- 字体 -->
+  <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/>
+
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/jquery/jquery-3.7.1.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/lucide/lucide-1.11.0.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/tailwindcss/tailwindcss-browser-4.2.4.min.js"></script>
+
+  <style type="text/tailwindcss">
+    @theme {
+      /* === 品牌色 === */
+      --color-primary:              #7C5CFF;
+      --color-primary-container:    rgba(124, 92, 255, 0.15);
+      --color-on-primary:           #ffffff;
+      /* === 强调色 === */
+      --color-accent:               #69E7FF;
+      --color-accent-container:     rgba(105, 231, 255, 0.12);
+      /* === 背景 / 表面 === */
+      --color-background:                 #070A14;
+      --color-surface-container-lowest:   #0B1020;
+      --color-surface:                    #0F1629;
+      --color-surface-container:          #151D35;
+      --color-surface-container-high:     #1B2540;
+      --color-surface-container-highest:  #222E4F;
+      /* === 文字 === */
+      --color-on-surface:           #F7FAFF;
+      --color-on-surface-variant:   #9AA7C7;
+      /* === 功能色 === */
+      --color-success:  #62FAD3;
+      --color-error:    #FF6B6B;
+      --color-warning:  #FFB84D;
+      /* === 边框 === */
+      --color-outline:          rgba(255, 255, 255, 0.12);
+      --color-outline-variant:  rgba(255, 255, 255, 0.06);
+      /* === 圆角 === */
+      --radius-sm:   0.375rem;
+      --radius-md:   0.625rem;
+      --radius-lg:   0.875rem;
+      --radius-xl:   1.125rem;
+      --radius-2xl:  1.5rem;
+      --radius-full: 9999px;
+      /* === 阴影 === */
+      --shadow-card:   0 2px 12px rgba(0, 0, 0, 0.4);
+      --shadow-float:  0 8px 30px rgba(0, 0, 0, 0.5);
+      --shadow-dialog: 0 25px 50px rgba(0, 0, 0, 0.6);
+      /* === 字体 === */
+      --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+    }
+  </style>
+
+  <style>
+    /* 毛玻璃效果 */
+    .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .glass-sidebar { background: rgba(15,22,41,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+    .glass-header { background: rgba(7,10,20,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+    /* 发光效果 */
+    .glow-primary { box-shadow: 0 0 20px rgba(124,92,255,0.15); }
+    .glow-accent { box-shadow: 0 0 20px rgba(105,231,255,0.12); }
+    /* 渐变背景 */
+    .bg-gradient-mesh {
+      background:
+        radial-gradient(ellipse 600px 400px at 10% 20%, rgba(124,92,255,0.08) 0%, transparent 70%),
+        radial-gradient(ellipse 500px 350px at 90% 80%, rgba(105,231,255,0.05) 0%, transparent 70%),
+        #070A14;
+    }
+  </style>
+
+  <!-- 图片兜底 -->
+  <script>
+    document.addEventListener('error', function (e) {
+      const img = e.target;
+      if (img.tagName !== 'IMG' || img.dataset.fallback) return;
+      img.dataset.fallback = '1';
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cat = img.getAttribute('data-category') || '其他';
+      const alt = img.getAttribute('alt') || '';
+      const label = esc(alt.length > 8 ? alt.slice(0, 8) + '…' : alt);
+      const icons = { '人物': '👤', '自然风景': '🏞', '动物': '🐾', '建筑城市': '🏙', '运动体育': '⚽', '交通工具': '🚗', '食物': '🍽', '服饰时尚': '👗', '商业科技': '💼', '游戏娱乐': '🎮', '艺术': '🎨', '其他': '🖼' };
+      const icon = icons[cat] || '🖼';
+      const w = img.width || 400, h = img.height || 300;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="%230F1629"/><text x="50%" y="45%" text-anchor="middle" font-size="${Math.min(w, h) * 0.18}" dominant-baseline="central">${icon}</text><text x="50%" y="68%" text-anchor="middle" font-size="${Math.min(w, h) * 0.07}" fill="%239AA7C7" font-family="system-ui,sans-serif" dominant-baseline="central">${label}</text></svg>`;
+      img.src = 'data:image/svg+xml,' + svg;
+    }, true);
+  </script>
+</head>
+
+<body class="bg-background text-on-surface font-sans bg-gradient-mesh min-h-screen">
+
+  <!-- @nav:start 导航组件，不需要的页面则不要复制此段 -->
+  <!-- 顶部导航栏 -->
+  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline-variant/20">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+        <i data-lucide="chart-column-big" class="w-4.5 h-4.5 text-primary"></i>
+      </div>
+      <span class="font-bold text-base text-on-surface tracking-tight">久久金运营看板</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20">
+        <i data-lucide="calendar" class="w-3.5 h-3.5 text-on-surface-variant"></i>
+        <span class="text-xs text-on-surface-variant">2026年6月</span>
+      </div>
+      <button class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
+        <i data-lucide="bell" class="w-4 h-4 text-on-surface-variant"></i>
+        <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error"></span>
+      </button>
+      <div class="flex items-center gap-2 pl-3 border-l border-outline-variant/20">
+        <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">初</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex" style="height: calc(100vh - 3.5rem)">
+    <!-- 侧边栏 -->
+    <aside class="glass-sidebar w-56 shrink-0 border-r border-outline-variant/20 overflow-y-auto">
+      <nav class="p-3 space-y-0.5">
+        <a href="home.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
+        </a>
+        <a href="meituan.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
+          <i data-lucide="store" class="w-4 h-4"></i>美团运营
+        </a>
+        <a href="content.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
+          <i data-lucide="pen-tool" class="w-4 h-4"></i>内容矩阵
+        </a>
+        <a href="private-domain.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
+          <i data-lucide="users" class="w-4 h-4"></i>私域运营
+        </a>
+        <a href="collaboration.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
+          <i data-lucide="network" class="w-4 h-4"></i>跨部门协同
+        </a>
+        <a href="actions.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container text-primary font-medium text-sm" aria-current="page">
+          <i data-lucide="target" class="w-4 h-4"></i>行动计划
+        </a>
+      </nav>
+      <!-- 侧边栏底部：模块健康度概览 -->
+      <div class="p-3 mt-auto border-t border-outline-variant/20">
+        <div class="px-3 py-2">
+          <p class="text-xs text-on-surface-variant mb-2">数据截止</p>
+          <p class="text-xs text-on-surface font-medium">2026年6月30日</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- @main-content:start -->
+    <main class="flex-1 min-w-0 overflow-y-auto p-5">
+      <!-- 页面标题 -->
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-bold text-on-surface">行动计划</h1>
+          <p class="text-sm text-on-surface-variant mt-1">运营部下阶段行动计划追踪 · 里程碑 · 任务完成度 · 责任人分布</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="btn-filter-priority" class="bg-surface-container text-on-surface border-none px-4 py-2 rounded-md text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2">
+            <i data-lucide="filter" class="w-3.5 h-3.5"></i>筛选
+          </button>
+          <button id="btn-export-actions" class="bg-primary text-on-primary px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 active:scale-[0.98] transition-all inline-flex items-center gap-2">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>导出计划
+          </button>
+        </div>
+      </div>
+
+      <!-- 里程碑时间线 -->
+      <div class="glass-card rounded-xl p-5 mb-6 border border-outline-variant/10">
+        <div class="flex items-center gap-2 mb-5">
+          <i data-lucide="milestone" class="w-4.5 h-4.5 text-primary"></i>
+          <h2 class="text-base font-semibold text-on-surface">里程碑时间线</h2>
+        </div>
+        <div class="relative">
+          <!-- 时间线连接线 -->
+          <div class="absolute top-6 left-[10%] right-[10%] h-0.5 bg-outline-variant/30"></div>
+          <div class="absolute top-6 left-[10%] w-[23%] h-0.5 bg-primary"></div>
+          <div class="flex justify-between items-start px-[5%]">
+            <!-- 阶段1：当前阶段 -->
+            <div id="phase-1" class="relative flex flex-col items-center cursor-pointer group" style="width:30%">
+              <div class="w-12 h-12 rounded-full bg-primary/20 border-2 border-primary flex items-center justify-center z-10 glow-primary">
+                <i data-lucide="flame" class="w-5 h-5 text-primary"></i>
+              </div>
+              <div class="mt-3 text-center">
+                <p class="text-sm font-semibold text-primary">第一阶段 · 7月</p>
+                <p class="text-xs text-on-surface-variant mt-1">止血 + 基建</p>
+                <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-primary/15 text-primary text-xs font-medium">
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                  进行中
+                </div>
+              </div>
+            </div>
+            <!-- 阶段2 -->
+            <div id="phase-2" class="relative flex flex-col items-center cursor-pointer group" style="width:30%">
+              <div class="w-12 h-12 rounded-full bg-surface-container-high border-2 border-outline-variant/30 flex items-center justify-center z-10 group-hover:border-accent/50 transition-colors">
+                <i data-lucide="trending-up" class="w-5 h-5 text-on-surface-variant"></i>
+              </div>
+              <div class="mt-3 text-center">
+                <p class="text-sm font-semibold text-on-surface">第二阶段 · 8-9月</p>
+                <p class="text-xs text-on-surface-variant mt-1">扩面 + 深化</p>
+                <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-surface-container text-on-surface-variant text-xs font-medium">
+                  待启动
+                </div>
+              </div>
+            </div>
+            <!-- 阶段3 -->
+            <div id="phase-3" class="relative flex flex-col items-center cursor-pointer group" style="width:30%">
+              <div class="w-12 h-12 rounded-full bg-surface-container-high border-2 border-outline-variant/30 flex items-center justify-center z-10 group-hover:border-success/50 transition-colors">
+                <i data-lucide="flag" class="w-5 h-5 text-on-surface-variant"></i>
+              </div>
+              <div class="mt-3 text-center">
+                <p class="text-sm font-semibold text-on-surface">第三阶段 · Q4</p>
+                <p class="text-xs text-on-surface-variant mt-1">全覆盖</p>
+                <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-surface-container text-on-surface-variant text-xs font-medium">
+                  待启动
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中部：任务完成度 + 责任人分布 -->
+      <div class="grid grid-cols-2 gap-5 mb-6">
+        <!-- 任务完成度看板 -->
+        <div class="glass-card rounded-xl p-5 border border-outline-variant/10">
+          <div class="flex items-center gap-2 mb-5">
+            <i data-lucide="bar-chart-3" class="w-4.5 h-4.5 text-accent"></i>
+            <h2 class="text-base font-semibold text-on-surface">任务完成度看板</h2>
+          </div>
+
+          <!-- P0 任务 -->
+          <div class="mb-5">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error">P0</span>
+                <span class="text-sm font-medium text-on-surface">紧急任务</span>
+              </div>
+              <span class="text-xs text-on-surface-variant">3/12 完成</span>
+            </div>
+            <div class="w-full h-3 rounded-full bg-surface-container overflow-hidden">
+              <div class="h-full rounded-full flex">
+                <div class="bg-success" style="width:25%" title="已完成 3"></div>
+                <div class="bg-primary" style="width:42%" title="进行中 5"></div>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 mt-2">
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-success"></span>已完成 3</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-primary"></span>进行中 5</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-surface-container-highest"></span>未开始 4</span>
+            </div>
+          </div>
+
+          <!-- P1 任务 -->
+          <div class="mb-5">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-warning/15 text-warning">P1</span>
+                <span class="text-sm font-medium text-on-surface">重要任务</span>
+              </div>
+              <span class="text-xs text-on-surface-variant">2/18 完成</span>
+            </div>
+            <div class="w-full h-3 rounded-full bg-surface-container overflow-hidden">
+              <div class="h-full rounded-full flex">
+                <div class="bg-success" style="width:11%" title="已完成 2"></div>
+                <div class="bg-primary" style="width:33%" title="进行中 6"></div>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 mt-2">
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-success"></span>已完成 2</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-primary"></span>进行中 6</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-surface-container-highest"></span>未开始 10</span>
+            </div>
+          </div>
+
+          <!-- P2 任务 -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-accent/15 text-accent">P2</span>
+                <span class="text-sm font-medium text-on-surface">常规任务</span>
+              </div>
+              <span class="text-xs text-on-surface-variant">0/8 完成</span>
+            </div>
+            <div class="w-full h-3 rounded-full bg-surface-container overflow-hidden">
+              <div class="h-full rounded-full flex">
+                <div class="bg-success" style="width:0%" title="已完成 0"></div>
+                <div class="bg-primary" style="width:25%" title="进行中 2"></div>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 mt-2">
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-success"></span>已完成 0</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-primary"></span>进行中 2</span>
+              <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-surface-container-highest"></span>未开始 6</span>
+            </div>
+          </div>
+
+          <!-- 汇总 -->
+          <div class="mt-5 pt-4 border-t border-outline-variant/10 flex items-center justify-between">
+            <span class="text-xs text-on-surface-variant">总任务数</span>
+            <div class="flex items-center gap-3">
+              <span class="text-lg font-bold text-on-surface">38</span>
+              <span class="text-xs text-success">5 已完成</span>
+              <span class="text-xs text-primary">13 进行中</span>
+              <span class="text-xs text-on-surface-variant">20 未开始</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 责任人任务分布 -->
+        <div class="glass-card rounded-xl p-5 border border-outline-variant/10">
+          <div class="flex items-center gap-2 mb-5">
+            <i data-lucide="users-round" class="w-4.5 h-4.5 text-warning"></i>
+            <h2 class="text-base font-semibold text-on-surface">责任人任务分布</h2>
+          </div>
+
+          <!-- 宋思滢 -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">宋</div>
+                <span class="text-sm font-medium text-on-surface">宋思滢</span>
+              </div>
+              <span class="text-xs font-semibold text-on-surface">8 个任务</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="w-6 h-6 rounded bg-success/20 border border-success/30 flex items-center justify-center" title="已完成"><i data-lucide="check" class="w-3 h-3 text-success"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+            </div>
+          </div>
+
+          <!-- 运营经理 -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent">运</div>
+                <span class="text-sm font-medium text-on-surface">运营经理</span>
+              </div>
+              <span class="text-xs font-semibold text-on-surface">6 个任务</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="w-6 h-6 rounded bg-success/20 border border-success/30 flex items-center justify-center" title="已完成"><i data-lucide="check" class="w-3 h-3 text-success"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+            </div>
+          </div>
+
+          <!-- 高铖谦 -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-full bg-warning/20 flex items-center justify-center text-xs font-medium text-warning">高</div>
+                <span class="text-sm font-medium text-on-surface">高铖谦</span>
+              </div>
+              <span class="text-xs font-semibold text-on-surface">5 个任务</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="w-6 h-6 rounded bg-success/20 border border-success/30 flex items-center justify-center" title="已完成"><i data-lucide="check" class="w-3 h-3 text-success"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+            </div>
+          </div>
+
+          <!-- 陈紫霞 -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-full bg-error/20 flex items-center justify-center text-xs font-medium text-error">陈</div>
+                <span class="text-sm font-medium text-on-surface">陈紫霞</span>
+              </div>
+              <span class="text-xs font-semibold text-on-surface">4 个任务</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="w-6 h-6 rounded bg-success/20 border border-success/30 flex items-center justify-center" title="已完成"><i data-lucide="check" class="w-3 h-3 text-success"></i></div>
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+            </div>
+          </div>
+
+          <!-- 周俊良 -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-full bg-success/20 flex items-center justify-center text-xs font-medium text-success">周</div>
+                <span class="text-sm font-medium text-on-surface">周俊良</span>
+              </div>
+              <span class="text-xs font-semibold text-on-surface">4 个任务</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="w-6 h-6 rounded bg-primary/20 border border-primary/30 flex items-center justify-center" title="进行中"><i data-lucide="loader" class="w-3 h-3 text-primary"></i></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+              <div class="w-6 h-6 rounded bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center" title="未开始"></div>
+            </div>
+          </div>
+
+          <!-- 图例 -->
+          <div class="mt-4 pt-3 border-t border-outline-variant/10 flex items-center gap-4">
+            <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-3 h-3 rounded bg-success/20 border border-success/30"></span>已完成</span>
+            <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-3 h-3 rounded bg-primary/20 border border-primary/30"></span>进行中</span>
+            <span class="flex items-center gap-1.5 text-xs text-on-surface-variant"><span class="w-3 h-3 rounded bg-surface-container-highest border border-outline-variant/20"></span>未开始</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部：任务列表表格 -->
+      <div class="glass-card rounded-xl border border-outline-variant/10 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-outline-variant/10">
+          <div class="flex items-center gap-2">
+            <i data-lucide="list-checks" class="w-4.5 h-4.5 text-primary"></i>
+            <h2 class="text-base font-semibold text-on-surface">任务列表</h2>
+            <span class="text-xs text-on-surface-variant ml-2">共 38 项任务</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="input-search-task" class="bg-surface-container border-none rounded-md px-3 py-1.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-colors w-48" placeholder="搜索任务..."/>
+          </div>
+        </div>
+
+        <!-- 表头 -->
+        <div class="grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3 bg-surface-container/50 text-xs font-semibold text-on-surface-variant uppercase tracking-wide border-b border-outline-variant/10">
+          <span>任务名称</span>
+          <span>优先级</span>
+          <span>责任人</span>
+          <span>时间节点</span>
+          <span>状态</span>
+          <span>操作</span>
+        </div>
+
+        <div id="task-table-body" class="divide-y divide-outline-variant/10">
+          <!-- 列表-任务1 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P0" data-owner="周俊良" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">招聘新人接手美团运营</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error w-fit">P0</span>
+            <span class="text-sm text-on-surface-variant">周俊良</span>
+            <span class="text-sm text-on-surface-variant">7月底</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="1">详情</button>
+          </div>
+          <!-- 列表-任务2 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P0" data-owner="运营经理" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">32家零GTV直营门店排查</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error w-fit">P0</span>
+            <span class="text-sm text-on-surface-variant">运营经理</span>
+            <span class="text-sm text-on-surface-variant">7月中旬</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="2">详情</button>
+          </div>
+          <!-- 列表-任务3 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P0" data-owner="宋思滢" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">客服30秒响应率提升至80%</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error w-fit">P0</span>
+            <span class="text-sm text-on-surface-variant">宋思滢</span>
+            <span class="text-sm text-on-surface-variant">7月底</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="3">详情</button>
+          </div>
+          <!-- 列表-任务4 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P0" data-owner="高铖谦" data-status="已完成">
+            <span class="text-sm font-medium text-on-surface">同城互抢问题治理方案</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error w-fit">P0</span>
+            <span class="text-sm text-on-surface-variant">高铖谦</span>
+            <span class="text-sm text-on-surface-variant">6月底</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success w-fit">已完成</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="4">详情</button>
+          </div>
+          <!-- 列表-任务5 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P1" data-owner="运营经理" data-status="未开始">
+            <span class="text-sm font-medium text-on-surface">推广扩面 25家→60家门店</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-warning/15 text-warning w-fit">P1</span>
+            <span class="text-sm text-on-surface-variant">运营经理</span>
+            <span class="text-sm text-on-surface-variant">Q3</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-container-highest text-on-surface-variant w-fit">未开始</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="5">详情</button>
+          </div>
+          <!-- 列表-任务6 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P1" data-owner="宋思滢" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">短视频门店矩阵 20家试点启动</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-warning/15 text-warning w-fit">P1</span>
+            <span class="text-sm text-on-surface-variant">宋思滢</span>
+            <span class="text-sm text-on-surface-variant">8月中旬</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="6">详情</button>
+          </div>
+          <!-- 列表-任务7 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P1" data-owner="陈紫霞" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">小红书获客成本降至200元/条</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-warning/15 text-warning w-fit">P1</span>
+            <span class="text-sm text-on-surface-variant">陈紫霞</span>
+            <span class="text-sm text-on-surface-variant">9月底</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="7">详情</button>
+          </div>
+          <!-- 列表-任务8 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P1" data-owner="高铖谦" data-status="已完成">
+            <span class="text-sm font-medium text-on-surface">客资积压率降至20%以下</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-warning/15 text-warning w-fit">P1</span>
+            <span class="text-sm text-on-surface-variant">高铖谦</span>
+            <span class="text-sm text-on-surface-variant">7月底</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success w-fit">已完成</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="8">详情</button>
+          </div>
+          <!-- 列表-任务9 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P2" data-owner="宋思滢" data-status="进行中">
+            <span class="text-sm font-medium text-on-surface">私域标签体系14项三级标签完善</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-accent/15 text-accent w-fit">P2</span>
+            <span class="text-sm text-on-surface-variant">宋思滢</span>
+            <span class="text-sm text-on-surface-variant">Q3</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary w-fit">进行中</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="9">详情</button>
+          </div>
+          <!-- 列表-任务10 -->
+          <div class="task-row grid grid-cols-[2fr_80px_100px_120px_100px_80px] px-5 py-3.5 hover:bg-surface-container/50 transition-colors items-center" data-priority="P2" data-owner="周俊良" data-status="未开始">
+            <span class="text-sm font-medium text-on-surface">加盟商私域试点方案制定</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-accent/15 text-accent w-fit">P2</span>
+            <span class="text-sm text-on-surface-variant">周俊良</span>
+            <span class="text-sm text-on-surface-variant">Q4</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-container-highest text-on-surface-variant w-fit">未开始</span>
+            <button class="btn-task-detail text-primary text-sm font-medium hover:underline w-fit" data-task-id="10">详情</button>
+          </div>
+        </div>
+
+        <!-- 分页 -->
+        <div class="flex items-center justify-between px-5 py-3 border-t border-outline-variant/10">
+          <span class="text-xs text-on-surface-variant">显示 1-10 / 共 38 条</span>
+          <div class="flex items-center gap-1">
+            <button id="btn-page-prev" class="px-2.5 py-1 rounded-md text-xs text-on-surface-variant bg-surface-container hover:bg-surface-container-high transition-colors">上一页</button>
+            <button class="px-2.5 py-1 rounded-md text-xs text-on-primary bg-primary font-medium">1</button>
+            <button class="px-2.5 py-1 rounded-md text-xs text-on-surface-variant bg-surface-container hover:bg-surface-container-high transition-colors">2</button>
+            <button class="px-2.5 py-1 rounded-md text-xs text-on-surface-variant bg-surface-container hover:bg-surface-container-high transition-colors">3</button>
+            <button class="px-2.5 py-1 rounded-md text-xs text-on-surface-variant bg-surface-container hover:bg-surface-container-high transition-colors">4</button>
+            <button id="btn-page-next" class="px-2.5 py-1 rounded-md text-xs text-on-surface-variant bg-surface-container hover:bg-surface-container-high transition-colors">下一页</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 任务详情弹窗 -->
+      <div id="modal-task-detail" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-surface rounded-xl shadow-dialog max-w-lg w-full max-h-[90vh] overflow-y-auto p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h3 id="modal-task-title" class="text-lg font-bold text-on-surface">任务详情</h3>
+            <button id="btn-close-modal" class="p-1.5 rounded-lg hover:bg-surface-container transition-colors">
+              <i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i>
+            </button>
+          </div>
+          <div id="modal-task-content" class="space-y-4">
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-on-surface-variant w-20">优先级</span>
+              <span id="modal-priority" class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-bold bg-error/15 text-error">P0</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-on-surface-variant w-20">责任人</span>
+              <span id="modal-owner" class="text-sm text-on-surface font-medium">周俊良</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-on-surface-variant w-20">时间节点</span>
+              <span id="modal-deadline" class="text-sm text-on-surface">7月底</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-on-surface-variant w-20">当前状态</span>
+              <span id="modal-status" class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary">进行中</span>
+            </div>
+            <div class="pt-3 border-t border-outline-variant/10">
+              <p class="text-sm text-on-surface-variant mb-2">任务描述</p>
+              <p id="modal-desc" class="text-sm text-on-surface leading-relaxed">招聘具备美团运营经验的新人，完成交接培训并独立接手美团平台日常运营工作，包括门店上下架、活动配置、数据监控等。</p>
+            </div>
+            <div class="pt-3 border-t border-outline-variant/10">
+              <p class="text-sm text-on-surface-variant mb-2">预期产出</p>
+              <p id="modal-output" class="text-sm text-on-surface leading-relaxed">新人到岗并完成培训，独立负责美团运营，门店上线率提升至80%以上。</p>
+            </div>
+            <div class="pt-3 border-t border-outline-variant/10">
+              <p class="text-sm text-on-surface-variant mb-2">关联模块</p>
+              <div class="flex gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container text-on-surface-variant">美团运营</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container text-on-surface-variant">团队建设</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-6 flex justify-end gap-3">
+            <button id="btn-update-status" class="bg-primary text-on-primary px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 active:scale-[0.98] transition-all">更新状态</button>
+            <button id="btn-close-modal-2" class="bg-surface-container text-on-surface border-none px-4 py-2 rounded-md text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all">关闭</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <!-- @main-content:end -->
+  </div>
+  <!-- @nav:end 导航组件 -->
+
+  <script>
+  $(function() {
+    lucide.createIcons();
+
+    // 里程碑阶段点击 - 筛选该阶段任务
+    // 点击后应实现：高亮选中阶段，过滤表格中属于该阶段的任务
+    // 1. 移除其他阶段的active样式
+    // 2. 为当前阶段添加高亮边框
+    // 3. 根据阶段过滤表格数据（通过data-phase属性匹配）
+    // 4. 若无匹配则显示全部任务
+    $('#phase-1').on('click', function() {
+      console.log('筛选第一阶段任务：7月止血+基建');
+    });
+    $('#phase-2').on('click', function() {
+      console.log('筛选第二阶段任务：8-9月扩面+深化');
+    });
+    $('#phase-3').on('click', function() {
+      console.log('筛选第三阶段任务：Q4全覆盖');
+    });
+
+    // 任务搜索
+    $('#input-search-task').on('input', function() {
+      var keyword = $(this).val().toLowerCase();
+      $('.task-row').each(function() {
+        var name = $(this).find('.text-sm.font-medium').first().text().toLowerCase();
+        if (name.indexOf(keyword) > -1 || keyword === '') {
+          $(this).show();
+        } else {
+          $(this).hide();
+        }
+      });
+    });
+
+    // 任务详情弹窗 - 点击详情按钮
+    // 点击后应实现：
+    // 1. 根据 data-task-id 获取任务信息
+    // 2. 填充弹窗中的标题、优先级、责任人、时间节点、状态、描述、预期产出等字段
+    // 3. 显示弹窗（移除hidden类）
+    // 4. 重新调用 lucide.createIcons() 渲染弹窗内图标
+    $('#task-table-body').on('click', '.btn-task-detail', function() {
+      var taskId = $(this).data('task-id');
+      var $row = $(this).closest('.task-row');
+      var taskName = $row.find('.text-sm.font-medium').first().text();
+      var priority = $row.data('priority');
+      var owner = $row.data('owner');
+      var status = $row.data('status');
+
+      $('#modal-task-title').text(taskName);
+      $('#modal-owner').text(owner);
+
+      // 设置优先级标签
+      var $pBadge = $('#modal-priority');
+      $pBadge.text(priority);
+      if (priority === 'P0') {
+        $pBadge.removeClass('bg-warning/15 text-warning bg-accent/15 text-accent').addClass('bg-error/15 text-error');
+      } else if (priority === 'P1') {
+        $pBadge.removeClass('bg-error/15 text-error bg-accent/15 text-accent').addClass('bg-warning/15 text-warning');
+      } else {
+        $pBadge.removeClass('bg-error/15 text-error bg-warning/15 text-warning').addClass('bg-accent/15 text-accent');
+      }
+
+      // 设置状态标签
+      var $sBadge = $('#modal-status');
+      $sBadge.text(status);
+      if (status === '已完成') {
+        $sBadge.removeClass('bg-primary/15 text-primary bg-surface-container-highest text-on-surface-variant').addClass('bg-success/15 text-success');
+      } else if (status === '进行中') {
+        $sBadge.removeClass('bg-success/15 text-success bg-surface-container-highest text-on-surface-variant').addClass('bg-primary/15 text-primary');
+      } else {
+        $sBadge.removeClass('bg-success/15 text-success bg-primary/15 text-primary').addClass('bg-surface-container-highest text-on-surface-variant');
+      }
+
+      $('#modal-task-detail').removeClass('hidden');
+      lucide.createIcons();
+    });
+
+    // 关闭弹窗
+    $('#btn-close-modal, #btn-close-modal-2').on('click', function() {
+      $('#modal-task-detail').addClass('hidden');
+    });
+
+    // 点击遮罩关闭弹窗
+    $('#modal-task-detail').on('click', function(e) {
+      if ($(e.target).is('#modal-task-detail')) {
+        $(this).addClass('hidden');
+      }
+    });
+
+    // 更新状态按钮
+    // 点击后应实现：
+    // 1. 弹出状态选择下拉（未开始/进行中/已完成）
+    // 2. 选择后更新弹窗中的状态标签
+    // 3. 同步更新表格中对应行的状态标签
+    // 4. 更新任务完成度看板中的进度条数据
+    $('#btn-update-status').on('click', function() {
+      console.log('更新任务状态 - 应弹出状态选择器并同步更新');
+    });
+
+    // 筛选按钮 - 优先级筛选
+    // 点击后应实现：
+    // 1. 显示筛选面板（P0/P1/P2/全部 选项）
+    // 2. 选择后过滤表格行（通过data-priority匹配）
+    // 3. 更新分页信息
+    $('#btn-filter-priority').on('click', function() {
+      console.log('打开优先级筛选面板');
+    });
+
+    // 导出按钮
+    $('#btn-export-actions').on('click', function() {
+      console.log('导出行动计划数据');
+    });
+
+    // 分页按钮
+    $('#btn-page-prev').on('click', function() {
+      console.log('上一页');
+    });
+    $('#btn-page-next').on('click', function() {
+      console.log('下一页');
+    });
+  });
+  </script>
+  <script>lucide.createIcons();</script>
+</body>
+
+</html>
