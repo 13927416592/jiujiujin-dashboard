@@ -36,74 +36,71 @@
     }
   </style>
   <style>
-    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
     .glass-sidebar { background: rgba(15,22,41,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
     .glass-header { background: rgba(7,10,20,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-    .glow-primary { box-shadow: 0 0 20px rgba(124,92,255,0.15); }
-    .bg-gradient-mesh {
-      background: radial-gradient(ellipse 600px 400px at 10% 20%, rgba(124,92,255,0.08) 0%, transparent 70%),
-                  radial-gradient(ellipse 500px 350px at 90% 80%, rgba(105,231,255,0.05) 0%, transparent 70%), #070A14;
-    }
+    .card { background: var(--color-surface-container); border: 1px solid var(--color-outline-variant); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
     .clickable-card { cursor: pointer; transition: all 0.2s; }
     .clickable-card:hover { background: rgba(255,255,255,0.08); box-shadow: 0 0 16px rgba(124,92,255,0.12); }
+    .nav-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem; border-radius: var(--radius-md); font-weight: 500; font-size: 0.875rem; transition: all 0.15s; color: var(--color-on-surface-variant); }
+    .nav-link:hover { background: var(--color-surface-container); color: var(--color-on-surface); }
+    .nav-link[aria-current="page"] { background: var(--color-primary-container); color: var(--color-primary); }
     .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; justify-content:center; align-items:center; padding:1rem; }
     .modal-overlay.active { display:flex; }
   </style>
 </head>
-<body class="bg-background text-on-surface font-sans bg-gradient-mesh min-h-screen">
-
+<body class="bg-background text-on-surface font-sans min-h-screen">
   <!-- @nav:start -->
-  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline-variant/20">
+  <header class="glass-header fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline">
     <div class="flex items-center gap-3">
       <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-        <i data-lucide="chart-column-big" class="w-4.5 h-4.5 text-primary"></i>
+        <i data-name="chart-column-big" class="w-5 h-5 text-primary"></i>
       </div>
       <span class="font-bold text-base text-on-surface tracking-tight">久久金运营看板</span>
     </div>
     <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20">
-        <i data-lucide="calendar" class="w-3.5 h-3.5 text-on-surface-variant"></i>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline">
+        <i data-name="calendar" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="text-xs text-on-surface-variant">2026年6月</span>
       </div>
       <button class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
-        <i data-lucide="bell" class="w-4 h-4 text-on-surface-variant"></i>
+        <i data-name="bell" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error"></span>
       </button>
-      <div class="flex items-center gap-2 pl-3 border-l border-outline-variant/20">
+      <div class="flex items-center gap-2 pl-3 border-l border-outline">
         <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">初</div>
       </div>
     </div>
   </header>
-  <div class="flex" style="height:calc(100vh - 3.5rem)">
-    <aside class="glass-sidebar w-56 shrink-0 border-r border-outline-variant/20 overflow-y-auto">
+  <div class="flex pt-14" style="height:100vh">
+    <aside class="glass-sidebar w-64 shrink-0 border-r border-outline overflow-y-auto fixed top-14 bottom-0 left-0">
       <nav class="p-3 space-y-0.5">
-        <a href="home.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
+        <a href="home.html" class="nav-link">
+          <i data-name="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
         </a>
-        <a href="meituan.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container text-primary font-medium text-sm" aria-current="page">
-          <i data-lucide="store" class="w-4 h-4"></i>美团运营
+        <a href="meituan.html" class="nav-link" aria-current="page">
+          <i data-name="store" class="w-4 h-4"></i>美团运营
         </a>
-        <a href="content.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="pen-tool" class="w-4 h-4"></i>内容矩阵
+        <a href="content.html" class="nav-link">
+          <i data-name="pen-tool" class="w-4 h-4"></i>内容矩阵
         </a>
-        <a href="private-domain.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="users" class="w-4 h-4"></i>私域运营
+        <a href="private-domain.html" class="nav-link">
+          <i data-name="users" class="w-4 h-4"></i>私域运营
         </a>
-        <a href="collaboration.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="network" class="w-4 h-4"></i>跨部门协同
+        <a href="collaboration.html" class="nav-link">
+          <i data-name="network" class="w-4 h-4"></i>跨部门协同
         </a>
-        <a href="actions.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="target" class="w-4 h-4"></i>行动计划
+        <a href="actions.html" class="nav-link">
+          <i data-name="target" class="w-4 h-4"></i>行动计划
         </a>
       </nav>
-      <div class="p-3 mt-auto border-t border-outline-variant/20">
+      <div class="p-3 mt-auto border-t border-outline">
         <div class="px-3 py-2"><p class="text-xs text-on-surface-variant mb-1">数据截止</p><p class="text-xs text-on-surface font-medium">2026年6月30日</p></div>
       </div>
     </aside>
   <!-- @nav:end -->
 
   <!-- @main-content:start -->
-  <main class="flex-1 min-w-0 overflow-y-auto p-5 space-y-5">
+  <main class="flex-1 min-w-0 overflow-y-auto p-5 space-y-5 ml-64">
 
     <!-- 页面标题 -->
     <div class="flex items-center justify-between">
@@ -113,30 +110,33 @@
       </div>
       <div class="flex gap-2">
         <button class="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors flex items-center gap-1.5">
-          <i data-lucide="download" class="w-3.5 h-3.5"></i>导出报表
+          <i data-name="download" class="w-4 h-4"></i>导出报表
         </button>
       </div>
     </div>
 
     <!-- 区块1: GTV数据卡片 -->
     <div class="grid grid-cols-4 gap-4">
-      <div class="glass-card rounded-xl p-4 border border-outline-variant/20">
+      <!-- GTV卡片-季度GTV -->
+      <div class="card p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs text-on-surface-variant">季度GTV</span>
-          <span class="text-xs text-success flex items-center gap-0.5"><i data-lucide="trending-up" class="w-3 h-3"></i>12.3%</span>
+          <span class="text-xs text-success flex items-center gap-0.5"><i data-name="trending-up" class="w-4 h-4"></i>12.3%</span>
         </div>
         <p class="text-2xl font-bold text-on-surface">2,431.67<span class="text-sm font-normal text-on-surface-variant ml-1">万</span></p>
         <p class="text-xs text-on-surface-variant mt-1">4-6月累计核销</p>
       </div>
-      <div class="glass-card rounded-xl p-4 border border-outline-variant/20">
+      <!-- GTV卡片-年化GTV -->
+      <div class="card p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs text-on-surface-variant">年化GTV</span>
-          <span class="text-xs text-warning flex items-center gap-0.5"><i data-lucide="alert-circle" class="w-3 h-3"></i>距目标差距大</span>
+          <span class="text-xs text-warning flex items-center gap-0.5"><i data-name="alert-circle" class="w-4 h-4"></i>距目标差距大</span>
         </div>
         <p class="text-2xl font-bold text-on-surface">9,728<span class="text-sm font-normal text-on-surface-variant ml-1">万</span></p>
         <p class="text-xs text-on-surface-variant mt-1">目标 2-3亿 完成率约40%</p>
       </div>
-      <div class="glass-card rounded-xl p-4 border border-outline-variant/20">
+      <!-- GTV卡片-季度目标完成率 -->
+      <div class="card p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs text-on-surface-variant">季度目标完成率</span>
           <span class="text-xs text-error">压力很大</span>
@@ -144,7 +144,8 @@
         <p class="text-2xl font-bold text-error">50<span class="text-sm font-normal text-on-surface-variant ml-1">%</span></p>
         <div class="w-full h-1.5 bg-surface-container-high rounded-full mt-2"><div class="h-full bg-error rounded-full" style="width:50%"></div></div>
       </div>
-      <div class="glass-card rounded-xl p-4 border border-outline-variant/20">
+      <!-- GTV卡片-直营GTV占比 -->
+      <div class="card p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs text-on-surface-variant">直营GTV占比</span>
           <span class="text-xs text-success">直营主导</span>
@@ -155,38 +156,42 @@
     </div>
 
     <!-- 区块2: 月度转化漏斗 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+    <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-lucide="funnel" class="w-4 h-4 text-primary"></i>月度转化漏斗（6月）</h2>
+        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-name="funnel" class="w-4 h-4 text-primary"></i>月度转化漏斗（6月）</h2>
         <span class="text-xs text-on-surface-variant">点击各层级查看门店明细</span>
       </div>
       <div class="flex items-center justify-center gap-2 py-4">
-        <!-- 漏斗层级 -->
-        <div id="funnel-exposure" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline-variant/20 bg-primary/8">
+        <!-- 漏斗层级-搜索曝光 -->
+        <div id="funnel-exposure" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline bg-primary/8">
           <p class="text-xs text-on-surface-variant mb-1">搜索曝光</p>
           <p class="text-xl font-bold text-on-surface">1,284,560</p>
           <p class="text-xs text-success mt-1">UV</p>
         </div>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
-        <div id="funnel-visit" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline-variant/20 bg-primary/10">
+        <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
+        <!-- 漏斗层级-店铺访问 -->
+        <div id="funnel-visit" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline bg-primary/10">
           <p class="text-xs text-on-surface-variant mb-1">店铺访问</p>
           <p class="text-xl font-bold text-on-surface">385,200</p>
           <p class="text-xs text-accent mt-1">转化率 30.0%</p>
         </div>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
-        <div id="funnel-consult" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline-variant/20 bg-primary/12">
+        <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
+        <!-- 漏斗层级-客资咨询 -->
+        <div id="funnel-consult" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline bg-primary/12">
           <p class="text-xs text-on-surface-variant mb-1">客资咨询</p>
           <p class="text-xl font-bold text-on-surface">52,500</p>
           <p class="text-xs text-accent mt-1">转化率 13.6%</p>
         </div>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
-        <div id="funnel-addv" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline-variant/20 bg-primary/15">
+        <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
+        <!-- 漏斗层级-加V转化 -->
+        <div id="funnel-addv" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline bg-primary/15">
           <p class="text-xs text-on-surface-variant mb-1">加V转化</p>
           <p class="text-xl font-bold text-on-surface">18,375</p>
           <p class="text-xs text-accent mt-1">转化率 35.0%</p>
         </div>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
-        <div id="funnel-deal" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline-variant/20 bg-success/10">
+        <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant shrink-0"></i>
+        <!-- 漏斗层级-到店成交 -->
+        <div id="funnel-deal" class="clickable-card flex-1 max-w-[180px] rounded-xl p-4 text-center border border-outline bg-success/10">
           <p class="text-xs text-on-surface-variant mb-1">到店成交</p>
           <p class="text-xl font-bold text-success">3,675</p>
           <p class="text-xs text-success mt-1">转化率 20.0%</p>
@@ -200,36 +205,36 @@
     </div>
 
     <!-- 区块3: 奖牌/星级/经营评分 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+    <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-lucide="award" class="w-4 h-4 text-warning"></i>门店奖牌 / 星级 / 经营评分</h2>
+        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-name="award" class="w-4 h-4 text-warning"></i>门店奖牌 / 星级 / 经营评分</h2>
         <span class="text-xs text-on-surface-variant">点击各卡片查看门店明细</span>
       </div>
       <div class="grid grid-cols-3 gap-4">
         <!-- 奖牌分布 -->
-        <div id="medal-detail" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest">
+        <div id="medal-detail" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest">
           <p class="text-sm font-medium text-on-surface mb-3">奖牌分布</p>
           <div class="grid grid-cols-2 gap-3">
             <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center"><i data-lucide="medal" class="w-4 h-4 text-amber-400"></i></div>
+              <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center"><i data-name="medal" class="w-4 h-4 text-amber-400"></i></div>
               <div><p class="text-lg font-bold text-on-surface">12</p><p class="text-xs text-on-surface-variant">金牌</p></div>
             </div>
             <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-full bg-gray-300/20 flex items-center justify-center"><i data-lucide="medal" class="w-4 h-4 text-gray-300"></i></div>
+              <div class="w-8 h-8 rounded-full bg-gray-300/20 flex items-center justify-center"><i data-name="medal" class="w-4 h-4 text-gray-300"></i></div>
               <div><p class="text-lg font-bold text-on-surface">28</p><p class="text-xs text-on-surface-variant">银牌</p></div>
             </div>
             <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-full bg-amber-700/20 flex items-center justify-center"><i data-lucide="medal" class="w-4 h-4 text-amber-700"></i></div>
+              <div class="w-8 h-8 rounded-full bg-amber-700/20 flex items-center justify-center"><i data-name="medal" class="w-4 h-4 text-amber-700"></i></div>
               <div><p class="text-lg font-bold text-on-surface">45</p><p class="text-xs text-on-surface-variant">铜牌</p></div>
             </div>
             <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-full bg-on-surface-variant/10 flex items-center justify-center"><i data-lucide="minus-circle" class="w-4 h-4 text-on-surface-variant"></i></div>
+              <div class="w-8 h-8 rounded-full bg-on-surface-variant/10 flex items-center justify-center"><i data-name="minus-circle" class="w-4 h-4 text-on-surface-variant"></i></div>
               <div><p class="text-lg font-bold text-on-surface">104</p><p class="text-xs text-on-surface-variant">无牌</p></div>
             </div>
           </div>
         </div>
         <!-- 星级分布 -->
-        <div id="star-detail" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest">
+        <div id="star-detail" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest">
           <p class="text-sm font-medium text-on-surface mb-3">星级评分</p>
           <div class="space-y-3">
             <div class="flex items-center justify-between">
@@ -246,7 +251,7 @@
                 <span class="text-lg font-bold text-on-surface ml-1">3.89</span>
               </div>
             </div>
-            <div class="mt-2 pt-2 border-t border-outline-variant/20">
+            <div class="mt-2 pt-2 border-t border-outline">
               <div class="flex justify-between text-xs">
                 <span class="text-on-surface-variant">5星门店</span><span class="text-success font-medium">38家</span>
               </div>
@@ -257,7 +262,7 @@
           </div>
         </div>
         <!-- 经营评分 -->
-        <div id="score-detail" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest">
+        <div id="score-detail" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest">
           <p class="text-sm font-medium text-on-surface mb-3">经营评分</p>
           <div class="flex items-center gap-3 mb-3">
             <p class="text-3xl font-bold text-accent">84.6</p>
@@ -282,32 +287,36 @@
     </div>
 
     <!-- 区块4: 月度收藏与评价 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+    <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-lucide="heart" class="w-4 h-4 text-error"></i>月度收藏与评价（6月）</h2>
+        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-name="heart" class="w-4 h-4 text-error"></i>月度收藏与评价（6月）</h2>
         <span class="text-xs text-on-surface-variant">点击各卡片查看门店明细</span>
       </div>
       <div class="grid grid-cols-4 gap-4">
-        <div id="fav-detail" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="bookmark" class="w-6 h-6 text-primary mx-auto mb-2"></i>
+        <!-- 收藏数据 -->
+        <div id="fav-detail" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="bookmark" class="w-6 h-6 text-primary mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-on-surface">2,847</p>
           <p class="text-xs text-on-surface-variant mt-1">店铺收藏新增</p>
           <p class="text-xs text-success mt-1">环比 +15.2%</p>
         </div>
-        <div id="review-good" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="thumbs-up" class="w-6 h-6 text-success mx-auto mb-2"></i>
+        <!-- 好评数据 -->
+        <div id="review-good" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="thumbs-up" class="w-6 h-6 text-success mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-success">186</p>
           <p class="text-xs text-on-surface-variant mt-1">好评</p>
           <p class="text-xs text-success mt-1">占比 72.3%</p>
         </div>
-        <div id="review-mid" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="meh" class="w-6 h-6 text-warning mx-auto mb-2"></i>
+        <!-- 中评数据 -->
+        <div id="review-mid" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="meh" class="w-6 h-6 text-warning mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-warning">52</p>
           <p class="text-xs text-on-surface-variant mt-1">中评</p>
           <p class="text-xs text-warning mt-1">占比 20.1%</p>
         </div>
-        <div id="review-bad" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="thumbs-down" class="w-6 h-6 text-error mx-auto mb-2"></i>
+        <!-- 差评数据 -->
+        <div id="review-bad" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="thumbs-down" class="w-6 h-6 text-error mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-error">20</p>
           <p class="text-xs text-on-surface-variant mt-1">差评</p>
           <p class="text-xs text-error mt-1">占比 7.6%</p>
@@ -316,10 +325,10 @@
     </div>
 
     <!-- 区块5: 客资跟进情况 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+    <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-lucide="user-check" class="w-4 h-4 text-accent"></i>客资跟进情况</h2>
-        <span id="followup-detail" class="text-xs text-primary cursor-pointer hover:underline flex items-center gap-1">查看各门店明细 <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
+        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-name="user-check" class="w-4 h-4 text-accent"></i>客资跟进情况</h2>
+        <span id="followup-detail" class="text-xs text-primary cursor-pointer hover:underline flex items-center gap-1">查看各门店明细 <i data-name="chevron-right" class="w-4 h-4"></i></span>
       </div>
       <div class="grid grid-cols-5 gap-4">
         <div class="text-center">
@@ -358,26 +367,29 @@
     </div>
 
     <!-- 区块6: 客服响应数据 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+    <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-lucide="headphones" class="w-4 h-4 text-primary"></i>客服响应数据</h2>
+        <h2 class="text-base font-semibold text-on-surface flex items-center gap-2"><i data-name="headphones" class="w-4 h-4 text-primary"></i>客服响应数据</h2>
         <span class="text-xs text-on-surface-variant">点击各卡片查看门店数据</span>
       </div>
       <div class="grid grid-cols-3 gap-4">
-        <div id="cs-avg-time" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="clock" class="w-6 h-6 text-warning mx-auto mb-2"></i>
+        <!-- 客服-平均响应时长 -->
+        <div id="cs-avg-time" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="clock" class="w-6 h-6 text-warning mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-warning">458.7<span class="text-sm font-normal text-on-surface-variant ml-1">秒</span></p>
           <p class="text-xs text-on-surface-variant mt-1">均响应时长 (7.6分钟)</p>
           <p class="text-xs text-error mt-1">行业标杆 30秒</p>
         </div>
-        <div id="cs-30s-rate" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="zap" class="w-6 h-6 text-error mx-auto mb-2"></i>
+        <!-- 客服-30秒回复率 -->
+        <div id="cs-30s-rate" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="zap" class="w-6 h-6 text-error mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-error">49.6%</p>
           <p class="text-xs text-on-surface-variant mt-1">30秒回复率</p>
           <p class="text-xs text-error mt-1">目标 80%+</p>
         </div>
-        <div id="cs-5min-rate" class="clickable-card rounded-xl p-4 border border-outline-variant/20 bg-surface-container-lowest text-center">
-          <i data-lucide="timer" class="w-6 h-6 text-accent mx-auto mb-2"></i>
+        <!-- 客服-5分钟回复率 -->
+        <div id="cs-5min-rate" class="clickable-card rounded-lg p-4 border border-outline bg-surface-container-lowest text-center">
+          <i data-name="timer" class="w-6 h-6 text-accent mx-auto mb-2"></i>
           <p class="text-2xl font-bold text-accent">72.3%</p>
           <p class="text-xs text-on-surface-variant mt-1">5分钟回复率</p>
           <p class="text-xs text-on-surface-variant mt-1">新增指标</p>
@@ -386,9 +398,10 @@
     </div>
 
     <!-- 区块7: 问题诊断与行动建议 -->
-    <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
-      <h2 class="text-base font-semibold text-on-surface flex items-center gap-2 mb-4"><i data-lucide="alert-triangle" class="w-4 h-4 text-error"></i>问题诊断与行动建议</h2>
+    <div class="card p-5">
+      <h2 class="text-base font-semibold text-on-surface flex items-center gap-2 mb-4"><i data-name="alert-triangle" class="w-4 h-4 text-error"></i>问题诊断与行动建议</h2>
       <div class="space-y-3">
+        <!-- 问题-P0 转化漏斗断层 -->
         <div class="flex items-start gap-3 p-3 rounded-lg bg-error/5 border border-error/20">
           <span class="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-error/20 text-error">P0</span>
           <div class="flex-1">
@@ -397,6 +410,7 @@
             <p class="text-xs text-primary mt-1">关联: 月度转化漏斗</p>
           </div>
         </div>
+        <!-- 问题-P0 客资积压严重 -->
         <div class="flex items-start gap-3 p-3 rounded-lg bg-error/5 border border-error/20">
           <span class="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-error/20 text-error">P0</span>
           <div class="flex-1">
@@ -405,6 +419,7 @@
             <p class="text-xs text-primary mt-1">关联: 客资跟进情况</p>
           </div>
         </div>
+        <!-- 问题-P0 客服响应不达标 -->
         <div class="flex items-start gap-3 p-3 rounded-lg bg-error/5 border border-error/20">
           <span class="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-error/20 text-error">P0</span>
           <div class="flex-1">
@@ -413,6 +428,7 @@
             <p class="text-xs text-primary mt-1">关联: 客服响应数据</p>
           </div>
         </div>
+        <!-- 问题-P1 门店经营参差不齐 -->
         <div class="flex items-start gap-3 p-3 rounded-lg bg-warning/5 border border-warning/20">
           <span class="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-warning/20 text-warning">P1</span>
           <div class="flex-1">
@@ -421,6 +437,7 @@
             <p class="text-xs text-primary mt-1">关联: 奖牌/星级/经营评分</p>
           </div>
         </div>
+        <!-- 问题-P1 评价管理需加强 -->
         <div class="flex items-start gap-3 p-3 rounded-lg bg-warning/5 border border-warning/20">
           <span class="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-warning/20 text-warning">P1</span>
           <div class="flex-1">
@@ -436,230 +453,344 @@
   <!-- @main-content:end -->
   </div>
 
-  <!-- 弹窗: 漏斗-搜索曝光门店明细 -->
+  <!-- 弹窗: 搜索曝光 TOP明细 -->
   <div id="modal-funnel-exposure" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">搜索曝光 TOP 门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">搜索曝光 TOP</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>搜索曝光UV</span><span>占比</span><span>环比</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-搜索曝光 TOP门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-accent font-medium">128,450</span><span class="text-on-surface-variant">10.0%</span><span class="text-success">+8.2%</span></div>
+          <!-- 列表-搜索曝光 TOP门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-accent font-medium">96,320</span><span class="text-on-surface-variant">7.5%</span><span class="text-success">+5.1%</span></div>
+          <!-- 列表-搜索曝光 TOP门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-accent font-medium">85,640</span><span class="text-on-surface-variant">6.7%</span><span class="text-error">-2.3%</span></div>
+          <!-- 列表-搜索曝光 TOP门店4 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-accent font-medium">72,180</span><span class="text-on-surface-variant">5.6%</span><span class="text-success">+12.5%</span></div>
+          <!-- 列表-搜索曝光 TOP门店5 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙华星河店</span><span class="text-accent font-medium">64,200</span><span class="text-on-surface-variant">5.0%</span><span class="text-success">+3.8%</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 漏斗-店铺访问门店明细 -->
+  <!-- 弹窗: 店铺访问 TOP明细 -->
   <div id="modal-funnel-visit" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">店铺访问 TOP 门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">店铺访问 TOP</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>店铺访问UV</span><span>占比</span><span>转化率</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-店铺访问 TOP门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-accent font-medium">42,500</span><span class="text-on-surface-variant">11.0%</span><span class="text-success">23.8%</span></div>
+          <!-- 列表-店铺访问 TOP门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-accent font-medium">35,200</span><span class="text-on-surface-variant">9.1%</span><span class="text-success">18.5%</span></div>
+          <!-- 列表-店铺访问 TOP门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-accent font-medium">28,800</span><span class="text-on-surface-variant">7.5%</span><span class="text-warning">12.3%</span></div>
+          <!-- 列表-店铺访问 TOP门店4 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-accent font-medium">24,600</span><span class="text-on-surface-variant">6.4%</span><span class="text-success">15.7%</span></div>
+          <!-- 列表-店铺访问 TOP门店5 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-accent font-medium">18,900</span><span class="text-on-surface-variant">4.9%</span><span class="text-error">8.2%</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 奖牌明细 -->
-  <div id="modal-medal" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+  <!-- 弹窗: 客资咨询 TOP明细 -->
+  <div id="modal-funnel-consult" class="modal-overlay">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">门店奖牌明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">客资咨询 TOP</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
+          <span>门店名称</span><span>客资咨询量</span><span>占比</span><span>转化率</span>
+        </div>
+        <div class="divide-y divide-outline">
+          <!-- 列表-客资咨询 TOP门店1 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-accent font-medium">5,680</span><span class="text-on-surface-variant">10.8%</span><span class="text-success">35.2%</span></div>
+          <!-- 列表-客资咨询 TOP门店2 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-accent font-medium">4,250</span><span class="text-on-surface-variant">8.1%</span><span class="text-success">28.6%</span></div>
+          <!-- 列表-客资咨询 TOP门店3 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-accent font-medium">3,520</span><span class="text-on-surface-variant">6.7%</span><span class="text-warning">15.3%</span></div>
+          <!-- 列表-客资咨询 TOP门店4 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-accent font-medium">2,980</span><span class="text-on-surface-variant">5.7%</span><span class="text-success">22.1%</span></div>
+          <!-- 列表-客资咨询 TOP门店5 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙华星河店</span><span class="text-accent font-medium">2,450</span><span class="text-on-surface-variant">4.7%</span><span class="text-error">10.8%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- 弹窗: 加V转化 TOP明细 -->
+  <div id="modal-funnel-addv" class="modal-overlay">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-on-surface">加V转化 TOP</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+      </div>
+      <div class="bg-surface-container rounded-lg overflow-hidden">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
+          <span>门店名称</span><span>加V数</span><span>占比</span><span>转化率</span>
+        </div>
+        <div class="divide-y divide-outline">
+          <!-- 列表-加V转化 TOP门店1 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-accent font-medium">2,150</span><span class="text-on-surface-variant">11.7%</span><span class="text-success">38.5%</span></div>
+          <!-- 列表-加V转化 TOP门店2 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-accent font-medium">1,680</span><span class="text-on-surface-variant">9.1%</span><span class="text-success">32.4%</span></div>
+          <!-- 列表-加V转化 TOP门店3 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-accent font-medium">1,250</span><span class="text-on-surface-variant">6.8%</span><span class="text-warning">18.2%</span></div>
+          <!-- 列表-加V转化 TOP门店4 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-accent font-medium">980</span><span class="text-on-surface-variant">5.3%</span><span class="text-success">25.6%</span></div>
+          <!-- 列表-加V转化 TOP门店5 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙华星河店</span><span class="text-accent font-medium">720</span><span class="text-on-surface-variant">3.9%</span><span class="text-error">12.1%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- 弹窗: 到店成交 TOP明细 -->
+  <div id="modal-funnel-deal" class="modal-overlay">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-on-surface">到店成交 TOP</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+      </div>
+      <div class="bg-surface-container rounded-lg overflow-hidden">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
+          <span>门店名称</span><span>成交单数</span><span>占比</span><span>GTV(万)</span>
+        </div>
+        <div class="divide-y divide-outline">
+          <!-- 列表-到店成交 TOP门店1 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-success font-medium">485</span><span class="text-on-surface-variant">13.2%</span><span class="text-success">186.5</span></div>
+          <!-- 列表-到店成交 TOP门店2 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-success font-medium">362</span><span class="text-on-surface-variant">9.9%</span><span class="text-success">142.8</span></div>
+          <!-- 列表-到店成交 TOP门店3 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-success font-medium">298</span><span class="text-on-surface-variant">8.1%</span><span class="text-success">118.3</span></div>
+          <!-- 列表-到店成交 TOP门店4 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-success font-medium">245</span><span class="text-on-surface-variant">6.7%</span><span class="text-success">96.2</span></div>
+          <!-- 列表-到店成交 TOP门店5 -->
+          <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙华星河店</span><span class="text-success font-medium">186</span><span class="text-on-surface-variant">5.1%</span><span class="text-warning">58.7</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- 弹窗: 门店奖牌明细 -->
+  <div id="modal-medal" class="modal-overlay">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-on-surface">门店奖牌</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+      </div>
+      <div class="bg-surface-container rounded-lg overflow-hidden">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>奖牌等级</span><span>经营评分</span><span>星级</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-门店奖牌门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-amber-400 font-medium">金牌</span><span class="text-on-surface">95.2</span><span class="text-on-surface">4.8</span></div>
+          <!-- 列表-门店奖牌门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-amber-400 font-medium">金牌</span><span class="text-on-surface">92.8</span><span class="text-on-surface">4.7</span></div>
+          <!-- 列表-门店奖牌门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-gray-300 font-medium">银牌</span><span class="text-on-surface">88.5</span><span class="text-on-surface">4.5</span></div>
+          <!-- 列表-门店奖牌门店4 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-gray-300 font-medium">银牌</span><span class="text-on-surface">86.1</span><span class="text-on-surface">4.3</span></div>
+          <!-- 列表-门店奖牌门店5 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙华星河店</span><span class="text-amber-700 font-medium">铜牌</span><span class="text-on-surface">82.4</span><span class="text-on-surface">4.1</span></div>
+          <!-- 列表-门店奖牌门店6 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-on-surface-variant">无牌</span><span class="text-error">58.3</span><span class="text-error">3.2</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 星级明细 -->
+  <!-- 弹窗: 门店星级明细 -->
   <div id="modal-star" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">门店星级明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">门店星级</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>美团星级</span><span>点评星级</span><span>好评数</span><span>差评数</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-门店星级门店1 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-success">4.8</span><span class="text-success">4.6</span><span class="text-on-surface">42</span><span class="text-on-surface">1</span></div>
+          <!-- 列表-门店星级门店2 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-success">4.7</span><span class="text-success">4.5</span><span class="text-on-surface">38</span><span class="text-on-surface">2</span></div>
+          <!-- 列表-门店星级门店3 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-on-surface">4.5</span><span class="text-on-surface">4.2</span><span class="text-on-surface">28</span><span class="text-on-surface">3</span></div>
+          <!-- 列表-门店星级门店4 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-error">3.2</span><span class="text-error">3.0</span><span class="text-on-surface">8</span><span class="text-error">7</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 经营评分明细 -->
+  <!-- 弹窗: 经营评分门店明细 -->
   <div id="modal-score" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">经营评分门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">经营评分门店</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>经营评分</span><span>等级</span><span>环比</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-经营评分门店门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-success font-bold">95.2</span><span class="text-success">优秀</span><span class="text-success">+2.1</span></div>
+          <!-- 列表-经营评分门店门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-success font-bold">92.8</span><span class="text-success">优秀</span><span class="text-success">+1.5</span></div>
+          <!-- 列表-经营评分门店门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-on-surface font-bold">88.5</span><span class="text-on-surface">良好</span><span class="text-success">+0.8</span></div>
+          <!-- 列表-经营评分门店门店4 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-warning font-bold">72.1</span><span class="text-warning">一般</span><span class="text-error">-1.2</span></div>
+          <!-- 列表-经营评分门店门店5 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-error font-bold">58.3</span><span class="text-error">较差</span><span class="text-error">-3.5</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 收藏明细 -->
+  <!-- 弹窗: 店铺收藏门店明细 -->
   <div id="modal-fav" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">店铺收藏门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">店铺收藏门店</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>月新增收藏</span><span>累计收藏</span><span>环比</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-店铺收藏门店门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-primary font-medium">485</span><span class="text-on-surface">2,340</span><span class="text-success">+22.3%</span></div>
+          <!-- 列表-店铺收藏门店门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-primary font-medium">362</span><span class="text-on-surface">1,850</span><span class="text-success">+18.5%</span></div>
+          <!-- 列表-店铺收藏门店门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-primary font-medium">298</span><span class="text-on-surface">1,620</span><span class="text-success">+12.1%</span></div>
+          <!-- 列表-店铺收藏门店门店4 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">宝安壹方城店</span><span class="text-primary font-medium">245</span><span class="text-on-surface">1,280</span><span class="text-error">-3.2%</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 好评明细 -->
+  <!-- 弹窗: 好评门店明细 TOP明细 -->
   <div id="modal-review-good" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-base font-semibold text-on-surface">好评门店明细 TOP</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>好评数</span><span>好评率</span><span>典型评价</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-好评门店明细 TOP门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-success font-medium">42</span><span class="text-on-surface">87.5%</span><span class="text-on-surface-variant text-xs">价格合理，服务专业</span></div>
+          <!-- 列表-好评门店明细 TOP门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-success font-medium">38</span><span class="text-on-surface">84.4%</span><span class="text-on-surface-variant text-xs">回收速度快，透明公正</span></div>
+          <!-- 列表-好评门店明细 TOP门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-success font-medium">28</span><span class="text-on-surface">77.8%</span><span class="text-on-surface-variant text-xs">位置方便，体验不错</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 差评明细 -->
+  <!-- 弹窗: 差评门店明细（需关注）明细 -->
   <div id="modal-review-bad" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-base font-semibold text-on-surface">差评门店明细（需关注）</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-4 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>差评数</span><span>差评率</span><span>主要问题</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-差评门店明细（需关注）门店1 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-error font-medium">7</span><span class="text-error">25.0%</span><span class="text-on-surface-variant text-xs">等待时间长、态度差</span></div>
+          <!-- 列表-差评门店明细（需关注）门店2 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">光明公明店</span><span class="text-error font-medium">4</span><span class="text-error">18.2%</span><span class="text-on-surface-variant text-xs">价格不透明</span></div>
+          <!-- 列表-差评门店明细（需关注）门店3 -->
           <div class="grid grid-cols-4 px-4 py-2.5 text-sm"><span class="text-on-surface">坪山坑梓店</span><span class="text-error font-medium">3</span><span class="text-error">15.0%</span><span class="text-on-surface-variant text-xs">环境差、位置难找</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 客资跟进明细 -->
+  <!-- 弹窗: 客资跟进门店明细 -->
   <div id="modal-followup" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">客资跟进门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">客资跟进门店</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>总客资</span><span>已跟进</span><span>跟进率</span><span>2h首联率</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-客资跟进门店门店1 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-on-surface">4,250</span><span class="text-success">3,825</span><span class="text-success">90.0%</span><span class="text-success">68.5%</span></div>
+          <!-- 列表-客资跟进门店门店2 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-on-surface">3,680</span><span class="text-success">3,128</span><span class="text-success">85.0%</span><span class="text-warning">45.2%</span></div>
+          <!-- 列表-客资跟进门店门店3 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-on-surface">2,950</span><span class="text-warning">1,770</span><span class="text-warning">60.0%</span><span class="text-error">22.1%</span></div>
+          <!-- 列表-客资跟进门店门店4 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-on-surface">1,820</span><span class="text-error">546</span><span class="text-error">30.0%</span><span class="text-error">12.3%</span></div>
+          <!-- 列表-客资跟进门店门店5 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">光明公明店</span><span class="text-on-surface">980</span><span class="text-error">196</span><span class="text-error">20.0%</span><span class="text-error">8.5%</span></div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 弹窗: 客服数据门店明细 -->
+  <!-- 弹窗: 客服响应门店明细 -->
   <div id="modal-cs" class="modal-overlay">
-    <div class="bg-surface rounded-xl shadow-dialog max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline-variant/20">
+    <div class="bg-surface rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 border border-outline" style="box-shadow: var(--shadow-dialog);">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-on-surface">客服响应门店明细</h3>
-        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-lucide="x" class="w-4 h-4 text-on-surface-variant"></i></button>
+        <h3 class="text-base font-semibold text-on-surface">客服响应门店</h3>
+        <button class="modal-close p-1 rounded hover:bg-surface-container"><i data-name="x" class="w-4 h-4 text-on-surface-variant"></i></button>
       </div>
       <div class="bg-surface-container rounded-lg overflow-hidden">
-        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline-variant/20">
+        <div class="grid grid-cols-5 px-4 py-2.5 text-xs font-semibold text-on-surface-variant border-b border-outline">
           <span>门店名称</span><span>均响应(秒)</span><span>30秒回复率</span><span>5分钟回复率</span><span>评价</span>
         </div>
-        <div class="divide-y divide-outline-variant/20">
+        <div class="divide-y divide-outline">
+          <!-- 列表-客服响应门店门店1 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">浪险猴天地店</span><span class="text-success">45.2</span><span class="text-success">88.5%</span><span class="text-success">96.2%</span><span class="text-success">优秀</span></div>
+          <!-- 列表-客服响应门店门店2 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">南山海岸城店</span><span class="text-success">78.6</span><span class="text-success">72.3%</span><span class="text-success">91.5%</span><span class="text-success">良好</span></div>
+          <!-- 列表-客服响应门店门店3 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">福田CBD旗舰店</span><span class="text-warning">320.5</span><span class="text-warning">52.1%</span><span class="text-warning">75.8%</span><span class="text-warning">一般</span></div>
+          <!-- 列表-客服响应门店门店4 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">龙岗万达店</span><span class="text-error">856.3</span><span class="text-error">22.5%</span><span class="text-error">48.2%</span><span class="text-error">较差</span></div>
+          <!-- 列表-客服响应门店门店5 -->
           <div class="grid grid-cols-5 px-4 py-2.5 text-sm"><span class="text-on-surface">光明公明店</span><span class="text-error">1,245.0</span><span class="text-error">12.8%</span><span class="text-error">35.6%</span><span class="text-error">极差</span></div>
         </div>
       </div>
     </div>
   </div>
-
   <script>lucide.createIcons();</script>
   <script>
   $(function(){
+    // 星级渲染
     function renderStars(id, r) {
       var $c = $('#' + id);
       for (var i = 1; i <= 5; i++) {
-        if (i <= Math.floor(r)) $c.append('<i data-lucide="star" class="w-3.5 h-3.5 text-amber-400 fill-amber-400"></i>');
-        else if (i - r < 1 && i - r > 0) $c.append('<i data-lucide="star-half" class="w-3.5 h-3.5 text-amber-400"></i>');
-        else $c.append('<i data-lucide="star" class="w-3.5 h-3.5 text-on-surface-variant/30"></i>');
+        if (i <= Math.floor(r)) $c.append('<i data-name="star" class="w-4 h-4 text-amber-400 fill-amber-400"></i>');
+        else if (i - r < 1 && i - r > 0) $c.append('<i data-name="star-half" class="w-4 h-4 text-amber-400"></i>');
+        else $c.append('<i data-name="star" class="w-4 h-4" style="color: var(--color-on-surface-variant); opacity: 0.3;"></i>');
       }
     }
     renderStars('star-meituan', 4.17);
@@ -670,6 +801,9 @@
     var modalMap = {
       'funnel-exposure': 'modal-funnel-exposure',
       'funnel-visit': 'modal-funnel-visit',
+      'funnel-consult': 'modal-funnel-consult',
+      'funnel-addv': 'modal-funnel-addv',
+      'funnel-deal': 'modal-funnel-deal',
       'medal-detail': 'modal-medal',
       'star-detail': 'modal-star',
       'score-detail': 'modal-score',

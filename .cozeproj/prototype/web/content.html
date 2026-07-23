@@ -1,809 +1,296 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>内容矩阵 - 久久金运营数据看板</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
-  <style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/jquery/jquery-3.7.1.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/lucide/lucide-1.11.0.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/tailwindcss/tailwindcss-browser-4.2.4.min.js"></script>
+  <style type="text/tailwindcss">
     @theme {
-      --font-sans: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
-      --color-background: #070A14;
-      --color-surface: rgba(255,255,255,0.06);
-      --color-surface-hover: rgba(255,255,255,0.10);
-      --color-surface-active: rgba(255,255,255,0.13);
-      --color-glass: rgba(255,255,255,0.04);
-      --color-glass-strong: rgba(255,255,255,0.08);
-      --color-primary: #7C5CFF;
-      --color-primary-soft: rgba(124,92,255,0.15);
-      --color-accent: #69E7FF;
-      --color-accent-soft: rgba(105,231,255,0.12);
-      --color-success: #62FAD3;
-      --color-success-soft: rgba(98,250,211,0.12);
-      --color-warning: #FFB86B;
-      --color-warning-soft: rgba(255,184,107,0.12);
-      --color-danger: #FF6B8A;
-      --color-danger-soft: rgba(255,107,138,0.12);
-      --color-text-primary: #F7FAFF;
-      --color-text-secondary: #9AA7C7;
-      --color-text-muted: #5E6B8A;
-      --color-border: rgba(255,255,255,0.08);
-      --color-border-strong: rgba(255,255,255,0.15);
-      --radius-sm: 0.375rem;
-      --radius-md: 0.5rem;
-      --radius-lg: 0.75rem;
-      --radius-xl: 1rem;
-      --shadow-glow-primary: 0 0 20px rgba(124,92,255,0.25);
-      --shadow-glow-accent: 0 0 16px rgba(105,231,255,0.20);
+      --color-primary:              #7C5CFF;
+      --color-primary-container:    rgba(124, 92, 255, 0.15);
+      --color-on-primary:           #ffffff;
+      --color-accent:               #69E7FF;
+      --color-accent-container:     rgba(105, 231, 255, 0.12);
+      --color-background:                 #070A14;
+      --color-surface-container-lowest:   #0B1020;
+      --color-surface:                    #0F1629;
+      --color-surface-container:          #151D35;
+      --color-surface-container-high:     #1B2540;
+      --color-surface-container-highest:  #222E4F;
+      --color-on-surface:           #F7FAFF;
+      --color-on-surface-variant:   #9AA7C7;
+      --color-success:  #62FAD3;
+      --color-error:    #FF6B6B;
+      --color-warning:  #FFB84D;
+      --color-outline:          rgba(255, 255, 255, 0.12);
+      --color-outline-variant:  rgba(255, 255, 255, 0.06);
+      --radius-sm: 0.375rem; --radius-md: 0.625rem; --radius-lg: 0.875rem;
+      --radius-xl: 1.125rem; --radius-2xl: 1.5rem; --radius-full: 9999px;
+      --shadow-card:   0 2px 12px rgba(0, 0, 0, 0.4);
+      --shadow-float:  0 8px 30px rgba(0, 0, 0, 0.5);
+      --font-sans:  'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      --font-mono:  'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-sans); min-height: 100vh; }
-    .glass-sidebar { background: linear-gradient(180deg, rgba(124,92,255,0.06) 0%, rgba(7,10,20,0.95) 100%); backdrop-filter: blur(24px); border-right: 1px solid var(--color-border); }
-    .glass-header { background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border-bottom: 1px solid var(--color-border); }
-    .glass-card { background: var(--color-glass-strong); backdrop-filter: blur(16px); border: 1px solid var(--color-border); border-radius: var(--radius-lg); transition: all 0.2s ease; }
-    .glass-card:hover { background: var(--color-surface-hover); border-color: var(--color-border-strong); }
-    .glass-input { background: rgba(255,255,255,0.04); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-primary); }
-    .glass-input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
-    .btn-primary { background: linear-gradient(135deg, #7C5CFF, #9B7FFF); border-radius: var(--radius-md); font-weight: 500; transition: all 0.2s; box-shadow: 0 2px 12px rgba(124,92,255,0.3); }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(124,92,255,0.45); }
-    .btn-ghost { background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-secondary); transition: all 0.15s; }
-    .btn-ghost:hover { background: var(--color-surface); color: var(--color-text-primary); border-color: var(--color-border-strong); }
-    .sidebar-link { color: var(--color-text-secondary); border-radius: var(--radius-md); transition: all 0.15s ease; }
-    .sidebar-link:hover { background: var(--color-surface); color: var(--color-text-primary); }
-    .sidebar-link[aria-current="page"] { background: var(--color-primary-soft); color: var(--color-primary); font-weight: 500; }
-    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
-    .badge-success { background: var(--color-success-soft); color: var(--color-success); }
-    .badge-warning { background: var(--color-warning-soft); color: var(--color-warning); }
-    .badge-danger { background: var(--color-danger-soft); color: var(--color-danger); }
-    .badge-primary { background: var(--color-primary-soft); color: var(--color-primary); }
-    .badge-accent { background: var(--color-accent-soft); color: var(--color-accent); }
-    .badge-muted { background: rgba(94,107,138,0.15); color: var(--color-text-muted); }
-    .tab-btn { padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.875rem; color: var(--color-text-secondary); transition: all 0.15s; cursor: pointer; border: none; background: transparent; }
-    .tab-btn:hover { color: var(--color-text-primary); background: var(--color-surface); }
-    .tab-btn.active { color: var(--color-primary); background: var(--color-primary-soft); font-weight: 500; }
-    .table-row { border-bottom: 1px solid var(--color-border); transition: background 0.1s; }
-    .table-row:hover { background: var(--color-surface); }
-    .table-row:last-child { border-bottom: none; }
-    .trend-up { color: var(--color-success); }
-    .trend-down { color: var(--color-danger); }
-    .trend-flat { color: var(--color-text-muted); }
-    .progress-bar { background: rgba(255,255,255,0.06); border-radius: 9999px; overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease; }
-    .clickable { cursor: pointer; }
-    .clickable:hover { transform: translateY(-1px); }
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 50; display: flex; align-items: center; justify-content: center; }
-    .modal-content { background: rgba(20,24,40,0.95); backdrop-filter: blur(24px); border: 1px solid var(--color-border-strong); border-radius: var(--radius-xl); max-width: 42rem; width: 90%; max-height: 80vh; overflow-y: auto; }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    body { background-color: var(--color-background); color: var(--color-on-surface); font-family: var(--font-sans); margin: 0; min-height: 100vh; }
+    .card { background: var(--color-surface-container); border: 1px solid var(--color-outline-variant); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+    .card-hover { transition: all 0.25s ease; }
+    .card-hover:hover { background: var(--color-surface-container-high); border-color: var(--color-outline); box-shadow: var(--shadow-float); transform: translateY(-1px); }
+    .glass-sidebar { background: var(--color-surface-container-lowest); border-right: 1px solid var(--color-outline-variant); }
+    .glass-header { background: rgba(15, 22, 41, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--color-outline-variant); }
+    .nav-link { color: var(--color-on-surface-variant); transition: all 0.2s; border-radius: var(--radius-md); }
+    .nav-link:hover { background: var(--color-surface-container); color: var(--color-on-surface); }
+    .nav-link[aria-current="page"] { background: var(--color-primary-container); color: var(--color-primary); font-weight: 500; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: var(--radius-full); font-size: 0.75rem; font-weight: 500; }
+    .badge-primary { background: var(--color-primary-container); color: var(--color-primary); }
+    .badge-success { background: rgba(98,250,211,0.12); color: var(--color-success); }
+    .badge-warning { background: rgba(255,184,77,0.12); color: var(--color-warning); }
+    .badge-error { background: rgba(255,107,107,0.12); color: var(--color-error); }
+    .badge-accent { background: var(--color-accent-container); color: var(--color-accent); }
+    .table-header { background: var(--color-surface-container-high); color: var(--color-on-surface-variant); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .table-row { border-bottom: 1px solid var(--color-outline-variant); transition: background 0.15s; }
+    .table-row:hover { background: var(--color-surface-container); }
+    .tab-btn { padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; color: var(--color-on-surface-variant); transition: all 0.2s; cursor: pointer; border: none; background: transparent; }
+    .tab-btn:hover { background: var(--color-surface-container); color: var(--color-on-surface); }
+    .tab-btn.active { background: var(--color-primary-container); color: var(--color-primary); }
   </style>
 </head>
-<body>
-  <div class="flex h-screen overflow-hidden">
-    <!-- @nav:start 导航组件 -->
-    <aside class="glass-sidebar w-60 flex flex-col p-4 shrink-0">
-      <div class="mb-8 px-3">
-        <h1 class="text-lg font-semibold tracking-tight" style="color: var(--color-text-primary);">
-          <i data-lucide="layout-dashboard" class="inline w-5 h-5 mr-2" style="color: var(--color-primary);"></i>久久金运营看板
-        </h1>
-      </div>
-      <nav class="flex-1 space-y-1">
-        <a href="home.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm">
-          <i data-lucide="layout-grid" class="w-4 h-4"></i>总览仪表盘
-        </a>
-        <a href="meituan.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm">
-          <i data-lucide="map-pin" class="w-4 h-4"></i>美团运营
-        </a>
-        <a href="content.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" aria-current="page">
-          <i data-lucide="file-text" class="w-4 h-4"></i>内容矩阵
-        </a>
-        <a href="private-domain.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm">
-          <i data-lucide="users" class="w-4 h-4"></i>私域运营
-        </a>
-        <a href="collaboration.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm">
-          <i data-lucide="handshake" class="w-4 h-4"></i>跨部门协同
-        </a>
-        <a href="actions.html" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm">
-          <i data-lucide="target" class="w-4 h-4"></i>行动计划
-        </a>
-      </nav>
-      <div class="mt-auto pt-4" style="border-top: 1px solid var(--color-border);">
-        <div class="px-3 text-xs" style="color: var(--color-text-muted);">数据截止：2026年6月30日</div>
-      </div>
-    </aside>
-    <!-- @nav:end 导航组件 -->
 
-    <div class="flex-1 flex flex-col overflow-hidden min-w-0">
-      <header class="glass-header h-14 flex items-center justify-between px-6 shrink-0">
-        <h2 class="text-base font-medium" style="color: var(--color-text-primary);">内容矩阵</h2>
-        <div class="flex items-center gap-3">
-          <select class="glass-input text-sm px-3 py-1.5">
-            <option>2026年5月</option>
-            <option>2026年4月</option>
-            <option>2026年3月</option>
-          </select>
-          <button class="btn-ghost text-sm px-3 py-1.5"><i data-lucide="download" class="w-4 h-4 inline mr-1"></i>导出</button>
-        </div>
-      </header>
+<body class="flex h-screen overflow-hidden">
+  <!-- @nav:start -->
+  <aside class="glass-sidebar w-64 flex flex-col p-4 shrink-0">
+    <a href="home.html" class="flex items-center gap-2 mb-8 px-2">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--color-primary);"><i data-name="crown" class="w-4 h-4" style="color: var(--color-on-primary);"></i></div>
+      <span class="font-bold text-base" style="color: var(--color-on-surface);">久久金运营看板</span>
+    </a>
+    <nav class="flex flex-col gap-1 flex-1">
+      <a href="home.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="layout-dashboard" class="w-4 h-4"></i><span>总览仪表盘</span></a>
+      <a href="meituan.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="shopping-bag" class="w-4 h-4"></i><span>美团运营</span></a>
+      <a href="content.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm" aria-current="page"><i data-name="layers" class="w-4 h-4"></i><span>内容矩阵</span></a>
+      <a href="private-domain.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="users" class="w-4 h-4"></i><span>私域运营</span></a>
+      <a href="collaboration.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="handshake" class="w-4 h-4"></i><span>跨部门协同</span></a>
+      <a href="actions.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="list-checks" class="w-4 h-4"></i><span>行动计划</span></a>
+    </nav>
+  </aside>
+  <div class="flex flex-col flex-1 min-w-0">
+    <header class="glass-header h-14 flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-lg font-semibold" style="color: var(--color-on-surface);">内容矩阵</h1>
+      <div class="flex items-center gap-4">
+        <span class="text-xs" style="color: var(--color-on-surface-variant);">数据截止: 2026年6月30日</span>
+        <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--color-surface-container-high);"><i data-name="user" class="w-4 h-4" style="color: var(--color-on-surface-variant);"></i></div>
+      </div>
+    </header>
+  <!-- @nav:end -->
 
+    <main class="flex-1 overflow-y-auto p-6" style="background: var(--color-background);">
       <!-- @main-content:start -->
-      <main class="flex-1 overflow-y-auto p-6 space-y-6">
 
-        <!-- 第一层：总览卡片 -->
-        <section>
-          <div class="grid grid-cols-4 gap-4">
-            <div class="glass-card p-4 clickable">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-medium" style="color: var(--color-text-muted);">全平台月播放量</span>
-                <i data-lucide="play-circle" class="w-4 h-4" style="color: var(--color-primary);"></i>
-              </div>
-              <div class="text-2xl font-bold" style="color: var(--color-text-primary);">253,206</div>
-              <div class="flex items-center gap-1 mt-1">
-                <i data-lucide="trending-down" class="w-3 h-3 trend-down"></i>
-                <span class="text-xs trend-down">-17.5%</span>
-                <span class="text-xs" style="color: var(--color-text-muted);">vs 上月 306,890</span>
-              </div>
-            </div>
-            <div class="glass-card p-4 clickable">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-medium" style="color: var(--color-text-muted);">月净增粉丝</span>
-                <i data-lucide="user-plus" class="w-4 h-4" style="color: var(--color-accent);"></i>
-              </div>
-              <div class="text-2xl font-bold" style="color: var(--color-text-primary);">3,494</div>
-              <div class="flex items-center gap-1 mt-1">
-                <i data-lucide="trending-down" class="w-3 h-3 trend-down"></i>
-                <span class="text-xs trend-down">-39.4%</span>
-                <span class="text-xs" style="color: var(--color-text-muted);">vs 上月 5,761</span>
-              </div>
-            </div>
-            <div class="glass-card p-4 clickable">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-medium" style="color: var(--color-text-muted);">月发布内容数</span>
-                <i data-lucide="send" class="w-4 h-4" style="color: var(--color-success);"></i>
-              </div>
-              <div class="text-2xl font-bold" style="color: var(--color-text-primary);">160</div>
-              <div class="flex items-center gap-1 mt-1">
-                <i data-lucide="trending-up" class="w-3 h-3 trend-up"></i>
-                <span class="text-xs trend-up">+10.3%</span>
-                <span class="text-xs" style="color: var(--color-text-muted);">vs 上月 145</span>
-              </div>
-            </div>
-            <div class="glass-card p-4 clickable">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-medium" style="color: var(--color-text-muted);">活跃账号数</span>
-                <i data-lucide="radio" class="w-4 h-4" style="color: var(--color-warning);"></i>
-              </div>
-              <div class="text-2xl font-bold" style="color: var(--color-text-primary);">12<span class="text-sm font-normal" style="color: var(--color-text-muted);"> / 21</span></div>
-              <div class="flex items-center gap-1 mt-1">
-                <span class="text-xs" style="color: var(--color-warning);">9个号已停更/低效</span>
-              </div>
-            </div>
+      <!-- 第1层：总览卡片 -->
+      <section class="grid grid-cols-4 gap-4 mb-6">
+        <div class="card card-hover p-4">
+          <div class="flex items-center justify-between mb-2"><span class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-on-surface-variant);">月总播放量</span><i data-name="play-circle" class="w-4 h-4" style="color: var(--color-primary);"></i></div>
+          <div class="text-2xl font-bold" style="color: var(--color-on-surface);">253,206</div>
+          <div class="flex items-center gap-1 mt-1"><i data-name="trending-down" class="w-3 h-3" style="color: var(--color-error);"></i><span class="text-xs" style="color: var(--color-error);">-18.2% 环比</span></div>
+        </div>
+        <div class="card card-hover p-4">
+          <div class="flex items-center justify-between mb-2"><span class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-on-surface-variant);">月净增粉丝</span><i data-name="user-plus" class="w-4 h-4" style="color: var(--color-accent);"></i></div>
+          <div class="text-2xl font-bold" style="color: var(--color-on-surface);">3,494</div>
+          <div class="flex items-center gap-1 mt-1"><i data-name="trending-down" class="w-3 h-3" style="color: var(--color-warning);"></i><span class="text-xs" style="color: var(--color-warning);">-39.3% 环比</span></div>
+        </div>
+        <div class="card card-hover p-4">
+          <div class="flex items-center justify-between mb-2"><span class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-on-surface-variant);">月发布数</span><i data-name="file-text" class="w-4 h-4" style="color: var(--color-success);"></i></div>
+          <div class="text-2xl font-bold" style="color: var(--color-on-surface);">160</div>
+          <div class="flex items-center gap-1 mt-1"><i data-name="info" class="w-3 h-3" style="color: var(--color-on-surface-variant);"></i><span class="text-xs" style="color: var(--color-on-surface-variant);">12个活跃号</span></div>
+        </div>
+        <div class="card card-hover p-4">
+          <div class="flex items-center justify-between mb-2"><span class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-on-surface-variant);">活跃账号</span><i data-name="hash" class="w-4 h-4" style="color: var(--color-warning);"></i></div>
+          <div class="text-2xl font-bold" style="color: var(--color-on-surface);">12 <span class="text-sm font-normal" style="color: var(--color-on-surface-variant);">/ 21</span></div>
+          <div class="flex items-center gap-1 mt-1"><i data-name="alert-triangle" class="w-3 h-3" style="color: var(--color-warning);"></i><span class="text-xs" style="color: var(--color-warning);">9个号已砍/停更</span></div>
+        </div>
+      </section>
+
+      <!-- 第2层：平台Tab -->
+      <section class="card p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold" style="color: var(--color-on-surface);">各平台数据详情</h2>
+          <div id="platform-tabs" class="flex gap-2">
+            <button class="tab-btn active" data-tab="douyin">抖音</button>
+            <button class="tab-btn" data-tab="xiaohongshu">小红书</button>
+            <button class="tab-btn" data-tab="wechat">微信</button>
+            <button class="tab-btn" data-tab="kuaishou">快手</button>
+            <button class="tab-btn" data-tab="alipay">支付宝</button>
+            <button class="tab-btn" data-tab="article">图文平台</button>
           </div>
-        </section>
+        </div>
+        <!-- 抖音 -->
+        <div id="panel-douyin" class="tab-panel">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号名称</th><th class="text-left px-3 py-2.5">类型</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-right px-3 py-2.5">5月播放</th><th class="text-right px-3 py-2.5">环比</th><th class="text-right px-3 py-2.5">发布</th><th class="text-right px-3 py-2.5">净增粉丝</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">高铖谦</td><td class="px-3 py-3 text-right font-mono">3,680</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-53%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">6</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-206</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">需关注</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金集团</td><td class="px-3 py-3"><span class="badge badge-accent">集团号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">2,633</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-34%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">2</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">-4</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">低频</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金兰文娟</td><td class="px-3 py-3"><span class="badge badge-success">创始人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">530</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-71%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">4</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">-5</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">下滑</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">事业合伙人</td><td class="px-3 py-3"><span class="badge" style="background:rgba(124,92,255,0.08);color:#a78bfa;">招商号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">招商部</td><td class="px-3 py-3 text-right font-mono">102</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">0</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">0</td><td class="px-3 py-3 text-center"><span class="badge badge-error">低效</span></td></tr>
+          </tbody></table>
+        </div>
+        <!-- 小红书 -->
+        <div id="panel-xiaohongshu" class="tab-panel hidden">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号名称</th><th class="text-left px-3 py-2.5">类型</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-right px-3 py-2.5">5月阅读</th><th class="text-right px-3 py-2.5">环比</th><th class="text-right px-3 py-2.5">发布</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家-总部</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono">2,535</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-7%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">13</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">招聘中</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久金宝</td><td class="px-3 py-3"><span class="badge badge-warning">小金人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">1,173</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">1</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">测试中</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金兰文娟</td><td class="px-3 py-3"><span class="badge badge-success">创始人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">0</td><td class="px-3 py-3 text-center"><span class="badge badge-error">封禁</span></td></tr>
+          </tbody></table>
+        </div>
+        <!-- 微信 -->
+        <div id="panel-wechat" class="tab-panel hidden">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号名称</th><th class="text-left px-3 py-2.5">子平台</th><th class="text-left px-3 py-2.5">类型</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-right px-3 py-2.5">5月播放/阅读</th><th class="text-right px-3 py-2.5">环比</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金兰文娟</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">视频号</td><td class="px-3 py-3"><span class="badge badge-success">创始人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">10,716</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+58%</td><td class="px-3 py-3 text-center"><span class="badge badge-success">稳定</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">视频号</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">高铖谦</td><td class="px-3 py-3 text-right font-mono">9,974</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-51%</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">波动</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金集团</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">视频号</td><td class="px-3 py-3"><span class="badge badge-accent">集团号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">6,129</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+167%</td><td class="px-3 py-3 text-center"><span class="badge badge-success">增长</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">公众号</td><td class="px-3 py-3"><span class="badge badge-primary">综合类</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono">4,940</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+96%</td><td class="px-3 py-3 text-center"><span class="badge badge-success">高产</span></td></tr>
+          </tbody></table>
+        </div>
+        <!-- 快手 -->
+        <div id="panel-kuaishou" class="tab-panel hidden">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号名称</th><th class="text-left px-3 py-2.5">类型</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-right px-3 py-2.5">5月播放</th><th class="text-right px-3 py-2.5">环比</th><th class="text-right px-3 py-2.5">发布</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">17,000</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-47%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">2</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">波动大</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金兰文娟</td><td class="px-3 py-3"><span class="badge badge-success">创始人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3 text-right font-mono">12,667</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+38%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">4</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">观察级</span></td></tr>
+          </tbody></table>
+        </div>
+        <!-- 支付宝 -->
+        <div id="panel-alipay" class="tab-panel hidden">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号/小程序</th><th class="text-left px-3 py-2.5">类别</th><th class="text-right px-3 py-2.5">5月访问</th><th class="text-right px-3 py-2.5">环比</th><th class="text-right px-3 py-2.5">5月客资</th><th class="text-right px-3 py-2.5">5月GTV</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">黄金回收-久久金管家</td><td class="px-3 py-3"><span class="badge badge-primary">小程序</span></td><td class="px-3 py-3 text-right font-mono">189,000</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+8.6%</td><td class="px-3 py-3 text-right font-mono">5,557</td><td class="px-3 py-3 text-right font-mono">¥65,958,745</td><td class="px-3 py-3 text-center"><span class="badge badge-success">核心</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">黄金价格-久久金管家</td><td class="px-3 py-3"><span class="badge badge-primary">小程序</span></td><td class="px-3 py-3 text-right font-mono">98,500</td><td class="px-3 py-3 text-right" style="color: var(--color-success);">+26.7%</td><td class="px-3 py-3 text-right font-mono">227</td><td class="px-3 py-3 text-right font-mono">¥2,532,649</td><td class="px-3 py-3 text-center"><span class="badge badge-success">稳定</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">黄金回收久久金管家</td><td class="px-3 py-3"><span class="badge badge-accent">生活号</span></td><td class="px-3 py-3 text-right font-mono">13,000</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-7%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">下滑</span></td></tr>
+          </tbody></table>
+        </div>
+        <!-- 图文平台 -->
+        <div id="panel-article" class="tab-panel hidden">
+          <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">平台</th><th class="text-left px-3 py-2.5">账号</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-right px-3 py-2.5">5月阅读</th><th class="text-right px-3 py-2.5">环比</th><th class="text-right px-3 py-2.5">发布</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+          <tbody>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">知乎</td><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono">2,060</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-45%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">6</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">持续下滑</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">百家号</td><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">99金管家</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono">867</td><td class="px-3 py-3 text-right" style="color: var(--color-error);">-40%</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">6</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">回落</span></td></tr>
+            <tr class="table-row cursor-pointer"><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">今日头条</td><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono">260</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">低位</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">6</td><td class="px-3 py-3 text-center"><span class="badge badge-error">ROI最低</span></td></tr>
+            <tr class="table-row"><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">媒大师</td><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">新闻投稿</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">宋思滢</td><td class="px-3 py-3 text-right font-mono" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-right" style="color: var(--color-on-surface-variant);">0</td><td class="px-3 py-3 text-center"><span class="badge badge-error">空白</span></td></tr>
+          </tbody></table>
+        </div>
+      </section>
 
-        <!-- 第二层：平台Tab详细数据 -->
-        <section>
-          <div class="glass-card p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">各平台数据详情</h3>
-              <div class="flex gap-1" id="platform-tabs">
-                <button class="tab-btn active" data-tab="douyin">抖音</button>
-                <button class="tab-btn" data-tab="xiaohongshu">小红书</button>
-                <button class="tab-btn" data-tab="wechat">微信</button>
-                <button class="tab-btn" data-tab="kuaishou">快手</button>
-                <button class="tab-btn" data-tab="alipay">支付宝</button>
-                <button class="tab-btn" data-tab="text">图文平台</button>
-              </div>
-            </div>
+      <!-- 第3层：账号矩阵总览 -->
+      <section class="card p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold" style="color: var(--color-on-surface);">账号矩阵总览</h2>
+          <span class="text-xs" style="color: var(--color-on-surface-variant);">总部账号 21 个（含已砍号）+ 门店矩阵号</span>
+        </div>
+        <table class="w-full text-sm"><thead><tr class="table-header"><th class="text-left px-3 py-2.5 rounded-l-md">账号名称</th><th class="text-left px-3 py-2.5">类型</th><th class="text-left px-3 py-2.5">覆盖平台</th><th class="text-left px-3 py-2.5">负责人</th><th class="text-left px-3 py-2.5">发布频次</th><th class="text-right px-3 py-2.5">5月总播放</th><th class="text-center px-3 py-2.5 rounded-r-md">状态</th></tr></thead>
+        <tbody>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金兰文娟</td><td class="px-3 py-3"><span class="badge badge-success">创始人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥2次/周</td><td class="px-3 py-3 text-right font-mono">35,577</td><td class="px-3 py-3 text-center"><span class="badge badge-success">核心</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金管家</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/快手/生活号/头条/知乎</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">高铖谦</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥2次/周</td><td class="px-3 py-3 text-right font-mono">64,328</td><td class="px-3 py-3 text-center"><span class="badge badge-success">核心</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久久金集团</td><td class="px-3 py-3"><span class="badge badge-accent">集团号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥2次/月</td><td class="px-3 py-3 text-right font-mono">14,476</td><td class="px-3 py-3 text-center"><span class="badge badge-success">稳定</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">久金宝</td><td class="px-3 py-3"><span class="badge badge-warning">小金人IP</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥2次/月</td><td class="px-3 py-3 text-right font-mono">4,912</td><td class="px-3 py-3 text-center"><span class="badge badge-warning">测试中</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">安逸金</td><td class="px-3 py-3"><span class="badge badge-primary">业务号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手/生活号</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">渠道市场部</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥1次/周</td><td class="px-3 py-3 text-right font-mono" style="color: var(--color-on-surface-variant);">—</td><td class="px-3 py-3 text-center"><span class="badge badge-error">未启动</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">事业合伙人</td><td class="px-3 py-3"><span class="badge" style="background:rgba(124,92,255,0.08);color:#a78bfa;">招商号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">招商部</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥1次/周</td><td class="px-3 py-3 text-right font-mono">102</td><td class="px-3 py-3 text-center"><span class="badge badge-error">低效</span></td></tr>
+          <tr class="table-row cursor-pointer"><td class="px-3 py-3 font-medium" style="color: var(--color-on-surface);">打工人小日子</td><td class="px-3 py-3"><span class="badge" style="background:rgba(124,92,255,0.08);color:#a78bfa;">品牌号</span></td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">抖音/视频号/小红书/快手</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">卢俊杰</td><td class="px-3 py-3" style="color: var(--color-on-surface-variant);">≥1次/月</td><td class="px-3 py-3 text-right font-mono">41</td><td class="px-3 py-3 text-center"><span class="badge badge-error">几乎废弃</span></td></tr>
+        </tbody></table>
+      </section>
 
-            <!-- 抖音 Tab -->
-            <div class="tab-panel" id="panel-douyin">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月播放量</div>
-                  <div class="text-lg font-bold">3,680</div>
-                  <div class="text-xs trend-down">-53%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">有效账号</div>
-                  <div class="text-lg font-bold">6</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">砍号后聚焦</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月发布数</div>
-                  <div class="text-lg font-bold">22</div>
-                  <div class="text-xs trend-up">+15.8%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">净增粉丝</div>
-                  <div class="text-lg font-bold">-7</div>
-                  <div class="text-xs trend-down">负增长</div>
-                </div>
-              </div>
-              <div class="glass-card overflow-hidden">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr style="background: var(--color-surface);">
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">账号名称</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">定位</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">负责人</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">5月播放</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">环比</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">发布数</th>
-                      <th class="text-center px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-row clickable" onclick="showAccountDetail('久久金管家')">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金管家</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">业务号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">高铖谦</td>
-                      <td class="px-4 py-2.5 text-right">3,680</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-53%</td>
-                      <td class="px-4 py-2.5 text-right">6</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-warning">下滑</span></td>
-                    </tr>
-                    <tr class="table-row clickable" onclick="showAccountDetail('久久金集团')">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金集团</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">集团号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">2,633</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-34%</td>
-                      <td class="px-4 py-2.5 text-right">4</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">正常</span></td>
-                    </tr>
-                    <tr class="table-row clickable" onclick="showAccountDetail('久久金兰文娟')">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金兰文娟</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">创始人IP</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">530</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-71%</td>
-                      <td class="px-4 py-2.5 text-right">4</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-warning">下滑</span></td>
-                    </tr>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">事业合伙人</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">招商号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">招商部</td>
-                      <td class="px-4 py-2.5 text-right">102</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-right">3</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-muted">低频</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">打工人小日子</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">品牌号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-danger">停更</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">久金宝</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">小金人IP</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-danger">待实名</span></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- 小红书 Tab -->
-            <div class="tab-panel hidden" id="panel-xiaohongshu">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月阅读量</div>
-                  <div class="text-lg font-bold">2,535</div>
-                  <div class="text-xs trend-down">-7.2%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">有效账号</div>
-                  <div class="text-lg font-bold">3</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">代运营失败回收</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月发布数</div>
-                  <div class="text-lg font-bold">18</div>
-                  <div class="text-xs trend-up">+28.6%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">获客成本</div>
-                  <div class="text-lg font-bold" style="color: var(--color-warning);">400元</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">目标133元</div>
-                </div>
-              </div>
-              <div class="glass-card overflow-hidden">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr style="background: var(--color-surface);">
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">账号名称</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">定位</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">负责人</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">5月阅读</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">环比</th>
-                      <th class="text-center px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金管家-总部</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">业务号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">宋思滢</td>
-                      <td class="px-4 py-2.5 text-right">2,535</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-7.2%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">核心号</span></td>
-                    </tr>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金集团</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">集团号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">26</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-98%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-warning">下滑</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">久久金兰文娟</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">创始人IP</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">卢俊杰</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-danger">封禁</span></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- 微信 Tab -->
-            <div class="tab-panel hidden" id="panel-wechat">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">视频号月播放</div>
-                  <div class="text-lg font-bold">39,948</div>
-                  <div class="text-xs trend-up">+22%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">公众号访问用户</div>
-                  <div class="text-lg font-bold">4,940</div>
-                  <div class="text-xs trend-up">+96%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">小程序访问</div>
-                  <div class="text-lg font-bold">34,298</div>
-                  <div class="text-xs trend-down">-5.2%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">净增粉丝</div>
-                  <div class="text-lg font-bold">1,463</div>
-                  <div class="text-xs trend-down">-10.9%</div>
-                </div>
-              </div>
-              <div class="glass-card overflow-hidden">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr style="background: var(--color-surface);">
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">账号名称</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">平台</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">定位</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">5月数据</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">环比</th>
-                      <th class="text-center px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金管家</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">视频号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">业务号</td>
-                      <td class="px-4 py-2.5 text-right">20,348</td>
-                      <td class="px-4 py-2.5 text-right trend-up">+97.9%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">爆发</span></td>
-                    </tr>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金兰文娟</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">视频号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">创始人IP</td>
-                      <td class="px-4 py-2.5 text-right">10,716</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-33.6%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">稳定</span></td>
-                    </tr>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金集团</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">视频号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">集团号</td>
-                      <td class="px-4 py-2.5 text-right">2,299</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-32.9%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">正常</span></td>
-                    </tr>
-                    <tr class="table-row clickable">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-primary);">久久金管家</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">公众号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">综合类</td>
-                      <td class="px-4 py-2.5 text-right">4,940人</td>
-                      <td class="px-4 py-2.5 text-right trend-up">+96%</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-success">高产</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">打工人小日子</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">视频号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">品牌号</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-danger">未运营</span></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- 快手 Tab -->
-            <div class="tab-panel hidden" id="panel-kuaishou">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月播放量</div>
-                  <div class="text-lg font-bold">17,000</div>
-                  <div class="text-xs trend-down">-47.5%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">有效账号</div>
-                  <div class="text-lg font-bold">2</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">波动大</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">月发布数</div>
-                  <div class="text-lg font-bold">12</div>
-                  <div class="text-xs trend-flat">-</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">净增粉丝</div>
-                  <div class="text-lg font-bold trend-down">-7</div>
-                  <div class="text-xs trend-down">负增长</div>
-                </div>
-              </div>
-              <div class="glass-card p-4">
-                <p class="text-sm" style="color: var(--color-text-secondary);">快手管家号月播放17,000，波动较大。兰文娟IP号5月新增12,667播放（新启动）。整体优先级降为P2观察级。</p>
-              </div>
-            </div>
-
-            <!-- 支付宝 Tab -->
-            <div class="tab-panel hidden" id="panel-alipay">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">生活号月播放</div>
-                  <div class="text-lg font-bold">34,909</div>
-                  <div class="text-xs trend-down">-83%自峰值</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">小程序访问</div>
-                  <div class="text-lg font-bold">197,785</div>
-                  <div class="text-xs trend-up">+3.9%</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">粉丝群人数</div>
-                  <div class="text-lg font-bold">28,990</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">60群</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">互动率</div>
-                  <div class="text-lg font-bold" style="color: var(--color-warning);">1.59%</div>
-                  <div class="text-xs" style="color: var(--color-text-muted);">偏低</div>
-                </div>
-              </div>
-              <div class="glass-card p-4">
-                <p class="text-sm" style="color: var(--color-text-secondary);">支付宝小程序是核心交易入口（月访问19.7万），生活号断崖下跌需排查。粉丝群28,990人但互动率仅1.59%。</p>
-              </div>
-            </div>
-
-            <!-- 图文平台 Tab -->
-            <div class="tab-panel hidden" id="panel-text">
-              <div class="grid grid-cols-4 gap-3 mb-4">
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">知乎阅读量</div>
-                  <div class="text-lg font-bold">2,060</div>
-                  <div class="text-xs trend-down">-45%半年</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">百家号阅读量</div>
-                  <div class="text-lg font-bold">867</div>
-                  <div class="text-xs trend-down">-40%自峰值</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">头条阅读量</div>
-                  <div class="text-lg font-bold">260</div>
-                  <div class="text-xs trend-flat">低位徘徊</div>
-                </div>
-                <div class="glass-card p-3 text-center">
-                  <div class="text-xs mb-1" style="color: var(--color-text-muted);">负责人</div>
-                  <div class="text-lg font-bold">宋思滢</div>
-                  <div class="text-xs" style="color: var(--color-warning);">1人管3平台</div>
-                </div>
-              </div>
-              <div class="glass-card overflow-hidden">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr style="background: var(--color-surface);">
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">平台</th>
-                      <th class="text-left px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">账号</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">5月阅读</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">趋势</th>
-                      <th class="text-right px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">发布频次</th>
-                      <th class="text-center px-4 py-2.5 font-medium" style="color: var(--color-text-muted);">优先级</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5" style="color: var(--color-text-primary);">知乎</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">久久金管家</td>
-                      <td class="px-4 py-2.5 text-right">2,060</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-45%</td>
-                      <td class="px-4 py-2.5 text-right">6篇/月</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-primary">P1核心</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5" style="color: var(--color-text-primary);">百家号</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-secondary);">99金管家</td>
-                      <td class="px-4 py-2.5 text-right">867</td>
-                      <td class="px-4 py-2.5 text-right trend-down">-40%</td>
-                      <td class="px-4 py-2.5 text-right">6篇/月</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-primary">P1核心</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">今日头条</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">久久金管家</td>
-                      <td class="px-4 py-2.5 text-right">260</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">低位</td>
-                      <td class="px-4 py-2.5 text-right">6篇/月</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-muted">P2维护</span></td>
-                    </tr>
-                    <tr class="table-row">
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">媒大师</td>
-                      <td class="px-4 py-2.5" style="color: var(--color-text-muted);">新闻投稿</td>
-                      <td class="px-4 py-2.5 text-right">-</td>
-                      <td class="px-4 py-2.5 text-right trend-flat">-</td>
-                      <td class="px-4 py-2.5 text-right">0</td>
-                      <td class="px-4 py-2.5 text-center"><span class="badge badge-danger">空白</span></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+      <!-- 第4层：月度趋势 -->
+      <section class="card p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold" style="color: var(--color-on-surface);">月度趋势（2025.10 - 2026.5）</h2>
+          <div class="flex gap-2">
+            <button class="tab-btn active" style="font-size:0.75rem;padding:0.25rem 0.75rem;">播放量</button>
+            <button class="tab-btn" style="font-size:0.75rem;padding:0.25rem 0.75rem;">粉丝增长</button>
           </div>
-        </section>
+        </div>
+        <svg viewBox="0 0 700 200" class="w-full" style="height:220px;">
+          <line x1="60" y1="20" x2="60" y2="170" stroke="rgba(255,255,255,0.06)"/>
+          <line x1="60" y1="170" x2="670" y2="170" stroke="rgba(255,255,255,0.06)"/>
+          <line x1="60" y1="120" x2="670" y2="120" stroke="rgba(255,255,255,0.04)" stroke-dasharray="4"/>
+          <line x1="60" y1="70" x2="670" y2="70" stroke="rgba(255,255,255,0.04)" stroke-dasharray="4"/>
+          <line x1="60" y1="20" x2="670" y2="20" stroke="rgba(255,255,255,0.04)" stroke-dasharray="4"/>
+          <text x="55" y="174" text-anchor="end" fill="#9AA7C7" font-size="10">0</text>
+          <text x="55" y="124" text-anchor="end" fill="#9AA7C7" font-size="10">200K</text>
+          <text x="55" y="74" text-anchor="end" fill="#9AA7C7" font-size="10">400K</text>
+          <text x="55" y="24" text-anchor="end" fill="#9AA7C7" font-size="10">600K</text>
+          <text x="136" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">10月</text>
+          <text x="213" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">11月</text>
+          <text x="289" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">12月</text>
+          <text x="366" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">1月</text>
+          <text x="442" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">2月</text>
+          <text x="519" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">3月</text>
+          <text x="596" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">4月</text>
+          <text x="670" y="190" text-anchor="middle" fill="#9AA7C7" font-size="10">5月</text>
+          <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7C5CFF" stop-opacity="0.3"/><stop offset="100%" stop-color="#7C5CFF" stop-opacity="0"/></linearGradient></defs>
+          <polygon points="136,99 213,132 289,102 366,30 442,44 519,64 596,79 670,107 670,170 136,170" fill="url(#pg)"/>
+          <polyline points="136,99 213,132 289,102 366,30 442,44 519,64 596,79 670,107" fill="none" stroke="#7C5CFF" stroke-width="2.5" stroke-linejoin="round"/>
+          <circle cx="136" cy="99" r="3" fill="#7C5CFF"/><circle cx="213" cy="132" r="3" fill="#7C5CFF"/><circle cx="289" cy="102" r="3" fill="#7C5CFF"/><circle cx="366" cy="30" r="4" fill="#7C5CFF" stroke="#0F1629" stroke-width="2"/><circle cx="442" cy="44" r="3" fill="#7C5CFF"/><circle cx="519" cy="64" r="3" fill="#7C5CFF"/><circle cx="596" cy="79" r="3" fill="#7C5CFF"/><circle cx="670" cy="107" r="3" fill="#7C5CFF"/>
+          <text x="366" y="22" text-anchor="middle" fill="#7C5CFF" font-size="10" font-weight="600">578K</text>
+        </svg>
+      </section>
 
-        <!-- 第三层：账号矩阵总览表 -->
-        <section>
-          <div class="glass-card p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">账号矩阵总览</h3>
-              <div class="flex gap-2">
-                <span class="badge badge-success">活跃 12</span>
-                <span class="badge badge-warning">低频 3</span>
-                <span class="badge badge-danger">停更/废弃 6</span>
-              </div>
-            </div>
-            <div class="glass-card overflow-hidden">
-              <table class="w-full text-xs">
-                <thead>
-                  <tr style="background: var(--color-surface);">
-                    <th class="text-left px-3 py-2 font-medium" style="color: var(--color-text-muted);">账号定位</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">抖音</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">小红书</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">视频号</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">快手</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">生活号</th>
-                    <th class="text-left px-3 py-2 font-medium" style="color: var(--color-text-muted);">负责人</th>
-                    <th class="text-center px-3 py-2 font-medium" style="color: var(--color-text-muted);">频次</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-accent);">创始人IP（兰文娟）</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-warning">530</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">封禁</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">10,716</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">12,667</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-secondary);">卢俊杰</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-secondary);">2次/周</td>
-                  </tr>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-accent);">集团号</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">2,633</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-warning">26</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">2,299</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-secondary);">卢俊杰</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-secondary);">2次/月</td>
-                  </tr>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-primary);">业务号（管家）</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-warning">3,680</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">2,535</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">20,348</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">17,000</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-success">34,909</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-secondary);">高铖谦/宋思滢</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-secondary);">2次/周</td>
-                  </tr>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">品牌号（打工人）</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">停更</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">未发布</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">未运营</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">未发布</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">卢俊杰</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-muted);">1次/月</td>
-                  </tr>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">招商号</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">102</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">0</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">0</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">0</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">招商部</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-muted);">按需</td>
-                  </tr>
-                  <tr class="table-row">
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">小金人IP（久金宝）</td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">待实名</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">待实名</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">待实名</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-danger">待实名</span></td>
-                    <td class="px-3 py-2 text-center"><span class="badge badge-muted">-</span></td>
-                    <td class="px-3 py-2" style="color: var(--color-text-muted);">卢俊杰</td>
-                    <td class="px-3 py-2 text-center" style="color: var(--color-text-muted);">2次/月</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+      <!-- 第5层：门店矩阵 -->
+      <section class="card p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold" style="color: var(--color-on-surface);">门店矩阵推进进度</h2>
+          <span class="badge badge-primary">7月试点中</span>
+        </div>
+        <div class="grid grid-cols-3 gap-4 mb-4">
+          <div class="card p-4 text-center" style="background: var(--color-surface-container-high);">
+            <div class="text-2xl font-bold" style="color: var(--color-primary);">20</div>
+            <div class="text-xs mt-1" style="color: var(--color-on-surface-variant);">7月试点</div>
+            <div class="w-full h-1.5 rounded-full mt-2" style="background: var(--color-outline-variant);"><div class="h-full rounded-full" style="width:100%;background:var(--color-primary);"></div></div>
           </div>
-        </section>
-
-        <!-- 第四层：月度趋势图 -->
-        <section>
-          <div class="glass-card p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">月度趋势（近8个月）</h3>
-              <div class="flex gap-3 text-xs">
-                <span class="flex items-center gap-1"><span class="w-3 h-0.5 rounded" style="background: var(--color-primary);"></span>总播放量</span>
-                <span class="flex items-center gap-1"><span class="w-3 h-0.5 rounded" style="background: var(--color-accent);"></span>净增粉丝</span>
-              </div>
-            </div>
-            <svg viewBox="0 0 700 200" class="w-full">
-              <!-- Grid lines -->
-              <line x1="60" y1="20" x2="60" y2="170" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-              <line x1="60" y1="170" x2="680" y2="170" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-              <line x1="60" y1="120" x2="680" y2="120" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4"/>
-              <line x1="60" y1="70" x2="680" y2="70" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4"/>
-              <line x1="60" y1="20" x2="680" y2="20" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4"/>
-              <!-- Y axis labels -->
-              <text x="55" y="174" text-anchor="end" fill="#5E6B8A" font-size="10">0</text>
-              <text x="55" y="124" text-anchor="end" fill="#5E6B8A" font-size="10">200K</text>
-              <text x="55" y="74" text-anchor="end" fill="#5E6B8A" font-size="10">400K</text>
-              <text x="55" y="24" text-anchor="end" fill="#5E6B8A" font-size="10">600K</text>
-              <!-- X axis labels -->
-              <text x="98" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">10月</text>
-              <text x="186" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">11月</text>
-              <text x="274" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">12月</text>
-              <text x="362" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">1月</text>
-              <text x="450" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">2月</text>
-              <text x="538" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">3月</text>
-              <text x="626" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">4月</text>
-              <text x="670" y="188" text-anchor="middle" fill="#5E6B8A" font-size="10">5月</text>
-              <!-- Total plays line (scaled: max 578K = y:20, 0 = y:170) -->
-              <!-- Data: 284K, 161K, 290K, 578K, 504K, 430K, 363K, 253K -->
-              <polyline fill="none" stroke="#7C5CFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                points="98,99 186,134 274,102 362,28 450,44 538,63 626,84 670,111"/>
-              <!-- Dots for plays -->
-              <circle cx="98" cy="99" r="3" fill="#7C5CFF"/>
-              <circle cx="186" cy="134" r="3" fill="#7C5CFF"/>
-              <circle cx="274" cy="102" r="3" fill="#7C5CFF"/>
-              <circle cx="362" cy="28" r="3" fill="#7C5CFF"/>
-              <circle cx="450" cy="44" r="3" fill="#7C5CFF"/>
-              <circle cx="538" cy="63" r="3" fill="#7C5CFF"/>
-              <circle cx="626" cy="84" r="3" fill="#7C5CFF"/>
-              <circle cx="670" cy="111" r="4" fill="#7C5CFF" stroke="#070A14" stroke-width="2"/>
-              <!-- Follower growth line (scaled differently: max 7639 = y:20, 0 = y:170) -->
-              <!-- Data: 1291, 1100, 2444, 7639, 5761, 3494, 3642, 3494 -->
-              <polyline fill="none" stroke="#69E7FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6,3"
-                points="98,145 186,148 274,121 362,20 450,57 538,104 626,101 670,104"/>
-              <circle cx="670" cy="104" r="3.5" fill="#69E7FF" stroke="#070A14" stroke-width="2"/>
-              <!-- Peak annotation -->
-              <text x="362" y="16" text-anchor="middle" fill="#7C5CFF" font-size="9" font-weight="500">578K峰值</text>
-              <text x="362" y="40" text-anchor="end" fill="#69E7FF" font-size="9">+7,639粉</text>
-            </svg>
+          <div class="card p-4 text-center" style="background: var(--color-surface-container-high);">
+            <div class="text-2xl font-bold" style="color: var(--color-accent);">70</div>
+            <div class="text-xs mt-1" style="color: var(--color-on-surface-variant);">8-9月扩面</div>
+            <div class="w-full h-1.5 rounded-full mt-2" style="background: var(--color-outline-variant);"><div class="h-full rounded-full" style="width:0%;background:var(--color-accent);"></div></div>
           </div>
-        </section>
-
-        <!-- 第五层：门店矩阵进度 -->
-        <section>
-          <div class="glass-card p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">门店矩阵推进进度</h3>
-              <span class="badge badge-primary">7月试点中</span>
-            </div>
-            <div class="grid grid-cols-2 gap-6">
-              <div>
-                <div class="text-xs mb-3" style="color: var(--color-text-muted);">覆盖进度</div>
-                <div class="progress-bar h-3 mb-3">
-                  <div class="progress-fill" style="width: 7.4%; background: linear-gradient(90deg, var(--color-primary), var(--color-accent));"></div>
-                </div>
-                <div class="flex justify-between text-xs mb-4" style="color: var(--color-text-secondary);">
-                  <span>20家试点（7月）</span>
-                  <span>70家扩面（8-9月）</span>
-                  <span>269家全覆盖（Q4）</span>
-                </div>
-                <div class="grid grid-cols-3 gap-3">
-                  <div class="glass-card p-3">
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="badge badge-accent">模式B</span>
-                      <span class="text-xs font-medium" style="color: var(--color-text-primary);">HQ混剪素材下发</span>
-                    </div>
-                    <p class="text-xs" style="color: var(--color-text-secondary);">基础店+口播能力不足的门店（~199家），门店提交素材，总部混剪加工后下发成品。解决不敢出镜问题。</p>
-                  </div>
-                </div>
-                <div class="mt-3 glass-card p-3">
-                  <div class="text-xs font-medium mb-1" style="color: var(--color-warning);">产能目标</div>
-                  <p class="text-xs" style="color: var(--color-text-secondary);">规划每周80+条视频。当前瓶颈：素材全靠总部2-3人拍摄，来源单一。新模式将素材来源分散到各门店。</p>
-                </div>
-              </div>
-            </div>
+          <div class="card p-4 text-center" style="background: var(--color-surface-container-high);">
+            <div class="text-2xl font-bold" style="color: var(--color-on-surface-variant);">269</div>
+            <div class="text-xs mt-1" style="color: var(--color-on-surface-variant);">Q4全覆盖</div>
+            <div class="w-full h-1.5 rounded-full mt-2" style="background: var(--color-outline-variant);"><div class="h-full rounded-full" style="width:0%;background:var(--color-on-surface-variant);"></div></div>
           </div>
-        </section>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="card p-4">
+            <div class="flex items-center gap-2 mb-2"><i data-name="mic" class="w-4 h-4" style="color: var(--color-success);"></i><span class="text-sm font-medium" style="color: var(--color-on-surface);">模式A：真人出镜口播</span></div>
+            <p class="text-xs" style="color: var(--color-on-surface-variant);">适用：标杆店+活跃店（约70家）。店员穿工服拍1分钟口播，2个号同步发。总部运营成本低。</p>
+          </div>
+          <div class="card p-4">
+            <div class="flex items-center gap-2 mb-2"><i data-name="film" class="w-4 h-4" style="color: var(--color-accent);"></i><span class="text-sm font-medium" style="color: var(--color-on-surface);">模式B：HQ混剪素材下发</span></div>
+            <p class="text-xs" style="color: var(--color-on-surface-variant);">适用：基础店+口播能力不足门店（约199家）。门店提交素材→总部混剪→下发成品直接发布。</p>
+          </div>
+        </div>
+        <div class="mt-4 p-3 rounded-lg flex items-center justify-between" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);">
+          <div class="flex items-center gap-2"><i data-name="target" class="w-4 h-4" style="color: var(--color-warning);"></i><span class="text-sm" style="color: var(--color-on-surface-variant);">产能目标</span></div>
+          <span class="text-sm font-semibold" style="color: var(--color-warning);">≥80条/周</span>
+        </div>
+      </section>
 
-      </main>
       <!-- @main-content:end -->
-    </div>
+    </main>
   </div>
-
-  <script>
-    lucide.createIcons();
-    $(function() {
-      $('#platform-tabs .tab-btn').on('click', function() {
-        var tab = $(this).data('tab');
-        $('#platform-tabs .tab-btn').removeClass('active');
-        $(this).addClass('active');
-        $('.tab-panel').addClass('hidden');
-        $('#panel-' + tab).removeClass('hidden');
-      });
-    });
-    function showAccountDetail(name) {
-      alert('账号详情弹窗：' + name + '（后续实现）');
-    }
-  </script>
 </body>
-</html>-3 text-center">
-                    <div class="text-lg font-bold" style="color: var(--color-primary);">20</div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">标杆店（模式A口播）</div>
-                  </div>
-                  <div class="glass-card p-3 text-center">
-                    <div class="text-lg font-bold" style="color: var(--color-accent);">50</div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">活跃店（模式A为主）</div>
-                  </div>
-                  <div class="glass-card p-3 text-center">
-                    <div class="text-lg font-bold" style="color: var(--color-text-secondary);">199</div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">基础店（模式B混剪）</div>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <div class="text-xs mb-3" style="color: var(--color-text-muted);">双模式说明</div>
-                <div class="space-y-3">
-                  <div class="glass-card p-3">
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="badge badge-primary">模式A</span>
-                      <span class="text-xs font-medium" style="color: var(--color-text-primary);">真人出镜口播</span>
-                    </div>
-                    <p class="text-xs" style="color: var(--color-text-secondary);">标杆店+活跃店（~70家），店员穿工服拍1分钟口播，2个号同步发。总部运营成本低。</p>
-                  </div>
-                  <div class="glass-card p
+
+<script>
+  $(function() {
+    lucide.createIcons();
+    // Tab 切换
+    $('#platform-tabs .tab-btn').on('click', function() {
+      var tab = $(this).data('tab');
+      $('#platform-tabs .tab-btn').removeClass('active');
+      $(this).addClass('active');
+      $('.tab-panel').addClass('hidden');
+      $('#panel-' + tab).removeClass('hidden');
+    });
+  });
+</script>
+</html>

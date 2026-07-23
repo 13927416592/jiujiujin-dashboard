@@ -4,648 +4,292 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <!-- 字体 -->
   <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/>
-
   <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/jquery/jquery-3.7.1.min.js"></script>
   <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/lucide/lucide-1.11.0.min.js"></script>
   <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/tailwindcss/tailwindcss-browser-4.2.4.min.js"></script>
-
   <style type="text/tailwindcss">
     @theme {
-      /* === 品牌色 === */
       --color-primary:              #7C5CFF;
       --color-primary-container:    rgba(124, 92, 255, 0.15);
       --color-on-primary:           #ffffff;
-      /* === 强调色 === */
       --color-accent:               #69E7FF;
       --color-accent-container:     rgba(105, 231, 255, 0.12);
-      /* === 背景 / 表面 === */
       --color-background:                 #070A14;
       --color-surface-container-lowest:   #0B1020;
       --color-surface:                    #0F1629;
       --color-surface-container:          #151D35;
       --color-surface-container-high:     #1B2540;
       --color-surface-container-highest:  #222E4F;
-      /* === 文字 === */
       --color-on-surface:           #F7FAFF;
       --color-on-surface-variant:   #9AA7C7;
-      /* === 功能色 === */
       --color-success:  #62FAD3;
       --color-error:    #FF6B6B;
       --color-warning:  #FFB84D;
-      /* === 边框 === */
       --color-outline:          rgba(255, 255, 255, 0.12);
       --color-outline-variant:  rgba(255, 255, 255, 0.06);
-      /* === 圆角 === */
-      --radius-sm:   0.375rem;
-      --radius-md:   0.625rem;
-      --radius-lg:   0.875rem;
-      --radius-xl:   1.125rem;
-      --radius-2xl:  1.5rem;
-      --radius-full: 9999px;
-      /* === 阴影 === */
+      --radius-sm: 0.375rem; --radius-md: 0.625rem; --radius-lg: 0.875rem;
+      --radius-xl: 1.125rem; --radius-2xl: 1.5rem; --radius-full: 9999px;
       --shadow-card:   0 2px 12px rgba(0, 0, 0, 0.4);
       --shadow-float:  0 8px 30px rgba(0, 0, 0, 0.5);
-      --shadow-dialog: 0 25px 50px rgba(0, 0, 0, 0.6);
-      /* === 字体 === */
-      --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+      --font-sans:  'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      --font-mono:  'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
     }
+    body { background-color: var(--color-background); color: var(--color-on-surface); font-family: var(--font-sans); margin: 0; min-height: 100vh; }
+    .card { background: var(--color-surface-container); border: 1px solid var(--color-outline-variant); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+    .card-hover { transition: all 0.25s ease; }
+    .card-hover:hover { background: var(--color-surface-container-high); border-color: var(--color-outline); box-shadow: var(--shadow-float); transform: translateY(-1px); }
+    .glass-sidebar { background: var(--color-surface-container-lowest); border-right: 1px solid var(--color-outline-variant); }
+    .glass-header { background: rgba(15, 22, 41, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--color-outline-variant); }
+    .nav-link { color: var(--color-on-surface-variant); transition: all 0.2s; border-radius: var(--radius-md); }
+    .nav-link:hover { background: var(--color-surface-container); color: var(--color-on-surface); }
+    .nav-link[aria-current="page"] { background: var(--color-primary-container); color: var(--color-primary); font-weight: 500; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: var(--radius-full); font-size: 0.75rem; font-weight: 500; }
+    .badge-primary { background: var(--color-primary-container); color: var(--color-primary); }
+    .badge-success { background: rgba(98,250,211,0.12); color: var(--color-success); }
+    .badge-warning { background: rgba(255,184,77,0.12); color: var(--color-warning); }
+    .badge-error { background: rgba(255,107,107,0.12); color: var(--color-error); }
+    .badge-accent { background: var(--color-accent-container); color: var(--color-accent); }
   </style>
-
-  <style>
-    /* 毛玻璃效果 */
-    .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-    .glass-sidebar { background: rgba(15,22,41,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-    .glass-header { background: rgba(7,10,20,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-    /* 发光效果 */
-    .glow-primary { box-shadow: 0 0 20px rgba(124,92,255,0.15); }
-    .glow-accent { box-shadow: 0 0 20px rgba(105,231,255,0.12); }
-    /* 渐变背景 */
-    .bg-gradient-mesh {
-      background:
-        radial-gradient(ellipse 600px 400px at 10% 20%, rgba(124,92,255,0.08) 0%, transparent 70%),
-        radial-gradient(ellipse 500px 350px at 90% 80%, rgba(105,231,255,0.05) 0%, transparent 70%),
-        #070A14;
-    }
-  </style>
-
-  <!-- 图片兜底 -->
-  <script>
-    document.addEventListener('error', function (e) {
-      const img = e.target;
-      if (img.tagName !== 'IMG' || img.dataset.fallback) return;
-      img.dataset.fallback = '1';
-      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const cat = img.getAttribute('data-category') || '其他';
-      const alt = img.getAttribute('alt') || '';
-      const label = esc(alt.length > 8 ? alt.slice(0, 8) + '…' : alt);
-      const icons = { '人物': '👤', '自然风景': '🏞', '动物': '🐾', '建筑城市': '🏙', '运动体育': '⚽', '交通工具': '🚗', '食物': '🍽', '服饰时尚': '👗', '商业科技': '💼', '游戏娱乐': '🎮', '艺术': '🎨', '其他': '🖼' };
-      const icon = icons[cat] || '🖼';
-      const w = img.width || 400, h = img.height || 300;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="%230F1629"/><text x="50%" y="45%" text-anchor="middle" font-size="${Math.min(w, h) * 0.18}" dominant-baseline="central">${icon}</text><text x="50%" y="68%" text-anchor="middle" font-size="${Math.min(w, h) * 0.07}" fill="%239AA7C7" font-family="system-ui,sans-serif" dominant-baseline="central">${label}</text></svg>`;
-      img.src = 'data:image/svg+xml,' + svg;
-    }, true);
-  </script>
 </head>
 
-<body class="bg-background text-on-surface font-sans bg-gradient-mesh min-h-screen">
-
-  <!-- @nav:start 导航组件，不需要的页面则不要复制此段 -->
-  <!-- 顶部导航栏 -->
-  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline-variant/20">
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-        <i data-lucide="chart-column-big" class="w-4.5 h-4.5 text-primary"></i>
+<body class="flex h-screen overflow-hidden">
+  <!-- @nav:start -->
+  <aside class="glass-sidebar w-64 flex flex-col p-4 shrink-0">
+    <a href="home.html" class="flex items-center gap-2 mb-8 px-2">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--color-primary);"><i data-name="crown" class="w-4 h-4" style="color: var(--color-on-primary);"></i></div>
+      <span class="font-bold text-base" style="color: var(--color-on-surface);">久久金运营看板</span>
+    </a>
+    <nav class="flex flex-col gap-1 flex-1">
+      <a href="home.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="layout-dashboard" class="w-4 h-4"></i><span>总览仪表盘</span></a>
+      <a href="meituan.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="shopping-bag" class="w-4 h-4"></i><span>美团运营</span></a>
+      <a href="content.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="layers" class="w-4 h-4"></i><span>内容矩阵</span></a>
+      <a href="private-domain.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm" aria-current="page"><i data-name="users" class="w-4 h-4"></i><span>私域运营</span></a>
+      <a href="collaboration.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="handshake" class="w-4 h-4"></i><span>跨部门协同</span></a>
+      <a href="actions.html" class="nav-link flex items-center gap-3 px-3 py-2.5 text-sm"><i data-name="list-checks" class="w-4 h-4"></i><span>行动计划</span></a>
+    </nav>
+  </aside>
+  <div class="flex flex-col flex-1 min-w-0">
+    <header class="glass-header h-14 flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-lg font-semibold" style="color: var(--color-on-surface);">私域运营</h1>
+      <div class="flex items-center gap-4">
+        <span class="text-xs" style="color: var(--color-on-surface-variant);">数据截止: 2026年6月30日</span>
+        <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--color-surface-container-high);"><i data-name="user" class="w-4 h-4" style="color: var(--color-on-surface-variant);"></i></div>
       </div>
-      <span class="font-bold text-base text-on-surface tracking-tight">久久金运营看板</span>
-    </div>
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20">
-        <i data-lucide="calendar" class="w-3.5 h-3.5 text-on-surface-variant"></i>
-        <span class="text-xs text-on-surface-variant">2026年6月</span>
-      </div>
-      <button class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
-        <i data-lucide="bell" class="w-4 h-4 text-on-surface-variant"></i>
-        <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error"></span>
-      </button>
-      <div class="flex items-center gap-2 pl-3 border-l border-outline-variant/20">
-        <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">初</div>
-      </div>
-    </div>
-  </header>
+    </header>
+  <!-- @nav:end -->
 
-  <div class="flex" style="height: calc(100vh - 3.5rem)">
-    <!-- 侧边栏 -->
-    <aside class="glass-sidebar w-56 shrink-0 border-r border-outline-variant/20 overflow-y-auto">
-      <nav class="p-3 space-y-0.5">
-        <a href="home.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
-        </a>
-        <a href="meituan.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="store" class="w-4 h-4"></i>美团运营
-        </a>
-        <a href="content.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="pen-tool" class="w-4 h-4"></i>内容矩阵
-        </a>
-        <a href="private-domain.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container text-primary font-medium text-sm" aria-current="page">
-          <i data-lucide="users" class="w-4 h-4"></i>私域运营
-        </a>
-        <a href="collaboration.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="network" class="w-4 h-4"></i>跨部门协同
-        </a>
-        <a href="actions.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="target" class="w-4 h-4"></i>行动计划
-        </a>
-      </nav>
-      <!-- 侧边栏底部：模块健康度概览 -->
-      <div class="p-3 mt-auto border-t border-outline-variant/20">
-        <div class="px-3 py-2">
-          <p class="text-xs text-on-surface-variant mb-2">数据截止</p>
-          <p class="text-xs text-on-surface font-medium">2026年6月30日</p>
-        </div>
-      </div>
-    </aside>
+    <main class="flex-1 overflow-y-auto p-6" style="background: var(--color-background);">
+      <!-- @main-content:start -->
 
-    <!-- @main-content:start -->
-    <main class="flex-1 min-w-0 overflow-y-auto p-5">
-
-      <!-- 页面标题 -->
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-2xl font-bold text-on-surface">私域运营</h1>
-          <p class="text-sm text-on-surface-variant mt-1">用户规模、转化数据、标签体系与激活进度总览</p>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20 text-xs text-on-surface-variant">
-            <i data-lucide="database" class="w-3.5 h-3.5"></i>
-            数据截止 2026年6月30日
-          </span>
-        </div>
-      </div>
-
-      <!-- 顶部：3个用户规模卡片 -->
-      <div class="grid grid-cols-3 gap-4 mb-6">
-
-        <!-- 卡片1：企微好友 -->
-        <div id="card-qw-users" class="glass-card rounded-xl p-5 border border-outline-variant/20 cursor-pointer hover:border-primary/30 transition-all group">
+      <!-- 第1层：用户规模卡片 -->
+      <section class="grid grid-cols-3 gap-4 mb-6">
+        <!-- 企微好友 -->
+        <div class="card card-hover p-5 cursor-pointer">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <div class="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center">
-                <i data-lucide="message-circle" class="w-4.5 h-4.5 text-primary"></i>
-              </div>
-              <span class="text-sm font-semibold text-on-surface">企微好友</span>
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background: var(--color-primary-container);"><i data-name="message-circle" class="w-4 h-4" style="color: var(--color-primary);"></i></div>
+              <span class="text-sm font-semibold" style="color: var(--color-on-surface);">企微好友</span>
             </div>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success">活跃</span>
+            <span class="badge badge-success">活跃</span>
           </div>
-          <div class="mb-3">
-            <span class="text-3xl font-bold text-on-surface tracking-tight">56,251</span>
-            <span class="text-sm text-on-surface-variant ml-1.5">人</span>
-          </div>
+          <div class="mb-3"><span class="text-3xl font-bold" style="color: var(--color-on-surface);">56,251</span><span class="text-sm ml-1.5" style="color: var(--color-on-surface-variant);">人</span></div>
           <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">去重后用户</span>
-              <span class="text-sm font-semibold text-on-surface">52,784</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">重复用户</span>
-              <span class="text-sm font-medium text-warning">3,467</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">去重率</span>
-              <span class="text-sm font-medium text-on-surface-variant">6.16%</span>
-            </div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">去重后用户</span><span class="text-sm font-semibold" style="color: var(--color-on-surface);">52,784</span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">重复用户</span><span class="text-sm font-medium" style="color: var(--color-warning);">3,467</span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">去重率</span><span class="text-sm font-medium" style="color: var(--color-on-surface-variant);">6.16%</span></div>
           </div>
         </div>
-
-        <!-- 卡片2：支付宝粉丝群 -->
-        <div id="card-alipay-users" class="glass-card rounded-xl p-5 border border-outline-variant/20 cursor-pointer hover:border-primary/30 transition-all group">
+        <!-- 支付宝粉丝群 -->
+        <div class="card card-hover p-5 cursor-pointer">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <div class="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center">
-                <i data-lucide="wallet" class="w-4.5 h-4.5 text-accent"></i>
-              </div>
-              <span class="text-sm font-semibold text-on-surface">支付宝粉丝群</span>
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background: var(--color-accent-container);"><i data-name="wallet" class="w-4 h-4" style="color: var(--color-accent);"></i></div>
+              <span class="text-sm font-semibold" style="color: var(--color-on-surface);">支付宝粉丝群</span>
             </div>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success">活跃</span>
+            <span class="badge badge-success">活跃</span>
           </div>
-          <div class="mb-3">
-            <span class="text-3xl font-bold text-on-surface tracking-tight">28,990</span>
-            <span class="text-sm text-on-surface-variant ml-1.5">人</span>
-          </div>
+          <div class="mb-3"><span class="text-3xl font-bold" style="color: var(--color-on-surface);">28,990</span><span class="text-sm ml-1.5" style="color: var(--color-on-surface-variant);">人</span></div>
           <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">粉丝群数量</span>
-              <span class="text-sm font-semibold text-on-surface">60<span class="text-xs text-on-surface-variant ml-1">个群</span></span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">平均每群人数</span>
-              <span class="text-sm font-medium text-on-surface-variant">483</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">群活跃率</span>
-              <span class="text-sm font-medium text-warning">偏低</span>
-            </div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">粉丝群数量</span><span class="text-sm font-semibold" style="color: var(--color-on-surface);">60<span class="text-xs ml-1" style="color: var(--color-on-surface-variant);">个群</span></span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">平均每群人数</span><span class="text-sm font-medium" style="color: var(--color-on-surface-variant);">483</span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">群活跃率</span><span class="text-sm font-medium" style="color: var(--color-warning);">偏低</span></div>
           </div>
         </div>
-
-        <!-- 卡片3：会员注册 -->
-        <div id="card-member-users" class="glass-card rounded-xl p-5 border border-outline-variant/20 cursor-pointer hover:border-primary/30 transition-all group">
+        <!-- 会员注册 -->
+        <div class="card card-hover p-5 cursor-pointer">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <div class="w-9 h-9 rounded-lg bg-warning/15 flex items-center justify-center">
-                <i data-lucide="crown" class="w-4.5 h-4.5 text-warning"></i>
-              </div>
-              <span class="text-sm font-semibold text-on-surface">会员注册</span>
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background: rgba(255,184,77,0.12);"><i data-name="crown" class="w-4 h-4" style="color: var(--color-warning);"></i></div>
+              <span class="text-sm font-semibold" style="color: var(--color-on-surface);">会员注册</span>
             </div>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">待提升</span>
+            <span class="badge badge-error">待提升</span>
           </div>
-          <div class="mb-3">
-            <span class="text-3xl font-bold text-on-surface tracking-tight">2,701</span>
-            <span class="text-sm text-on-surface-variant ml-1.5">人</span>
-          </div>
+          <div class="mb-3"><span class="text-3xl font-bold" style="color: var(--color-on-surface);">2,701</span><span class="text-sm ml-1.5" style="color: var(--color-on-surface-variant);">人</span></div>
           <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">未注册占比</span>
-              <span class="text-sm font-semibold text-error">57.62%</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">已注册转化率</span>
-              <span class="text-sm font-medium text-on-surface-variant">42.38%</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-on-surface-variant">待转化用户池</span>
-              <span class="text-sm font-medium text-warning">约3.2万人</span>
-            </div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">未注册占比</span><span class="text-sm font-semibold" style="color: var(--color-error);">57.62%</span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">已注册转化率</span><span class="text-sm font-medium" style="color: var(--color-on-surface-variant);">42.38%</span></div>
+            <div class="flex items-center justify-between"><span class="text-xs" style="color: var(--color-on-surface-variant);">待转化用户池</span><span class="text-sm font-medium" style="color: var(--color-warning);">约3.2万人</span></div>
           </div>
         </div>
+      </section>
 
-      </div>
-
-      <!-- 中部区域：转化漏斗 + 标签体系 -->
-      <div class="grid grid-cols-5 gap-4 mb-6">
-
-        <!-- 中部左侧：转化漏斗图 -->
-        <div class="col-span-3 glass-card rounded-xl p-5 border border-outline-variant/20">
+      <!-- 第2层：转化漏斗 + 标签体系 -->
+      <section class="grid grid-cols-5 gap-4 mb-6">
+        <!-- 转化漏斗 -->
+        <div class="col-span-3 card p-5">
           <div class="flex items-center justify-between mb-5">
-            <div class="flex items-center gap-2">
-              <i data-lucide="funnel" class="w-4.5 h-4.5 text-primary"></i>
-              <h2 class="text-base font-semibold text-on-surface">转化漏斗</h2>
-            </div>
-            <span class="text-xs text-on-surface-variant">历史累计数据</span>
+            <div class="flex items-center gap-2"><i data-name="funnel" class="w-4 h-4" style="color: var(--color-primary);"></i><h2 class="text-base font-semibold" style="color: var(--color-on-surface);">转化漏斗</h2></div>
+            <span class="text-xs" style="color: var(--color-on-surface-variant);">历史累计数据</span>
           </div>
-
-          <!-- SVG 漏斗图 -->
           <div class="flex justify-center">
-            <svg width="480" height="320" viewBox="0 0 480 320" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <!-- 漏斗层级1：历史用户 -->
+            <svg width="480" height="320" viewBox="0 0 480 320" fill="none">
               <path d="M40 20 L440 20 L400 90 L80 90 Z" fill="rgba(124,92,255,0.25)" stroke="rgba(124,92,255,0.4)" stroke-width="1"/>
               <text x="240" y="48" text-anchor="middle" fill="#F7FAFF" font-size="14" font-weight="600">历史用户总量</text>
               <text x="240" y="70" text-anchor="middle" fill="#9AA7C7" font-size="12">203,000 人</text>
-
-              <!-- 漏斗层级2：回收转购买 -->
               <path d="M80 100 L400 100 L370 170 L110 170 Z" fill="rgba(255,184,77,0.2)" stroke="rgba(255,184,77,0.35)" stroke-width="1"/>
               <text x="240" y="128" text-anchor="middle" fill="#F7FAFF" font-size="14" font-weight="600">回收转购买</text>
               <text x="240" y="150" text-anchor="middle" fill="#FFB84D" font-size="12">转化率 0.2% · 约 400 人</text>
-
-              <!-- 漏斗层级3：会员注册 -->
               <path d="M110 180 L370 180 L340 250 L140 250 Z" fill="rgba(105,231,255,0.18)" stroke="rgba(105,231,255,0.3)" stroke-width="1"/>
               <text x="240" y="208" text-anchor="middle" fill="#F7FAFF" font-size="14" font-weight="600">会员注册</text>
               <text x="240" y="230" text-anchor="middle" fill="#69E7FF" font-size="12">2,701 人</text>
-
-              <!-- 漏斗层级4：权益使用 -->
               <path d="M140 260 L340 260 L320 310 L160 310 Z" fill="rgba(255,107,107,0.18)" stroke="rgba(255,107,107,0.3)" stroke-width="1"/>
               <text x="240" y="282" text-anchor="middle" fill="#F7FAFF" font-size="13" font-weight="600">三大权益使用率</text>
               <text x="240" y="300" text-anchor="middle" fill="#FF6B6B" font-size="12">0%（尚未启用）</text>
-
-              <!-- 右侧转化率标注 -->
               <line x1="445" y1="55" x2="445" y2="85" stroke="rgba(124,92,255,0.4)" stroke-width="1" stroke-dasharray="3,3"/>
               <text x="460" y="73" fill="#9AA7C7" font-size="10">100%</text>
-
               <line x1="405" y1="135" x2="405" y2="165" stroke="rgba(255,184,77,0.4)" stroke-width="1" stroke-dasharray="3,3"/>
               <text x="420" y="153" fill="#FFB84D" font-size="10">0.2%</text>
-
               <line x1="375" y1="215" x2="375" y2="245" stroke="rgba(105,231,255,0.4)" stroke-width="1" stroke-dasharray="3,3"/>
               <text x="390" y="233" fill="#69E7FF" font-size="10">1.33%</text>
             </svg>
           </div>
-
-          <!-- 漏斗底部说明 -->
           <div class="mt-4 flex items-center gap-4 px-2">
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm bg-primary/40"></div>
-              <span class="text-xs text-on-surface-variant">用户池</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm bg-warning/40"></div>
-              <span class="text-xs text-on-surface-variant">转化环节</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm bg-accent/40"></div>
-              <span class="text-xs text-on-surface-variant">会员沉淀</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm bg-error/40"></div>
-              <span class="text-xs text-on-surface-variant">待激活</span>
-            </div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded-sm" style="background: rgba(124,92,255,0.4);"></div><span class="text-xs" style="color: var(--color-on-surface-variant);">用户池</span></div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded-sm" style="background: rgba(255,184,77,0.4);"></div><span class="text-xs" style="color: var(--color-on-surface-variant);">转化环节</span></div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded-sm" style="background: rgba(105,231,255,0.4);"></div><span class="text-xs" style="color: var(--color-on-surface-variant);">会员沉淀</span></div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded-sm" style="background: rgba(255,107,107,0.4);"></div><span class="text-xs" style="color: var(--color-on-surface-variant);">待激活</span></div>
           </div>
         </div>
 
-        <!-- 中部右侧：标签体系完成度 -->
-        <div class="col-span-2 glass-card rounded-xl p-5 border border-outline-variant/20">
+        <!-- 标签体系 -->
+        <div class="col-span-2 card p-5">
           <div class="flex items-center justify-between mb-5">
-            <div class="flex items-center gap-2">
-              <i data-lucide="tags" class="w-4.5 h-4.5 text-accent"></i>
-              <h2 class="text-base font-semibold text-on-surface">标签体系</h2>
-            </div>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">旧标签仅有</span>
+            <div class="flex items-center gap-2"><i data-name="tags" class="w-4 h-4" style="color: var(--color-accent);"></i><h2 class="text-base font-semibold" style="color: var(--color-on-surface);">标签体系</h2></div>
+            <span class="badge badge-warning">旧标签仅有</span>
           </div>
-
           <!-- 总体完成度 -->
           <div class="mb-5">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm text-on-surface">三级标签体系</span>
-              <span class="text-sm font-semibold text-primary">3 / 14 项</span>
-            </div>
-            <div class="w-full h-3 rounded-full bg-surface-container overflow-hidden">
-              <div class="h-full rounded-full bg-gradient-to-r from-primary to-accent" style="width: 21.4%"></div>
-            </div>
-            <div class="flex items-center justify-between mt-1.5">
-              <span class="text-xs text-on-surface-variant">规划 14 项三级标签</span>
-              <span class="text-xs text-primary font-medium">完成度 21.4%</span>
-            </div>
+            <div class="flex items-center justify-between mb-2"><span class="text-sm" style="color: var(--color-on-surface);">三级标签体系</span><span class="text-sm font-semibold" style="color: var(--color-primary);">3 / 14 项</span></div>
+            <div class="w-full h-3 rounded-full overflow-hidden" style="background: var(--color-surface-container);"><div class="h-full rounded-full" style="width: 21.4%; background: linear-gradient(to right, var(--color-primary), var(--color-accent));"></div></div>
+            <div class="flex items-center justify-between mt-1.5"><span class="text-xs" style="color: var(--color-on-surface-variant);">规划 14 项三级标签</span><span class="text-xs font-medium" style="color: var(--color-primary);">完成度 21.4%</span></div>
           </div>
-
-          <!-- 标签分类列表 -->
+          <!-- 标签分类 -->
           <div class="space-y-3">
-            <!-- 标签分类1：基础属性 -->
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-on-surface">基础属性标签</span>
-                <span class="text-xs text-success font-medium">2/4 已完成</span>
-              </div>
+            <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);">
+              <div class="flex items-center justify-between mb-2"><span class="text-sm font-medium" style="color: var(--color-on-surface);">基础属性标签</span><span class="text-xs font-medium" style="color: var(--color-success);">2/4 已完成</span></div>
               <div class="flex flex-wrap gap-1.5">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-success/15 text-success">性别</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-success/15 text-success">年龄段</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">城市等级</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">消费能力</span>
+                <span class="badge badge-success">性别</span><span class="badge badge-success">年龄段</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">城市等级</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">消费能力</span>
               </div>
             </div>
-
-            <!-- 标签分类2：行为偏好 -->
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-on-surface">行为偏好标签</span>
-                <span class="text-xs text-warning font-medium">1/5 已完成</span>
-              </div>
+            <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);">
+              <div class="flex items-center justify-between mb-2"><span class="text-sm font-medium" style="color: var(--color-on-surface);">行为偏好标签</span><span class="text-xs font-medium" style="color: var(--color-warning);">1/5 已完成</span></div>
               <div class="flex flex-wrap gap-1.5">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-success/15 text-success">品类偏好</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">价格敏感度</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">购买频次</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">渠道偏好</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">活跃时段</span>
+                <span class="badge badge-success">品类偏好</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">价格敏感度</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">购买频次</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">渠道偏好</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">活跃时段</span>
               </div>
             </div>
-
-            <!-- 标签分类3：生命周期 -->
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-on-surface">生命周期标签</span>
-                <span class="text-xs text-error font-medium">0/5 待建设</span>
-              </div>
+            <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);">
+              <div class="flex items-center justify-between mb-2"><span class="text-sm font-medium" style="color: var(--color-on-surface);">生命周期标签</span><span class="text-xs font-medium" style="color: var(--color-error);">0/5 待建设</span></div>
               <div class="flex flex-wrap gap-1.5">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">新客/老客</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">沉睡用户</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">流失预警</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">高价值用户</span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-surface-container-high text-on-surface-variant">复购潜力</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">新客/老客</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">沉睡用户</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">流失预警</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">高价值用户</span>
+                <span class="badge" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">复购潜力</span>
               </div>
             </div>
           </div>
-
-          <!-- 底部提示 -->
-          <div class="mt-4 p-2.5 rounded-lg bg-error/8 border border-error/15 flex items-start gap-2">
-            <i data-lucide="alert-triangle" class="w-4 h-4 text-error mt-0.5 shrink-0"></i>
-            <p class="text-xs text-error/80">当前仅存在旧版基础标签，三级标签体系尚在建设中，无法支撑精准触达</p>
+          <div class="mt-4 p-2.5 rounded-lg flex items-start gap-2" style="background: rgba(255,107,107,0.08); border: 1px solid rgba(255,107,107,0.15);">
+            <i data-name="alert-triangle" class="w-4 h-4 mt-0.5 shrink-0" style="color: var(--color-error);"></i>
+            <p class="text-xs" style="color: var(--color-error);">当前仅存在旧版基础标签，三级标签体系尚在建设中，无法支撑精准触达</p>
           </div>
         </div>
+      </section>
 
-      </div>
-
-      <!-- 底部：激活进度时间线 -->
-      <div class="glass-card rounded-xl p-5 border border-outline-variant/20 mb-6">
+      <!-- 第3层：激活进度时间线 -->
+      <section class="card p-5 mb-6">
         <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center gap-2">
-            <i data-lucide="git-branch" class="w-4.5 h-4.5 text-primary"></i>
-            <h2 class="text-base font-semibold text-on-surface">激活进度时间线</h2>
-          </div>
-          <span class="text-xs text-on-surface-variant">2026年Q2-Q4规划</span>
+          <div class="flex items-center gap-2"><i data-name="git-branch" class="w-4 h-4" style="color: var(--color-primary);"></i><h2 class="text-base font-semibold" style="color: var(--color-on-surface);">激活进度时间线</h2></div>
+          <span class="text-xs" style="color: var(--color-on-surface-variant);">2026年Q2-Q4规划</span>
         </div>
-
-        <!-- 横向时间线 -->
         <div class="relative px-4">
-          <!-- 时间线连接线 -->
-          <div class="absolute top-5 left-12 right-12 h-0.5 bg-surface-container-high"></div>
-          <!-- 已完成进度线 -->
-          <div class="absolute top-5 left-12 h-0.5 bg-primary/50" style="width: 20%"></div>
-
+          <div class="absolute top-5 left-12 right-12 h-0.5" style="background: var(--color-surface-container-high);"></div>
+          <div class="absolute top-5 left-12 h-0.5" style="width: 20%; background: var(--color-primary-container);"></div>
           <div class="flex justify-between relative">
-            <!-- 节点1：5000种子用户首批激活 -->
-            <div id="timeline-node-1" class="flex flex-col items-center cursor-pointer group" style="width: 18%">
-              <div class="w-10 h-10 rounded-full bg-success/20 border-2 border-success flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
-                <i data-lucide="check" class="w-5 h-5 text-success"></i>
-              </div>
-              <div class="mt-3 text-center">
-                <p class="text-sm font-medium text-on-surface mb-0.5">种子用户激活</p>
-                <p class="text-xs text-on-surface-variant">5,000人首批</p>
-                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success">已完成</span>
-                <p class="text-xs text-on-surface-variant mt-1">2026年4月</p>
-              </div>
+            <div class="flex flex-col items-center cursor-pointer group" style="width: 18%;">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center z-10 group-hover:scale-110 transition-transform" style="background: rgba(98,250,211,0.2); border: 2px solid var(--color-success);"><i data-name="check" class="w-5 h-5" style="color: var(--color-success);"></i></div>
+              <div class="mt-3 text-center"><p class="text-sm font-medium mb-0.5" style="color: var(--color-on-surface);">种子用户激活</p><p class="text-xs" style="color: var(--color-on-surface-variant);">5,000人首批</p><span class="badge badge-success mt-1.5">已完成</span><p class="text-xs mt-1" style="color: var(--color-on-surface-variant);">2026年4月</p></div>
             </div>
-
-            <!-- 节点2：标签三级体系建立 -->
-            <div id="timeline-node-2" class="flex flex-col items-center cursor-pointer group" style="width: 18%">
-              <div class="w-10 h-10 rounded-full bg-primary/20 border-2 border-primary flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
-                <i data-lucide="loader" class="w-5 h-5 text-primary animate-spin" style="animation-duration: 3s"></i>
-              </div>
-              <div class="mt-3 text-center">
-                <p class="text-sm font-medium text-on-surface mb-0.5">标签体系建立</p>
-                <p class="text-xs text-on-surface-variant">三级标签完成</p>
-                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-sm text-xs font-medium bg-primary/15 text-primary">进行中</span>
-                <p class="text-xs text-on-surface-variant mt-1">预计2026年7月</p>
-              </div>
+            <div class="flex flex-col items-center cursor-pointer group" style="width: 18%;">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center z-10 group-hover:scale-110 transition-transform" style="background: var(--color-primary-container); border: 2px solid var(--color-primary);"><i data-name="loader" class="w-5 h-5 animate-spin" style="color: var(--color-primary); animation-duration: 3s;"></i></div>
+              <div class="mt-3 text-center"><p class="text-sm font-medium mb-0.5" style="color: var(--color-on-surface);">标签体系建立</p><p class="text-xs" style="color: var(--color-on-surface-variant);">三级标签完成</p><span class="badge badge-primary mt-1.5">进行中</span><p class="text-xs mt-1" style="color: var(--color-on-surface-variant);">预计2026年7月</p></div>
             </div>
-
-            <!-- 节点3：金价提醒上线 -->
-            <div id="timeline-node-3" class="flex flex-col items-center cursor-pointer group" style="width: 18%">
-              <div class="w-10 h-10 rounded-full bg-surface-container-high border-2 border-outline/30 flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
-                <i data-lucide="bell-ring" class="w-5 h-5 text-on-surface-variant"></i>
-              </div>
-              <div class="mt-3 text-center">
-                <p class="text-sm font-medium text-on-surface mb-0.5">金价提醒上线</p>
-                <p class="text-xs text-on-surface-variant">自动化触达</p>
-                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-container-highest text-on-surface-variant">待启动</span>
-                <p class="text-xs text-on-surface-variant mt-1">预计2026年8月</p>
-              </div>
+            <div class="flex flex-col items-center cursor-pointer group" style="width: 18%;">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center z-10 group-hover:scale-110 transition-transform" style="background: var(--color-surface-container-high); border: 2px solid var(--color-outline);"><i data-name="bell-ring" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div>
+              <div class="mt-3 text-center"><p class="text-sm font-medium mb-0.5" style="color: var(--color-on-surface);">金价提醒上线</p><p class="text-xs" style="color: var(--color-on-surface-variant);">自动化触达</p><span class="badge mt-1.5" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">待启动</span><p class="text-xs mt-1" style="color: var(--color-on-surface-variant);">预计2026年8月</p></div>
             </div>
-
-            <!-- 节点4：加盟商私域试点 -->
-            <div id="timeline-node-4" class="flex flex-col items-center cursor-pointer group" style="width: 18%">
-              <div class="w-10 h-10 rounded-full bg-surface-container-high border-2 border-outline/30 flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
-                <i data-lucide="store" class="w-5 h-5 text-on-surface-variant"></i>
-              </div>
-              <div class="mt-3 text-center">
-                <p class="text-sm font-medium text-on-surface mb-0.5">加盟商试点</p>
-                <p class="text-xs text-on-surface-variant">私域赋能落地</p>
-                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-container-highest text-on-surface-variant">待启动</span>
-                <p class="text-xs text-on-surface-variant mt-1">预计2026年9月</p>
-              </div>
+            <div class="flex flex-col items-center cursor-pointer group" style="width: 18%;">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center z-10 group-hover:scale-110 transition-transform" style="background: var(--color-surface-container-high); border: 2px solid var(--color-outline);"><i data-name="store" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div>
+              <div class="mt-3 text-center"><p class="text-sm font-medium mb-0.5" style="color: var(--color-on-surface);">加盟商试点</p><p class="text-xs" style="color: var(--color-on-surface-variant);">私域赋能落地</p><span class="badge mt-1.5" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">待启动</span><p class="text-xs mt-1" style="color: var(--color-on-surface-variant);">预计2026年9月</p></div>
             </div>
-
-            <!-- 节点5：裂变机制落地 -->
-            <div id="timeline-node-5" class="flex flex-col items-center cursor-pointer group" style="width: 18%">
-              <div class="w-10 h-10 rounded-full bg-surface-container-high border-2 border-outline/30 flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
-                <i data-lucide="share-2" class="w-5 h-5 text-on-surface-variant"></i>
-              </div>
-              <div class="mt-3 text-center">
-                <p class="text-sm font-medium text-on-surface mb-0.5">裂变机制落地</p>
-                <p class="text-xs text-on-surface-variant">用户增长引擎</p>
-                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-container-highest text-on-surface-variant">待启动</span>
-                <p class="text-xs text-on-surface-variant mt-1">预计2026年Q4</p>
-              </div>
+            <div class="flex flex-col items-center cursor-pointer group" style="width: 18%;">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center z-10 group-hover:scale-110 transition-transform" style="background: var(--color-surface-container-high); border: 2px solid var(--color-outline);"><i data-name="share-2" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div>
+              <div class="mt-3 text-center"><p class="text-sm font-medium mb-0.5" style="color: var(--color-on-surface);">裂变机制落地</p><p class="text-xs" style="color: var(--color-on-surface-variant);">用户增长引擎</p><span class="badge mt-1.5" style="background: var(--color-surface-container-highest); color: var(--color-on-surface-variant);">待启动</span><p class="text-xs mt-1" style="color: var(--color-on-surface-variant);">预计2026年Q4</p></div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- 核心卡点提示卡片 -->
-      <div id="card-bottleneck" class="glass-card rounded-xl p-5 border border-error/20 relative overflow-hidden">
-        <!-- 背景装饰 -->
-        <div class="absolute top-0 right-0 w-64 h-64 bg-error/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
-
-        <div class="relative">
-          <div class="flex items-center gap-2 mb-4">
-            <div class="w-9 h-9 rounded-lg bg-error/15 flex items-center justify-center">
-              <i data-lucide="alert-octagon" class="w-5 h-5 text-error"></i>
-            </div>
-            <div>
-              <h2 class="text-base font-semibold text-on-surface">核心卡点</h2>
-              <p class="text-xs text-on-surface-variant">闭环断裂，需紧急推进</p>
-            </div>
-          </div>
-
-          <!-- 卡点描述 -->
-          <div class="p-4 rounded-lg bg-error/8 border border-error/15 mb-4">
-            <p class="text-sm text-on-surface leading-relaxed">
-              <span class="font-semibold text-error">有赞小程序未开通</span>，导致完整业务闭环断裂。当前无法实现从 SCRM 系统到用户触达的全链路打通，直接影响私域变现能力。
-            </p>
-          </div>
-
-          <!-- 闭环链路图 -->
-          <div class="flex items-center justify-between px-2 py-3">
-            <!-- 闭环节点 -->
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-success/15 border border-success/25 flex items-center justify-center">
-                  <i data-lucide="database" class="w-5 h-5 text-success"></i>
-                </div>
-                <span class="text-xs text-on-surface-variant mt-1.5">SCRM</span>
-              </div>
-              <i data-lucide="arrow-right" class="w-4 h-4 text-on-surface-variant/40"></i>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-error/15 border border-error/30 flex items-center justify-center relative">
-                  <i data-lucide="shopping-bag" class="w-5 h-5 text-error"></i>
-                  <div class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-error flex items-center justify-center">
-                    <i data-lucide="x" class="w-2.5 h-2.5 text-white"></i>
-                  </div>
-                </div>
-                <span class="text-xs text-error mt-1.5 font-medium">小程序</span>
-              </div>
-              <i data-lucide="arrow-right" class="w-4 h-4 text-on-surface-variant/40"></i>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-surface-container-high border border-outline/20 flex items-center justify-center opacity-40">
-                  <i data-lucide="file-text" class="w-5 h-5 text-on-surface-variant"></i>
-                </div>
-                <span class="text-xs text-on-surface-variant mt-1.5 opacity-40">订单API</span>
-              </div>
-              <i data-lucide="arrow-right" class="w-4 h-4 text-on-surface-variant/40"></i>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-surface-container-high border border-outline/20 flex items-center justify-center opacity-40">
-                  <i data-lucide="tags" class="w-5 h-5 text-on-surface-variant"></i>
-                </div>
-                <span class="text-xs text-on-surface-variant mt-1.5 opacity-40">标签</span>
-              </div>
-              <i data-lucide="arrow-right" class="w-4 h-4 text-on-surface-variant/40"></i>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-surface-container-high border border-outline/20 flex items-center justify-center opacity-40">
-                  <i data-lucide="send" class="w-5 h-5 text-on-surface-variant"></i>
-                </div>
-                <span class="text-xs text-on-surface-variant mt-1.5 opacity-40">触达</span>
-              </div>
-              <i data-lucide="arrow-right" class="w-4 h-4 text-on-surface-variant/40"></i>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-lg bg-surface-container-high border border-outline/20 flex items-center justify-center opacity-40">
-                  <i data-lucide="ticket" class="w-5 h-5 text-on-surface-variant"></i>
-                </div>
-                <span class="text-xs text-on-surface-variant mt-1.5 opacity-40">优惠券</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 影响说明 -->
-          <div class="mt-3 grid grid-cols-3 gap-3">
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <p class="text-xs text-on-surface-variant mb-1">影响范围</p>
-              <p class="text-sm font-medium text-on-surface">全链路阻断</p>
-              <p class="text-xs text-on-surface-variant mt-0.5">6个环节全部受影响</p>
-            </div>
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <p class="text-xs text-on-surface-variant mb-1">预计损失</p>
-              <p class="text-sm font-medium text-error">无法量化转化</p>
-              <p class="text-xs text-on-surface-variant mt-0.5">5万+用户无法触达</p>
-            </div>
-            <div class="p-3 rounded-lg bg-surface-container/50 border border-outline-variant/10">
-              <p class="text-xs text-on-surface-variant mb-1">解决方案</p>
-              <p class="text-sm font-medium text-primary">开通有赞小程序</p>
-              <p class="text-xs text-on-surface-variant mt-0.5">打通闭环关键节点</p>
-            </div>
-          </div>
+      <!-- 第4层：核心卡点 -->
+      <section class="card p-5" style="border-color: rgba(255,107,107,0.2);">
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background: rgba(255,107,107,0.15);"><i data-name="alert-octagon" class="w-5 h-5" style="color: var(--color-error);"></i></div>
+          <div><h2 class="text-base font-semibold" style="color: var(--color-on-surface);">核心卡点</h2><p class="text-xs" style="color: var(--color-on-surface-variant);">闭环断裂，需紧急推进</p></div>
         </div>
-      </div>
+        <div class="p-4 rounded-lg mb-4" style="background: rgba(255,107,107,0.08); border: 1px solid rgba(255,107,107,0.15);">
+          <p class="text-sm leading-relaxed" style="color: var(--color-on-surface);"><span class="font-semibold" style="color: var(--color-error);">有赞小程序未开通</span>，导致完整业务闭环断裂。当前无法实现从 SCRM 系统到用户触达的全链路打通，直接影响私域变现能力。</p>
+        </div>
+        <!-- 闭环链路图 -->
+        <div class="flex items-center justify-between px-2 py-3">
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background: rgba(98,250,211,0.15); border: 1px solid rgba(98,250,211,0.25);"><i data-name="database" class="w-5 h-5" style="color: var(--color-success);"></i></div><span class="text-xs mt-1.5" style="color: var(--color-on-surface-variant);">SCRM</span></div><i data-name="arrow-right" class="w-4 h-4" style="color: rgba(154,167,199,0.4);"></i></div>
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center relative" style="background: rgba(255,107,107,0.15); border: 1px solid rgba(255,107,107,0.3);"><i data-name="shopping-bag" class="w-5 h-5" style="color: var(--color-error);"></i><div class="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style="background: var(--color-error);"><i data-name="x" class="w-2.5 h-2.5" style="color: white;"></i></div></div><span class="text-xs mt-1.5 font-medium" style="color: var(--color-error);">小程序</span></div><i data-name="arrow-right" class="w-4 h-4" style="color: rgba(154,167,199,0.4);"></i></div>
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center opacity-40" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><i data-name="file-text" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div><span class="text-xs mt-1.5 opacity-40" style="color: var(--color-on-surface-variant);">订单API</span></div><i data-name="arrow-right" class="w-4 h-4" style="color: rgba(154,167,199,0.4);"></i></div>
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center opacity-40" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><i data-name="tags" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div><span class="text-xs mt-1.5 opacity-40" style="color: var(--color-on-surface-variant);">标签</span></div><i data-name="arrow-right" class="w-4 h-4" style="color: rgba(154,167,199,0.4);"></i></div>
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center opacity-40" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><i data-name="send" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div><span class="text-xs mt-1.5 opacity-40" style="color: var(--color-on-surface-variant);">触达</span></div><i data-name="arrow-right" class="w-4 h-4" style="color: rgba(154,167,199,0.4);"></i></div>
+          <div class="flex items-center gap-2"><div class="flex flex-col items-center"><div class="w-12 h-12 rounded-lg flex items-center justify-center opacity-40" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><i data-name="ticket" class="w-5 h-5" style="color: var(--color-on-surface-variant);"></i></div><span class="text-xs mt-1.5 opacity-40" style="color: var(--color-on-surface-variant);">优惠券</span></div></div>
+        </div>
+        <!-- 影响说明 -->
+        <div class="mt-3 grid grid-cols-3 gap-3">
+          <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><p class="text-xs mb-1" style="color: var(--color-on-surface-variant);">影响范围</p><p class="text-sm font-medium" style="color: var(--color-on-surface);">全链路阻断</p><p class="text-xs mt-0.5" style="color: var(--color-on-surface-variant);">6个环节全部受影响</p></div>
+          <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><p class="text-xs mb-1" style="color: var(--color-on-surface-variant);">预计损失</p><p class="text-sm font-medium" style="color: var(--color-error);">无法量化转化</p><p class="text-xs mt-0.5" style="color: var(--color-on-surface-variant);">5万+用户无法触达</p></div>
+          <div class="p-3 rounded-lg" style="background: var(--color-surface-container-high); border: 1px solid var(--color-outline-variant);"><p class="text-xs mb-1" style="color: var(--color-on-surface-variant);">解决方案</p><p class="text-sm font-medium" style="color: var(--color-primary);">开通有赞小程序</p><p class="text-xs mt-0.5" style="color: var(--color-on-surface-variant);">打通闭环关键节点</p></div>
+        </div>
+      </section>
 
+      <!-- @main-content:end -->
     </main>
-    <!-- @main-content:end -->
   </div>
-  <!-- @nav:end 导航组件 -->
-
-  <script>
-  $(function() {
-    // 用户规模卡片点击 - 展开详细数据弹窗
-    $('#card-qw-users, #card-alipay-users, #card-member-users').on('click', function() {
-      var cardId = $(this).attr('id');
-      console.log('展开用户规模详情:', cardId);
-      // 后续应实现：弹出该渠道的详细数据弹窗，包含用户增长趋势、来源分布、活跃时段等细分数据
-    });
-
-    // 时间线节点点击 - 展开该阶段任务清单
-    $('#timeline-node-1, #timeline-node-2, #timeline-node-3, #timeline-node-4, #timeline-node-5').on('click', function() {
-      var nodeId = $(this).attr('id');
-      console.log('展开时间线节点详情:', nodeId);
-      // 后续应实现：
-      // 1. 在该节点下方展开任务清单面板
-      // 2. 显示该阶段的具体任务列表、责任人、截止时间
-      // 3. 每个任务显示完成状态和进度
-      // 4. 点击面板外部或关闭按钮收起
-    });
-
-    // 核心卡点卡片 - 查看解决方案
-    $('#card-bottleneck').on('click', function(e) {
-      // 避免重复触发子元素点击
-      if ($(e.target).closest('a, button').length) return;
-      console.log('查看核心卡点详情与解决方案');
-      // 后续应实现：跳转到行动计划页面，定位到有赞小程序开通任务
-      // window.location.href = 'actions.html?issue=youzan-miniapp';
-    });
-  });
-  </script>
-  <script>lucide.createIcons();</script>
 </body>
 
+<script>
+  $(function() {
+    lucide.createIcons();
+  });
+</script>
 </html>

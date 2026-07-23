@@ -56,19 +56,43 @@
 
   <style>
     /* 毛玻璃效果 */
-    .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
     .glass-sidebar { background: rgba(15,22,41,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
     .glass-header { background: rgba(7,10,20,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-    /* 发光效果 */
-    .glow-primary { box-shadow: 0 0 20px rgba(124,92,255,0.15); }
-    .glow-accent { box-shadow: 0 0 20px rgba(105,231,255,0.12); }
-    /* 渐变背景 */
-    .bg-gradient-mesh {
-      background:
-        radial-gradient(ellipse 600px 400px at 10% 20%, rgba(124,92,255,0.08) 0%, transparent 70%),
-        radial-gradient(ellipse 500px 350px at 90% 80%, rgba(105,231,255,0.05) 0%, transparent 70%),
-        #070A14;
+    /* 标准卡片 */
+    .card {
+      background: var(--color-surface-container);
+      border: 1px solid var(--color-outline-variant);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+    }
+    /* 卡片悬停效果 */
+    .card-hover {
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    }
+    .card-hover:hover {
+      border-color: var(--color-outline);
+      box-shadow: var(--shadow-float);
+      transform: translateY(-1px);
+    }
+    /* 导航链接 */
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 0.75rem;
+      border-radius: var(--radius-lg);
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: var(--color-on-surface-variant);
+      transition: background-color 0.15s, color 0.15s;
+    }
+    .nav-link:hover {
+      background: var(--color-surface-container);
+      color: var(--color-on-surface);
+    }
+    .nav-link[aria-current="page"] {
+      background: var(--color-primary-container);
+      color: var(--color-primary);
     }
   </style>
 
@@ -91,27 +115,27 @@
   </script>
 </head>
 
-<body class="bg-background text-on-surface font-sans bg-gradient-mesh min-h-screen">
+<body class="bg-background text-on-surface font-sans min-h-screen">
 
-  <!-- @nav:start 导航组件，不需要的页面则不要复制此段 -->
+  <!-- @nav:start 导航组件 -->
   <!-- 顶部导航栏 -->
-  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline-variant/20">
+  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline">
     <div class="flex items-center gap-3">
       <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-        <i data-lucide="chart-column-big" class="w-4.5 h-4.5 text-primary"></i>
+        <i data-name="chart-column-big" class="w-5 h-5 text-primary"></i>
       </div>
       <span class="font-bold text-base text-on-surface tracking-tight">久久金运营看板</span>
     </div>
     <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20">
-        <i data-lucide="calendar" class="w-3.5 h-3.5 text-on-surface-variant"></i>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant">
+        <i data-name="calendar" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="text-xs text-on-surface-variant">2026年6月</span>
       </div>
-      <button class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
-        <i data-lucide="bell" class="w-4 h-4 text-on-surface-variant"></i>
+      <button id="btn-notification" class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
+        <i data-name="bell" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error"></span>
       </button>
-      <div class="flex items-center gap-2 pl-3 border-l border-outline-variant/20">
+      <div class="flex items-center gap-2 pl-3 border-l border-outline">
         <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">初</div>
       </div>
     </div>
@@ -119,29 +143,35 @@
 
   <div class="flex" style="height: calc(100vh - 3.5rem)">
     <!-- 侧边栏 -->
-    <aside class="glass-sidebar w-56 shrink-0 border-r border-outline-variant/20 overflow-y-auto">
+    <aside class="glass-sidebar w-64 shrink-0 border-r border-outline-variant overflow-y-auto">
       <nav class="p-3 space-y-0.5">
-        <a href="home.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container text-primary font-medium text-sm" aria-current="page">
-          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
+        <!-- 导航-总览仪表盘（当前页） -->
+        <a href="home.html" class="nav-link" aria-current="page">
+          <i data-name="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
         </a>
-        <a href="meituan.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="store" class="w-4 h-4"></i>美团运营
+        <!-- 导航-美团运营 -->
+        <a href="meituan.html" class="nav-link">
+          <i data-name="store" class="w-4 h-4"></i>美团运营
         </a>
-        <a href="content.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="pen-tool" class="w-4 h-4"></i>内容矩阵
+        <!-- 导航-内容矩阵 -->
+        <a href="content.html" class="nav-link">
+          <i data-name="pen-tool" class="w-4 h-4"></i>内容矩阵
         </a>
-        <a href="private-domain.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="users" class="w-4 h-4"></i>私域运营
+        <!-- 导航-私域运营 -->
+        <a href="private-domain.html" class="nav-link">
+          <i data-name="users" class="w-4 h-4"></i>私域运营
         </a>
-        <a href="collaboration.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="network" class="w-4 h-4"></i>跨部门协同
+        <!-- 导航-跨部门协同 -->
+        <a href="collaboration.html" class="nav-link">
+          <i data-name="network" class="w-4 h-4"></i>跨部门协同
         </a>
-        <a href="actions.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="target" class="w-4 h-4"></i>行动计划
+        <!-- 导航-行动计划 -->
+        <a href="actions.html" class="nav-link">
+          <i data-name="target" class="w-4 h-4"></i>行动计划
         </a>
       </nav>
-      <!-- 侧边栏底部：模块健康度概览 -->
-      <div class="p-3 mt-auto border-t border-outline-variant/20">
+      <!-- 侧边栏底部：数据截止 -->
+      <div class="p-3 mt-auto border-t border-outline-variant">
         <div class="px-3 py-2">
           <p class="text-xs text-on-surface-variant mb-2">数据截止</p>
           <p class="text-xs text-on-surface font-medium">2026年6月30日</p>
@@ -159,8 +189,8 @@
           <p class="text-sm text-on-surface-variant mt-1">8大运营模块核心KPI与健康度 · 数据截止 2026年6月30日</p>
         </div>
         <div class="flex items-center gap-2">
-          <button id="btn-range-week" class="px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant/20 hover:bg-surface-container-high transition-colors">近7天</button>
-          <button id="btn-range-month" class="px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant/20 hover:bg-surface-container-high transition-colors">近30天</button>
+          <button id="btn-range-week" class="px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant hover:bg-surface-container-high transition-colors">近7天</button>
+          <button id="btn-range-month" class="px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant hover:bg-surface-container-high transition-colors">近30天</button>
           <button id="btn-range-quarter" class="px-3 py-1.5 rounded-lg text-xs font-medium text-primary bg-primary-container border border-primary/20 transition-colors">近3月</button>
         </div>
       </div>
@@ -169,13 +199,13 @@
       <div class="grid grid-cols-4 gap-4 mb-5">
 
         <!-- KPI卡片-1：GTV总额 -->
-        <a href="meituan.html" id="kpi-gtv" class="glass-card rounded-xl p-4 border border-outline-variant/20 hover:border-primary/30 transition-all cursor-pointer group block">
+        <a href="meituan.html" id="kpi-gtv" class="card card-hover p-4 block cursor-pointer group">
           <div class="flex items-center justify-between mb-3">
             <div class="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center">
-              <i data-lucide="banknote" class="w-4.5 h-4.5 text-primary"></i>
+              <i data-name="banknote" class="w-5 h-5 text-primary"></i>
             </div>
             <div class="flex items-center gap-1 text-success">
-              <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+              <i data-name="trending-up" class="w-4 h-4"></i>
               <span class="text-xs font-semibold">+12.3%</span>
             </div>
           </div>
@@ -185,13 +215,13 @@
         </a>
 
         <!-- KPI卡片-2：门店覆盖率 -->
-        <a href="meituan.html" id="kpi-store" class="glass-card rounded-xl p-4 border border-outline-variant/20 hover:border-primary/30 transition-all cursor-pointer group block">
+        <a href="meituan.html" id="kpi-store" class="card card-hover p-4 block cursor-pointer group">
           <div class="flex items-center justify-between mb-3">
             <div class="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center">
-              <i data-lucide="store" class="w-4.5 h-4.5 text-accent"></i>
+              <i data-name="store" class="w-5 h-5 text-accent"></i>
             </div>
             <div class="flex items-center gap-1 text-warning">
-              <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+              <i data-name="trending-up" class="w-4 h-4"></i>
               <span class="text-xs font-semibold">+3.2%</span>
             </div>
           </div>
@@ -201,13 +231,13 @@
         </a>
 
         <!-- KPI卡片-3：客服响应 -->
-        <a href="collaboration.html" id="kpi-response" class="glass-card rounded-xl p-4 border border-outline-variant/20 hover:border-primary/30 transition-all cursor-pointer group block">
+        <a href="collaboration.html" id="kpi-response" class="card card-hover p-4 block cursor-pointer group">
           <div class="flex items-center justify-between mb-3">
             <div class="w-9 h-9 rounded-lg bg-error/15 flex items-center justify-center">
-              <i data-lucide="clock" class="w-4.5 h-4.5 text-error"></i>
+              <i data-name="clock" class="w-5 h-5 text-error"></i>
             </div>
             <div class="flex items-center gap-1 text-error">
-              <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+              <i data-name="trending-up" class="w-4 h-4"></i>
               <span class="text-xs font-semibold">+2.1min</span>
             </div>
           </div>
@@ -217,13 +247,13 @@
         </a>
 
         <!-- KPI卡片-4：私域用户 -->
-        <a href="private-domain.html" id="kpi-users" class="glass-card rounded-xl p-4 border border-outline-variant/20 hover:border-primary/30 transition-all cursor-pointer group block">
+        <a href="private-domain.html" id="kpi-users" class="card card-hover p-4 block cursor-pointer group">
           <div class="flex items-center justify-between mb-3">
             <div class="w-9 h-9 rounded-lg bg-success/15 flex items-center justify-center">
-              <i data-lucide="users" class="w-4.5 h-4.5 text-success"></i>
+              <i data-name="users" class="w-5 h-5 text-success"></i>
             </div>
             <div class="flex items-center gap-1 text-success">
-              <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+              <i data-name="trending-up" class="w-4 h-4"></i>
               <span class="text-xs font-semibold">+8.7%</span>
             </div>
           </div>
@@ -238,7 +268,7 @@
       <div class="grid grid-cols-2 gap-4 mb-5">
 
         <!-- 中部左侧：模块健康度雷达图 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+        <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-base font-semibold text-on-surface">模块健康度</h2>
             <span class="text-xs text-on-surface-variant">8大模块综合评估</span>
@@ -315,7 +345,7 @@
         </div>
 
         <!-- 中部右侧：近3个月关键趋势折线图 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+        <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-base font-semibold text-on-surface">关键趋势</h2>
             <span class="text-xs text-on-surface-variant">近12周 · 4月-6月</span>
@@ -413,14 +443,14 @@
       </div>
 
       <!-- ====== 底部：预警指标列表 ====== -->
-      <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+      <div class="card p-5">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
             <h2 class="text-base font-semibold text-on-surface">预警指标</h2>
             <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">6项未达标</span>
           </div>
-          <button id="btn-filter-warning" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant/20 hover:bg-surface-container-high transition-colors">
-            <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+          <button id="btn-filter-warning" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant bg-surface-container border border-outline-variant hover:bg-surface-container-high transition-colors">
+            <i data-name="filter" class="w-4 h-4"></i>
             筛选
           </button>
         </div>
@@ -431,7 +461,7 @@
           <a href="collaboration.html?issue=response_time" id="warning-item-1" class="flex items-center justify-between px-4 py-3 rounded-lg bg-error/8 border border-error/20 hover:bg-error/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-error/15 flex items-center justify-center shrink-0">
-                <i data-lucide="alert-triangle" class="w-4 h-4 text-error"></i>
+                <i data-name="alert-triangle" class="w-4 h-4 text-error"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">客服平均响应时长</p>
@@ -444,7 +474,7 @@
                 <p class="text-xs text-on-surface-variant">30秒回复率仅 49.6%</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">严重</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -452,7 +482,7 @@
           <a href="meituan.html?issue=lead_backlog" id="warning-item-2" class="flex items-center justify-between px-4 py-3 rounded-lg bg-error/8 border border-error/20 hover:bg-error/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-error/15 flex items-center justify-center shrink-0">
-                <i data-lucide="database" class="w-4 h-4 text-error"></i>
+                <i data-name="database" class="w-4 h-4 text-error"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">客资积压率</p>
@@ -465,7 +495,7 @@
                 <p class="text-xs text-on-surface-variant">超标 35.4pp</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">严重</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -473,7 +503,7 @@
           <a href="meituan.html?issue=zero_gtv" id="warning-item-3" class="flex items-center justify-between px-4 py-3 rounded-lg bg-error/8 border border-error/20 hover:bg-error/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-error/15 flex items-center justify-center shrink-0">
-                <i data-lucide="store" class="w-4 h-4 text-error"></i>
+                <i data-name="store" class="w-4 h-4 text-error"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">零GTV门店数</p>
@@ -486,7 +516,7 @@
                 <p class="text-xs text-on-surface-variant">占上线门店 19.6%</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">严重</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -494,7 +524,7 @@
           <a href="meituan.html?issue=promotion_coverage" id="warning-item-4" class="flex items-center justify-between px-4 py-3 rounded-lg bg-warning/8 border border-warning/20 hover:bg-warning/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
-                <i data-lucide="megaphone" class="w-4 h-4 text-warning"></i>
+                <i data-name="megaphone" class="w-4 h-4 text-warning"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">推广覆盖率</p>
@@ -507,7 +537,7 @@
                 <p class="text-xs text-on-surface-variant">距目标差 10.7pp</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">警告</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -515,7 +545,7 @@
           <a href="content.html?issue=xhs_cost" id="warning-item-5" class="flex items-center justify-between px-4 py-3 rounded-lg bg-warning/8 border border-warning/20 hover:bg-warning/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
-                <i data-lucide="coins" class="w-4 h-4 text-warning"></i>
+                <i data-name="coins" class="w-4 h-4 text-warning"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">小红书获客成本</p>
@@ -528,7 +558,7 @@
                 <p class="text-xs text-on-surface-variant">超标 200%</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">警告</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -536,7 +566,7 @@
           <a href="meituan.html?issue=city_competition" id="warning-item-6" class="flex items-center justify-between px-4 py-3 rounded-lg bg-warning/8 border border-warning/20 hover:bg-warning/12 transition-colors group cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
-                <i data-lucide="swords" class="w-4 h-4 text-warning"></i>
+                <i data-name="swords" class="w-4 h-4 text-warning"></i>
               </div>
               <div>
                 <p class="text-sm font-medium text-on-surface">同城互抢记录</p>
@@ -549,7 +579,7 @@
                 <p class="text-xs text-on-surface-variant">涉及 47家门店</p>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">警告</span>
-              <i data-lucide="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
+              <i data-name="chevron-right" class="w-4 h-4 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"></i>
             </div>
           </a>
 
@@ -567,17 +597,10 @@
       $('#btn-range-week, #btn-range-month, #btn-range-quarter').on('click', function() {
         $('#btn-range-week, #btn-range-month, #btn-range-quarter')
           .removeClass('text-primary bg-primary-container border-primary/20')
-          .addClass('text-on-surface-variant bg-surface-container border-outline-variant/20');
+          .addClass('text-on-surface-variant bg-surface-container border-outline-variant');
         $(this)
-          .removeClass('text-on-surface-variant bg-surface-container border-outline-variant/20')
+          .removeClass('text-on-surface-variant bg-surface-container border-outline-variant')
           .addClass('text-primary bg-primary-container border-primary/20');
-      });
-
-      // KPI卡片悬停效果增强
-      $('#kpi-gtv, #kpi-store, #kpi-response, #kpi-users').on('mouseenter', function() {
-        $(this).addClass('glow-primary');
-      }).on('mouseleave', function() {
-        $(this).removeClass('glow-primary');
       });
 
       // 预警项点击 - 跳转到对应模块详情页并定位问题

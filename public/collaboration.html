@@ -57,18 +57,34 @@
   <style>
     /* 毛玻璃效果 */
     .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
     .glass-sidebar { background: rgba(15,22,41,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
     .glass-header { background: rgba(7,10,20,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-    /* 发光效果 */
-    .glow-primary { box-shadow: 0 0 20px rgba(124,92,255,0.15); }
-    .glow-accent { box-shadow: 0 0 20px rgba(105,231,255,0.12); }
-    /* 渐变背景 */
-    .bg-gradient-mesh {
-      background:
-        radial-gradient(ellipse 600px 400px at 10% 20%, rgba(124,92,255,0.08) 0%, transparent 70%),
-        radial-gradient(ellipse 500px 350px at 90% 80%, rgba(105,231,255,0.05) 0%, transparent 70%),
-        #070A14;
+    /* 标准卡片 */
+    .card {
+      background: var(--color-surface-container);
+      border: 1px solid var(--color-outline-variant);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+    }
+    /* 导航链接 */
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 0.75rem;
+      border-radius: 0.5rem;
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: var(--color-on-surface-variant);
+      transition: color 0.15s, background-color 0.15s;
+    }
+    .nav-link:hover {
+      background: var(--color-surface-container);
+      color: var(--color-on-surface);
+    }
+    .nav-link[aria-current="page"] {
+      background: var(--color-primary-container);
+      color: var(--color-primary);
     }
   </style>
 
@@ -91,27 +107,27 @@
   </script>
 </head>
 
-<body class="bg-background text-on-surface font-sans bg-gradient-mesh min-h-screen">
+<body class="bg-background text-on-surface font-sans min-h-screen">
 
   <!-- @nav:start 导航组件，不需要的页面则不要复制此段 -->
   <!-- 顶部导航栏 -->
-  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline-variant/20">
+  <header class="glass-header sticky top-0 z-50 h-14 flex items-center justify-between px-5 border-b border-outline">
     <div class="flex items-center gap-3">
       <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-        <i data-lucide="chart-column-big" class="w-4.5 h-4.5 text-primary"></i>
+        <i data-name="chart-column-big" class="w-5 h-5 text-primary"></i>
       </div>
       <span class="font-bold text-base text-on-surface tracking-tight">久久金运营看板</span>
     </div>
     <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/20">
-        <i data-lucide="calendar" class="w-3.5 h-3.5 text-on-surface-variant"></i>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container border border-outline">
+        <i data-name="calendar" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="text-xs text-on-surface-variant">2026年6月</span>
       </div>
-      <button class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
-        <i data-lucide="bell" class="w-4 h-4 text-on-surface-variant"></i>
+      <button id="btn-notification" class="relative p-2 rounded-lg hover:bg-surface-container transition-colors">
+        <i data-name="bell" class="w-4 h-4 text-on-surface-variant"></i>
         <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error"></span>
       </button>
-      <div class="flex items-center gap-2 pl-3 border-l border-outline-variant/20">
+      <div class="flex items-center gap-2 pl-3 border-l border-outline">
         <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">初</div>
       </div>
     </div>
@@ -119,29 +135,29 @@
 
   <div class="flex" style="height: calc(100vh - 3.5rem)">
     <!-- 侧边栏 -->
-    <aside class="glass-sidebar w-56 shrink-0 border-r border-outline-variant/20 overflow-y-auto">
+    <aside class="glass-sidebar w-64 shrink-0 border-r border-outline overflow-y-auto flex flex-col">
       <nav class="p-3 space-y-0.5">
-        <a href="home.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
+        <a href="home.html" class="nav-link">
+          <i data-name="layout-dashboard" class="w-4 h-4"></i>总览仪表盘
         </a>
-        <a href="meituan.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="store" class="w-4 h-4"></i>美团运营
+        <a href="meituan.html" class="nav-link">
+          <i data-name="store" class="w-4 h-4"></i>美团运营
         </a>
-        <a href="content.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="pen-tool" class="w-4 h-4"></i>内容矩阵
+        <a href="content.html" class="nav-link">
+          <i data-name="pen-tool" class="w-4 h-4"></i>内容矩阵
         </a>
-        <a href="private-domain.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="users" class="w-4 h-4"></i>私域运营
+        <a href="private-domain.html" class="nav-link">
+          <i data-name="users" class="w-4 h-4"></i>私域运营
         </a>
-        <a href="collaboration.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container text-primary font-medium text-sm" aria-current="page">
-          <i data-lucide="network" class="w-4 h-4"></i>跨部门协同
+        <a href="collaboration.html" class="nav-link" aria-current="page">
+          <i data-name="network" class="w-4 h-4"></i>跨部门协同
         </a>
-        <a href="actions.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-medium text-sm transition-colors">
-          <i data-lucide="target" class="w-4 h-4"></i>行动计划
+        <a href="actions.html" class="nav-link">
+          <i data-name="target" class="w-4 h-4"></i>行动计划
         </a>
       </nav>
       <!-- 侧边栏底部：模块健康度概览 -->
-      <div class="p-3 mt-auto border-t border-outline-variant/20">
+      <div class="p-3 mt-auto border-t border-outline">
         <div class="px-3 py-2">
           <p class="text-xs text-on-surface-variant mb-2">数据截止</p>
           <p class="text-xs text-on-surface font-medium">2026年6月30日</p>
@@ -158,24 +174,24 @@
           <p class="text-sm text-on-surface-variant mt-1">客服部 & 门店管理部协同数据看板 · 数据截止 2026年6月</p>
         </div>
         <div class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container text-xs text-on-surface-variant border border-outline-variant/20">
-            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container text-xs text-on-surface-variant border border-outline">
+            <i data-name="clock" class="w-4 h-4"></i>
             更新于 2026-06-30
           </span>
         </div>
       </div>
 
       <!-- Tab 导航栏 -->
-      <div id="dept-tabs" class="flex items-center gap-1 mb-6 p-1 bg-surface-container rounded-lg w-fit">
+      <div id="dept-tabs" class="flex items-center gap-1 mb-6 p-1 bg-surface-container rounded-lg w-fit" style="border-radius: var(--radius-md);">
         <button id="tab-customer-service" class="px-4 py-2 rounded-md text-sm font-medium bg-primary text-on-primary transition-all">
           <span class="inline-flex items-center gap-2">
-            <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
+            <i data-name="headphones" class="w-4 h-4"></i>
             客服部
           </span>
         </button>
         <button id="tab-store-management" class="px-4 py-2 rounded-md text-sm font-medium text-on-surface-variant hover:text-on-surface transition-all">
           <span class="inline-flex items-center gap-2">
-            <i data-lucide="building-2" class="w-3.5 h-3.5"></i>
+            <i data-name="building-2" class="w-4 h-4"></i>
             门店管理部
           </span>
         </button>
@@ -186,33 +202,33 @@
         <!-- 顶部3个指标卡片 -->
         <div class="grid grid-cols-3 gap-4 mb-6">
           <!-- 指标卡片-周客资总量 -->
-          <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+          <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">周客资总量</span>
-              <div class="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                <i data-lucide="phone-incoming" class="w-4 h-4 text-primary"></i>
+              <div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+                <i data-name="phone-incoming" class="w-4 h-4 text-primary"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-on-surface">5,250<span class="text-lg text-on-surface-variant">+</span></p>
             <p class="text-xs text-on-surface-variant mt-2">较上周 <span class="text-success">↑ 3.2%</span></p>
           </div>
           <!-- 指标卡片-5分钟响应率 -->
-          <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+          <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">5分钟响应率</span>
               <div class="w-8 h-8 rounded-lg bg-success/15 flex items-center justify-center">
-                <i data-lucide="timer" class="w-4 h-4 text-success"></i>
+                <i data-name="timer" class="w-4 h-4 text-success"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-success">达标</p>
             <p class="text-xs text-on-surface-variant mt-2">平均响应 4.2 分钟</p>
           </div>
           <!-- 指标卡片-400接听率 -->
-          <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+          <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">400接听率</span>
               <div class="w-8 h-8 rounded-lg bg-accent-container flex items-center justify-center">
-                <i data-lucide="phone-call" class="w-4 h-4 text-accent"></i>
+                <i data-name="phone-call" class="w-4 h-4 text-accent"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-on-surface">97<span class="text-lg text-on-surface-variant">%+</span></p>
@@ -221,7 +237,7 @@
         </div>
 
         <!-- 各场景加V率柱状图 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20 mb-6">
+        <div class="card p-5 mb-6">
           <div class="flex items-center justify-between mb-5">
             <div>
               <h2 class="text-base font-semibold text-on-surface">各场景加V率</h2>
@@ -288,10 +304,10 @@
         </div>
 
         <!-- 底部：客服-私域协同数据 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+        <div class="card p-5">
           <div class="flex items-center gap-2 mb-5">
-            <div class="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-              <i data-lucide="link" class="w-4 h-4 text-primary"></i>
+            <div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+              <i data-name="link" class="w-4 h-4 text-primary"></i>
             </div>
             <div>
               <h2 class="text-base font-semibold text-on-surface">客服-私域协同数据</h2>
@@ -301,9 +317,9 @@
 
           <div class="grid grid-cols-3 gap-4">
             <!-- 协同指标-每周加V -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center gap-2 mb-3">
-                <i data-lucide="user-plus" class="w-4 h-4 text-primary"></i>
+                <i data-name="user-plus" class="w-4 h-4 text-primary"></i>
                 <span class="text-xs text-on-surface-variant font-medium">每周加V人数</span>
               </div>
               <p class="text-2xl font-bold text-on-surface">73<span class="text-sm text-on-surface-variant ml-1">人/周</span></p>
@@ -316,9 +332,9 @@
             </div>
 
             <!-- 协同指标-点击未下单转化 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-error/20">
               <div class="flex items-center gap-2 mb-3">
-                <i data-lucide="alert-triangle" class="w-4 h-4 text-error"></i>
+                <i data-name="alert-triangle" class="w-4 h-4 text-error"></i>
                 <span class="text-xs text-on-surface-variant font-medium">点击未下单转化</span>
               </div>
               <p class="text-2xl font-bold text-error">28<span class="text-sm text-on-surface-variant ml-1">/ 4,460</span></p>
@@ -327,9 +343,9 @@
             </div>
 
             <!-- 协同指标-机会测算 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-success/20">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-success/20">
               <div class="flex items-center gap-2 mb-3">
-                <i data-lucide="trending-up" class="w-4 h-4 text-success"></i>
+                <i data-name="trending-up" class="w-4 h-4 text-success"></i>
                 <span class="text-xs text-on-surface-variant font-medium">机会测算</span>
               </div>
               <p class="text-sm text-on-surface-variant mb-1">加V率从 <span class="text-error font-semibold">2.4%</span> → <span class="text-success font-semibold">5%</span></p>
@@ -345,11 +361,11 @@
         <!-- 门店总数卡片 -->
         <div class="grid grid-cols-3 gap-4 mb-6">
           <!-- 门店总数 -->
-          <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+          <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">门店总数</span>
-              <div class="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                <i data-lucide="building-2" class="w-4 h-4 text-primary"></i>
+              <div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+                <i data-name="building-2" class="w-4 h-4 text-primary"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-on-surface">297<span class="text-lg text-on-surface-variant">家</span></p>
@@ -360,11 +376,11 @@
           </div>
 
           <!-- 渠道来源可信度 -->
-          <div class="glass-card rounded-xl p-5 border border-error/20">
+          <div class="card p-5" style="border-color: rgba(255,107,107,0.2);">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">渠道来源可信度</span>
               <div class="w-8 h-8 rounded-lg bg-error/15 flex items-center justify-center">
-                <i data-lucide="shield-alert" class="w-4 h-4 text-error"></i>
+                <i data-name="shield-alert" class="w-4 h-4 text-error"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-error">73.3<span class="text-lg text-on-surface-variant">%</span></p>
@@ -373,11 +389,11 @@
           </div>
 
           <!-- 整体承接度 -->
-          <div class="glass-card rounded-xl p-5 border border-warning/20">
+          <div class="card p-5" style="border-color: rgba(255,184,77,0.2);">
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs text-on-surface-variant font-medium uppercase tracking-wide">整体承接度</span>
               <div class="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center">
-                <i data-lucide="gauge" class="w-4 h-4 text-warning"></i>
+                <i data-name="gauge" class="w-4 h-4 text-warning"></i>
               </div>
             </div>
             <p class="text-3xl font-bold text-warning">偏低</p>
@@ -386,7 +402,7 @@
         </div>
 
         <!-- 各运营模块门店承接度仪表盘 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20 mb-6">
+        <div class="card p-5 mb-6">
           <div class="flex items-center justify-between mb-5">
             <div>
               <h2 class="text-base font-semibold text-on-surface">各运营模块门店承接度</h2>
@@ -396,7 +412,7 @@
 
           <div class="grid grid-cols-3 gap-4">
             <!-- 仪表盘-美团 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">美团</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">部分承接</span>
@@ -411,7 +427,7 @@
             </div>
 
             <!-- 仪表盘-高德 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">高德</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-error/15 text-error">弱</span>
@@ -425,7 +441,7 @@
             </div>
 
             <!-- 仪表盘-图文线 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">图文线</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-on-surface-variant/15 text-on-surface-variant">基本无</span>
@@ -439,7 +455,7 @@
             </div>
 
             <!-- 仪表盘-短视频 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">短视频</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">转型中</span>
@@ -453,7 +469,7 @@
             </div>
 
             <!-- 仪表盘-小红书 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">小红书</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-on-surface-variant/15 text-on-surface-variant">不感知</span>
@@ -467,7 +483,7 @@
             </div>
 
             <!-- 仪表盘-私域 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-outline-variant/10">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-outline">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-sm font-medium text-on-surface">私域</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/15 text-warning">自发状态</span>
@@ -483,10 +499,10 @@
         </div>
 
         <!-- 直营 vs 加盟对比 -->
-        <div class="glass-card rounded-xl p-5 border border-outline-variant/20">
+        <div class="card p-5">
           <div class="flex items-center gap-2 mb-5">
             <div class="w-8 h-8 rounded-lg bg-accent-container flex items-center justify-center">
-              <i data-lucide="git-compare" class="w-4 h-4 text-accent"></i>
+              <i data-name="git-compare" class="w-4 h-4 text-accent"></i>
             </div>
             <div>
               <h2 class="text-base font-semibold text-on-surface">直营 vs 加盟对比</h2>
@@ -496,10 +512,10 @@
 
           <div class="grid grid-cols-2 gap-4">
             <!-- 直营门店卡片 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-accent/20">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-accent/20">
               <div class="flex items-center gap-2 mb-4">
                 <div class="w-6 h-6 rounded-md bg-accent/20 flex items-center justify-center">
-                  <i data-lucide="crown" class="w-3.5 h-3.5 text-accent"></i>
+                  <i data-name="crown" class="w-4 h-4 text-accent"></i>
                 </div>
                 <span class="text-sm font-semibold text-accent">直营门店</span>
                 <span class="text-xs text-on-surface-variant ml-auto">127 家</span>
@@ -529,10 +545,10 @@
             </div>
 
             <!-- 加盟门店卡片 -->
-            <div class="bg-surface-container/50 rounded-lg p-4 border border-warning/20">
+            <div class="bg-surface-container-high rounded-lg p-4 border border-warning/20">
               <div class="flex items-center gap-2 mb-4">
                 <div class="w-6 h-6 rounded-md bg-warning/20 flex items-center justify-center">
-                  <i data-lucide="handshake" class="w-3.5 h-3.5 text-warning"></i>
+                  <i data-name="handshake" class="w-4 h-4 text-warning"></i>
                 </div>
                 <span class="text-sm font-semibold text-warning">加盟门店</span>
                 <span class="text-xs text-on-surface-variant ml-auto">170 家</span>
