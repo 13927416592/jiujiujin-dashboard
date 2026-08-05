@@ -85,29 +85,19 @@ async function main() {
   // 截图首页
   await page.screenshot({ path: path.join(CONFIG.downloadDir, '01-home.png'), fullPage: true });
   
-  // 点击左侧「数据中心」菜单
-  console.log('\n 点击「数据中心」菜单...');
-  
-  // 使用更精确的选择器
-  const dataCenterMenu = page.locator('nav a:has-text("数据中心"), nav div:has-text("数据中心"), .sidebar a:has-text("数据中心")').first();
-  
-  if (await dataCenterMenu.count() > 0) {
-    await dataCenterMenu.click();
-    console.log('  已点击数据中心');
-  } else {
-    console.log('  未找到菜单，尝试直接访问数据中心 URL');
-    await page.goto('https://creator.douyin.com/creator-micro/data/overview', {
-      waitUntil: 'networkidle',
-      timeout: 30000,
-    });
-  }
+  // 直接访问数据概览页面（避免菜单导航跳转到错误页面）
+  console.log('\n 访问数据概览页面...');
+  await page.goto('https://creator.douyin.com/creator-micro/data/overview', {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+  });
   
   // 等待数据中心页面加载
   console.log('  等待数据中心页面加载...');
   await new Promise(resolve => setTimeout(resolve, 8000));
   
   const currentUrl = page.url();
-  console.log(`当前 URL: ${currentUrl}`);
+  console.log(`  当前 URL: ${currentUrl}`);
   
   // 截图数据中心页面
   await page.screenshot({ path: path.join(CONFIG.downloadDir, '02-datacenter.png'), fullPage: true });
