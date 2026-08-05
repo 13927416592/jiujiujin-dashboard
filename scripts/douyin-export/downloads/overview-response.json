@@ -1,0 +1,537 @@
+{
+  "data": {
+    "account_search": {
+      "current_count": "5",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "0",
+      "option_list": [
+        {
+          "count": "2",
+          "date": "2026-07-19",
+          "last_day_incr_rate": "+100.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-50.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "2",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-09",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-07",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-20",
+          "last_day_incr_rate": "-"
+        }
+      ],
+      "option_type": 29,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "cancel_fans": {
+      "current_count": "2",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "-2",
+      "option_list": [
+        {
+          "count": "1",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "1",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-"
+        }
+      ],
+      "option_type": 24,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "comment": {
+      "current_count": "-9",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "-6",
+      "option_list": [
+        {
+          "count": "-7",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "-250.00%"
+        },
+        {
+          "count": "-3",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "+57.14%"
+        },
+        {
+          "count": "-3",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "+100.00%"
+        },
+        {
+          "count": "2",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "2",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-100.00%"
+        }
+      ],
+      "option_type": 4,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "digg": {
+      "current_count": "3",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "5",
+      "option_list": [
+        {
+          "count": "0",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "+100.00%"
+        },
+        {
+          "count": "-3",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "1",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "+133.33%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "3",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "2",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-33.33%"
+        }
+      ],
+      "option_type": 3,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "fans": {
+      "current_count": "4353",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "-20",
+      "option_list": [
+        {
+          "count": "622",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "-0.16%"
+        },
+        {
+          "count": "622",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "622",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "622",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "622",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "622",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "621",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-0.16%"
+        }
+      ],
+      "option_type": 6,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "music_create": {
+      "current_count": "0",
+      "extra": {
+        "now": 1785922754000
+      },
+      "last_period_incr": "0",
+      "option_list": [
+        {
+          "count": "0",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-"
+        }
+      ],
+      "option_type": 26,
+      "permission_key": "CreatorDataManage.UserOverview.Musician",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "new_fans": {
+      "current_count": "-2",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "2",
+      "option_list": [
+        {
+          "count": "-1",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "+100.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "-1",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-"
+        }
+      ],
+      "option_type": 9,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "play": {
+      "current_count": "2347",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "2043",
+      "option_list": [
+        {
+          "count": "31",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "-6.06%"
+        },
+        {
+          "count": "53",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "+70.97%"
+        },
+        {
+          "count": "201",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "+279.25%"
+        },
+        {
+          "count": "68",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-66.17%"
+        },
+        {
+          "count": "630",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "+826.47%"
+        },
+        {
+          "count": "908",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "+44.13%"
+        },
+        {
+          "count": "456",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-49.78%"
+        }
+      ],
+      "option_type": 1,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "post_search": {
+      "current_count": "1547",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "-1055",
+      "option_list": [
+        {
+          "count": "137",
+          "date": "2026-07-19",
+          "last_day_incr_rate": "-4.20%"
+        },
+        {
+          "count": "194",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "+41.61%"
+        },
+        {
+          "count": "576",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "+196.91%"
+        },
+        {
+          "count": "164",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-71.53%"
+        },
+        {
+          "count": "175",
+          "date": "2026-07-09",
+          "last_day_incr_rate": "+6.71%"
+        },
+        {
+          "count": "136",
+          "date": "2026-07-07",
+          "last_day_incr_rate": "-22.29%"
+        },
+        {
+          "count": "165",
+          "date": "2026-07-20",
+          "last_day_incr_rate": "+21.32%"
+        }
+      ],
+      "option_type": 30,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "profile": {
+      "current_count": "10",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "5",
+      "option_list": [
+        {
+          "count": "1",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "0.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "5",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "+400.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-80.00%"
+        }
+      ],
+      "option_type": 2,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    },
+    "share": {
+      "current_count": "7",
+      "extra": {
+        "now": 1785922753000
+      },
+      "last_period_incr": "7",
+      "option_list": [
+        {
+          "count": "0",
+          "date": "2026-07-29",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "1",
+          "date": "2026-07-30",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "0",
+          "date": "2026-07-31",
+          "last_day_incr_rate": "-100.00%"
+        },
+        {
+          "count": "0",
+          "date": "2026-08-01",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "2",
+          "date": "2026-08-02",
+          "last_day_incr_rate": "-"
+        },
+        {
+          "count": "3",
+          "date": "2026-08-03",
+          "last_day_incr_rate": "+50.00%"
+        },
+        {
+          "count": "1",
+          "date": "2026-08-04",
+          "last_day_incr_rate": "-66.67%"
+        }
+      ],
+      "option_type": 5,
+      "permission_key": "",
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "extra": {
+    "err_info": {}
+  },
+  "status_code": 0,
+  "status_message": ""
+}
