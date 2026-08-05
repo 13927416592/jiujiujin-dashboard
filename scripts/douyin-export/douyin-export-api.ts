@@ -66,6 +66,8 @@ async function main() {
       validSameSite = sameSite;
     } else if (sameSite === 'strict' || sameSite === 'lax' || sameSite === 'none') {
       validSameSite = sameSite.charAt(0).toUpperCase() + sameSite.slice(1) as any;
+    } else if (sameSite === 'no_restriction') {
+      validSameSite = 'None';
     }
     
     return {
@@ -86,6 +88,10 @@ async function main() {
   const apiData: any = {
     billboard: null,
     overview: null,
+    overviewAll: null,
+    works: null,
+    live: null,
+    fans: null,
   };
   
   page.on('response', async (response) => {
@@ -95,29 +101,56 @@ async function main() {
     if (url.includes('/aweme/v1/creator/data/') || url.includes('/aweme/janus/creator/data/')) {
       try {
         const json = await response.json();
-        console.log(`📊 捕获 API: ${url.split('?')[0].split('/').slice(-3).join('/')}`);
+        const apiName = url.split('?')[0].split('/').slice(-4).join('/');
+        console.log(` 捕获 API: ${apiName}`);
         
         if (url.includes('/overview/billboard')) {
           apiData.billboard = json;
+        } else if (url.includes('/overview/all')) {
+          apiData.overviewAll = json;
         } else if (url.includes('/overview')) {
           apiData.overview = json;
+        } else if (url.includes('/works') || url.includes('/video')) {
+          apiData.works = json;
+        } else if (url.includes('/live')) {
+          apiData.live = json;
+        } else if (url.includes('/fans')) {
+          apiData.fans = json;
+        } else if (url.includes('/data/')) {
+          // 数据中心其他 API
+          const apiName = url.split('/').pop() || 'unknown';
+          apiData[`data_${apiName}`] = json;
         }
       } catch (e) {}
     }
   });
   
-  // 访问首页（触发 API 请求）
+  // 访问首页，然后点击数据中心菜单
   console.log('\n 访问首页...');
-  await page.goto(CONFIG.homeUrl, {
+  await page.goto('https://creator.douyin.com/creator-micro/home', {
     waitUntil: 'networkidle',
     timeout: 30000,
   });
   
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  await new Promise(resolve => setTimeout(resolve, 3000));
   console.log(' 首页加载完成');
   
-  // 截图首页
-  await page.screenshot({ path: path.join(CONFIG.downloadDir, '01-home.png'), fullPage: true });
+  // 点击数据中心展开菜单
+  console.log(' 点击数据中心菜单...');
+  await page.locator('text=数据中心').first().click();
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // 点击账号总览
+  console.log(' 点击账号总览...');
+  await page.locator('text=账号总览').first().click();
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  const currentUrl = page.url();
+  console.log(' 当前 URL:', currentUrl);
+  console.log(' 数据中心页面加载完成');
+  
+  // 截图数据中心
+  await page.screenshot({ path: path.join(CONFIG.downloadDir, '01-data-center.png'), fullPage: true });
   
   // 检查捕获的数据
   console.log('\n📊 数据捕获结果：');
@@ -155,27 +188,27 @@ async function main() {
     }
   }
   
-  // 导出 overview 数据
-  if (apiData.overview) {
-    console.log('\n📝 导出 overview 数据...');
+  // 导出 overview 数据（overviewAll 或 overview）
+  const overviewData = apiData.overviewAll || apiData.overview;
+  if (overviewData) {
+    console.log('\n 导出 overview 数据...');
     
-    const data = apiData.overview;
+    // 解析响应结构：{ status_code, data: { account_search, cancel_fans, ... } }
+    const data = overviewData.data || overviewData;
     const rows: any[][] = [];
     
     // 解析 overview 数据结构 - 按指标类别遍历
-    if (data.data) {
-      for (const [category, categoryData] of Object.entries(data.data)) {
-        if (typeof categoryData === 'object' && categoryData !== null) {
-          const cat = categoryData as any;
-          const currentCount = cat.current_count || cat.value || '';
-          const lastPeriodIncr = cat.last_period_incr || cat.compare || '';
-          
-          rows.push([
-            category,
-            currentCount,
-            lastPeriodIncr,
-          ]);
-        }
+    for (const [category, categoryData] of Object.entries(data)) {
+      if (typeof categoryData === 'object' && categoryData !== null) {
+        const cat = categoryData as any;
+        const currentCount = cat.current_count || cat.value || '';
+        const lastPeriodIncr = cat.last_period_incr || cat.compare || '';
+        
+        rows.push([
+          category,
+          currentCount,
+          lastPeriodIncr,
+        ]);
       }
     }
     
@@ -184,7 +217,34 @@ async function main() {
       console.log(`✅ 已导出：${filePath}`);
       console.log(`  共 ${rows.length} 个指标`);
     } else {
-      console.log('  ⚠️ 数据为空，结构可能不匹配');
+      console.log('  ️ 数据为空，结构可能不匹配');
+    }
+    
+    // 导出每日明细数据（option_list）
+    console.log('\n  导出每日明细数据...');
+    const dailyRows: any[][] = [];
+    const dateSet = new Set<string>();
+    
+    for (const [category, categoryData] of Object.entries(data)) {
+      if (typeof categoryData === 'object' && categoryData !== null) {
+        const cat = categoryData as any;
+        const optionList = cat.option_list || [];
+        
+        for (const option of optionList) {
+          const date = option.date || option.time || '';
+          const value = option.value || option.count || '';
+          dateSet.add(date);
+          dailyRows.push([category, date, value]);
+        }
+      }
+    }
+    
+    if (dailyRows.length > 0) {
+      const filePath = saveToCSV('overview_daily_data.csv', ['指标类别', '日期', '数值'], dailyRows);
+      console.log(`✅ 已导出：${filePath}`);
+      console.log(`  共 ${dailyRows.length} 条记录，覆盖 ${dateSet.size} 天`);
+    } else {
+      console.log('  ⚠️ 每日明细数据为空');
     }
   }
   
