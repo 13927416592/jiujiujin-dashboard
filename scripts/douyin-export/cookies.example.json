@@ -1,0 +1,38 @@
+[
+  {
+    "name": "sessionid",
+    "value": "此处替换为你的sessionid",
+    "domain": ".douyin.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "sessionid_ss",
+    "value": "此处替换为你的sessionid_ss",
+    "domain": ".douyin.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "ttwid",
+    "value": "此处替换为你的ttwid",
+    "domain": ".douyin.com",
+    "path": "/",
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "msToken",
+    "value": "此处替换为你的msToken",
+    "domain": ".douyin.com",
+    "path": "/",
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]
