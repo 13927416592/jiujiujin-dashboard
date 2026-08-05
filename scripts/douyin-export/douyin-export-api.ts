@@ -89,6 +89,7 @@ async function main() {
     billboard: null,
     overview: null,
     overviewAll: null,
+    overviewDashboard: null,  // 新增
     works: null,
     live: null,
     fans: null,
@@ -98,7 +99,7 @@ async function main() {
     const url = response.url();
     
     // 捕获所有创作者数据相关的 API
-    if (url.includes('/aweme/v1/creator/data/') || url.includes('/aweme/janus/creator/data/')) {
+    if (url.includes('/aweme/v1/creator/data/') || url.includes('/aweme/janus/creator/data/') || url.includes('overview/dashboard')) {
       try {
         const json = await response.json();
         const apiName = url.split('?')[0].split('/').slice(-4).join('/');
@@ -108,6 +109,8 @@ async function main() {
           apiData.billboard = json;
         } else if (url.includes('/overview/all')) {
           apiData.overviewAll = json;
+        } else if (url.includes('overview/dashboard')) {
+          apiData.overviewDashboard = json;
         } else if (url.includes('/overview')) {
           apiData.overview = json;
         } else if (url.includes('/works') || url.includes('/video')) {
@@ -135,22 +138,45 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, 3000));
   console.log(' 首页加载完成');
   
-  // 点击数据中心展开菜单
-  console.log(' 点击数据中心菜单...');
-  await page.locator('text=数据中心').first().click();
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // 点击账号总览
-  console.log(' 点击账号总览...');
-  await page.locator('text=账号总览').first().click();
+  // 1. 访问账号总览
+  console.log(' 1. 访问账号总览...');
+  await page.goto('https://creator.douyin.com/creator-micro/data-center/operation', {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+  });
   await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(' 账号总览 URL:', page.url());
+  await page.screenshot({ path: path.join(CONFIG.downloadDir, '01-account-overview.png'), fullPage: true });
   
-  const currentUrl = page.url();
-  console.log(' 当前 URL:', currentUrl);
-  console.log(' 数据中心页面加载完成');
+  // 2. 访问作品分析
+  console.log(' 2. 访问作品分析...');
+  await page.goto('https://creator.douyin.com/creator-micro/data-center/work', {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+  });
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(' 作品分析 URL:', page.url());
+  await page.screenshot({ path: path.join(CONFIG.downloadDir, '02-works-analysis.png'), fullPage: true });
   
-  // 截图数据中心
-  await page.screenshot({ path: path.join(CONFIG.downloadDir, '01-data-center.png'), fullPage: true });
+  // 3. 访问粉丝分析
+  console.log(' 3. 访问粉丝分析...');
+  await page.goto('https://creator.douyin.com/creator-micro/data-center/fans', {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+  });
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(' 粉丝分析 URL:', page.url());
+  await page.screenshot({ path: path.join(CONFIG.downloadDir, '03-fans-analysis.png'), fullPage: true });
+  
+  // 4. 访问重点关心
+  console.log(' 4. 访问重点关心...');
+  await page.goto('https://creator.douyin.com/creator-micro/data-center/key', {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+  });
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(' 重点关心 URL:', page.url());
+  await page.screenshot({ path: path.join(CONFIG.downloadDir, '04-key-focus.png'), fullPage: true });
   
   // 检查捕获的数据
   console.log('\n📊 数据捕获结果：');
@@ -218,6 +244,33 @@ async function main() {
       console.log(`  共 ${rows.length} 个指标`);
     } else {
       console.log('  ️ 数据为空，结构可能不匹配');
+    }
+    
+    // 导出 dashboard 数据（总览卡片）
+    if (apiData.overviewDashboard) {
+      console.log('\n  导出 dashboard 数据...');
+      const dashboardData = apiData.overviewDashboard;
+      const dashboardRows: any[][] = [];
+      
+      // 数据结构是 metrics 数组
+      if (Array.isArray(dashboardData.metrics)) {
+        for (const metric of dashboardData.metrics) {
+          dashboardRows.push([
+            metric.metric_name || metric.english_metric_name || '',
+            metric.metric_value || '',
+            metric.trends?.[0]?.value || metric.trends?.[0]?.douyin_value || '',
+            metric.unit || '',
+          ]);
+        }
+      }
+      
+      if (dashboardRows.length > 0) {
+        const filePath = saveToCSV('dashboard_data.csv', ['指标', '当前值', '最新日数据', '单位'], dashboardRows);
+        console.log(`  ✅ 已导出：${filePath}`);
+        console.log(`  共 ${dashboardRows.length} 个指标`);
+      } else {
+        console.log('  ⚠️ dashboard 数据为空');
+      }
     }
     
     // 导出每日明细数据（option_list）
