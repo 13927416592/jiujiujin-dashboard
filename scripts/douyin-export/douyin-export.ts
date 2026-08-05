@@ -16,7 +16,7 @@ const CONFIG = {
   // 抖音创作者中心数据中心 URL
   dataCenterUrl: 'https://creator.douyin.com/creator-micro/content/data',
   // Cookie 文件路径
-  cookiesFile: path.join(__dirname, 'cookies.json'),
+  cookiesFile: path.join(__dirname, 'cookies/account1.json'),
   // 下载目录
   downloadDir: path.join(__dirname, 'downloads'),
   // 导出时间范围：'yesterday' | '7days' | '30days'
