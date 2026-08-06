@@ -11,22 +11,38 @@
 ## 目录结构
 
 ```
-├── public/                 # 静态资源
-├── scripts/                # 构建与启动脚本
+├── public/                 # 静态资源（含原型HTML副本）
+├── scripts/                # 构建与启动脚本 + 数据导出脚本
 │   ├── build.sh            # 构建脚本
 │   ├── dev.sh              # 开发环境启动脚本
 │   ├── prepare.sh          # 预处理脚本
-│   └── start.sh            # 生产环境启动脚本
+│   ├── start.sh            # 生产环境启动脚本
+│   └── douyin-export/      # 抖音数据导出脚本（历史/独立运行）
+├── docs/                   # 项目文档
+│   ├── architecture.md     # 工具架构设计
+│   └── handover.md         # 项目交接文档
+├── .cozeproj/
+│   ├── documents/plan.md   # 实施计划（6个页面详细规格）
+│   └── prototype/web/      # 原型HTML文件（6个页面，开发视觉标准）
 ├── src/
 │   ├── app/                # 页面路由与布局
+│   │   └── api/export/     # 数据导出API端点
 │   ├── components/ui/      # Shadcn UI 组件库
+│   ├── exporters/          # 数据导出模块（核心）
+│   │   ├── types.ts        # 类型定义（Platform, UnifiedMetrics等）
+│   │   ├── douyin.ts       # 抖音导出器（Playwright + API拦截）
+│   │   ├── index.ts        # 导出器注册表
+│   │   ├── transform.ts    # 数据转换（字段映射、CSV导出）
+│   │   └── test-douyin.ts  # 测试脚本
 │   ├── hooks/              # 自定义 Hooks
 │   ├── lib/                # 工具库
 │   │   └── utils.ts        # 通用工具函数 (cn)
 │   └── server.ts           # 自定义服务端入口
 ├── next.config.ts          # Next.js 配置
 ├── package.json            # 项目依赖管理
-└── tsconfig.json           # TypeScript 配置
+├── tsconfig.json           # TypeScript 配置
+├── DESIGN.md               # 设计规范（深色毛玻璃风格）
+└── .coze                   # 沙箱配置文件
 ```
 
 - 项目文件（如 app 目录、pages 目录、components 等）默认初始化到 `src/` 目录下。
@@ -63,3 +79,21 @@
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
 - Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+- 设计风格为深色毛玻璃风（Dark Glassmorphism），详见 `DESIGN.md`
+- 6个原型HTML页面在 `.cozeproj/prototype/web/` 目录下，是页面开发的视觉标准
+
+## 数据导出模块 (Data Exporters)
+
+- 位置：`src/exporters/`
+- 架构：插件化多平台导出器，通过注册表动态管理
+- 抖音导出器：Playwright + API拦截，捕获创作者中心13个指标
+- 运行测试：`npx tsx src/exporters/test-douyin.ts`
+- Cookie管理：`src/exporters/cookies/` 目录，有效期约7天
+- 导出数据：`src/exporters/output/` 目录
+- 详细架构设计：`docs/architecture.md`
+- 新增平台步骤：types.ts 添加类型 → 创建导出器 → index.ts 注册 → transform.ts 添加映射
+
+## 项目交接
+
+- 交接文档：`docs/handover.md`（完整进度、文件说明、使用说明、后续建议）
+- 实施计划：`.cozeproj/documents/plan.md`（6个页面详细规格）
