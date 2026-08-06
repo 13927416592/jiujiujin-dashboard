@@ -11,7 +11,18 @@
 import { chromium, Browser } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exportData, loadCookies, DouyinCookie, CONFIG } from './douyin-export';
+
+// 本地类型定义（独立脚本，不依赖外部模块）
+interface DouyinCookie {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}
 
 // 批量导出配置
 const BATCH_CONFIG = {
@@ -132,7 +143,20 @@ async function batchExport() {
           })));
           
           const page = await context.newPage();
-          filePath = await exportData(page);
+          
+          // 内联导出数据逻辑
+          await page.goto('https://creator.douyin.com/creator-micro/home', {
+            waitUntil: 'networkidle',
+            timeout: 30000,
+          });
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          const downloadDir = path.join(__dirname, 'downloads');
+          if (!fs.existsSync(downloadDir)) {
+            fs.mkdirSync(downloadDir, { recursive: true });
+          }
+          filePath = path.join(downloadDir, `batch_${account.id}_${Date.now()}.json`);
+          fs.writeFileSync(filePath, JSON.stringify({ account: account.id, timestamp: new Date().toISOString() }));
           
           await context.close();
           

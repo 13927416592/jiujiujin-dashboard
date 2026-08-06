@@ -1,0 +1,226 @@
+[
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-08-06",
+    "totalFans": 4353,
+    "netFansGrowth": -20,
+    "unfollowFans": 2,
+    "playCount": 2347,
+    "likeCount": 3,
+    "commentCount": 0,
+    "shareCount": 7,
+    "collectCount": 0,
+    "homepageVisits": 10,
+    "platformSpecific": {
+      "newFans": -2,
+      "accountSearch": 5,
+      "postSearch": 1547,
+      "musicCreate": 0
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-07",
+    "totalFans": 0,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 0,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 0,
+    "platformSpecific": {
+      "accountSearch": 0,
+      "postSearch": 136
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-09",
+    "totalFans": 0,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 0,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 0,
+    "platformSpecific": {
+      "accountSearch": 0,
+      "postSearch": 175
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-19",
+    "totalFans": 0,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 0,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 0,
+    "platformSpecific": {
+      "accountSearch": 2,
+      "postSearch": 137
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-20",
+    "totalFans": 0,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 0,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 0,
+    "platformSpecific": {
+      "accountSearch": 0,
+      "postSearch": 165
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-29",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 1,
+    "playCount": 31,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 1,
+    "platformSpecific": {
+      "musicCreate": 0,
+      "newFans": -1
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-30",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 53,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 1,
+    "collectCount": 0,
+    "homepageVisits": 1,
+    "platformSpecific": {
+      "accountSearch": 2,
+      "musicCreate": 0,
+      "newFans": 0,
+      "postSearch": 164
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-07-31",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 201,
+    "likeCount": 1,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 1,
+    "platformSpecific": {
+      "accountSearch": 0,
+      "musicCreate": 0,
+      "newFans": 0,
+      "postSearch": 576
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-08-01",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 68,
+    "likeCount": 0,
+    "commentCount": 0,
+    "shareCount": 0,
+    "collectCount": 0,
+    "homepageVisits": 0,
+    "platformSpecific": {
+      "accountSearch": 1,
+      "musicCreate": 0,
+      "newFans": 0,
+      "postSearch": 194
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-08-02",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 630,
+    "likeCount": 0,
+    "commentCount": 2,
+    "shareCount": 2,
+    "collectCount": 0,
+    "homepageVisits": 1,
+    "platformSpecific": {
+      "musicCreate": 0,
+      "newFans": 0
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-08-03",
+    "totalFans": 622,
+    "netFansGrowth": 0,
+    "unfollowFans": 0,
+    "playCount": 908,
+    "likeCount": 3,
+    "commentCount": 2,
+    "shareCount": 3,
+    "collectCount": 0,
+    "homepageVisits": 5,
+    "platformSpecific": {
+      "musicCreate": 0,
+      "newFans": 0
+    }
+  },
+  {
+    "platform": "douyin",
+    "accountId": "default",
+    "date": "2026-08-04",
+    "totalFans": 621,
+    "netFansGrowth": 0,
+    "unfollowFans": 1,
+    "playCount": 456,
+    "likeCount": 2,
+    "commentCount": 0,
+    "shareCount": 1,
+    "collectCount": 0,
+    "homepageVisits": 1,
+    "platformSpecific": {
+      "musicCreate": 0,
+      "newFans": -1
+    }
+  }
+]
