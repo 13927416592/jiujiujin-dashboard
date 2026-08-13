@@ -78,6 +78,87 @@ function parseTables(tables: string[][][]): Array<{
   }).filter(t => t.headers.length > 0 && t.rows.length > 0);
 }
 
+// 从 rawMetrics 数组提取指标（当 bodyText 为空时）
+function extractFromRawMetrics(rawMetrics: string[]): Record<string, { value: string; change?: string }> {
+  const result: Record<string, { value: string; change?: string }> = {};
+  
+  // 合并所有 rawMetrics 为一个大字符串
+  const fullText = rawMetrics.join(' ');
+  
+  // 匹配模式：指标名 + 值 + 较前日 + 变化
+  const patterns = [
+    { name: '总访问用户数', regex: /总访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '私域渠道访问用户数', regex: /私域渠道访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '公域日常推广访问用户数', regex: /公域日常推广访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '流量激励访问用户数', regex: /流量激励访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '商业化推广访问用户数', regex: /商业化推广访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '新访问用户数', regex: /新访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '累计访问用户数', regex: /累计访问用户数\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '留存率', regex: /留存率\s*([\d,.]+)%?\s*较前日\s*([+\-\d.]+%?)/, unit: '%' },
+    { name: '人均访问时长', regex: /人均访问时长[（(]秒[）)]\s*(\d+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '次均访问时长', regex: /次均访问时长[（(]秒[）)]\s*(\d+)\s*较前日\s*([+\-\d.]+%?)/ },
+    
+    // 交易数据
+    { name: '引导交易金额', regex: /引导交易金额\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '引导交易笔数', regex: /引导交易笔数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '引导交易用户数', regex: /引导交易用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '客单价', regex: /客单价\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+  ];
+  
+  for (const pattern of patterns) {
+    const match = fullText.match(pattern.regex);
+    if (match) {
+      const value = pattern.unit ? `${match[1]}${pattern.unit}` : match[1];
+      result[pattern.name] = { value, change: match[2] };
+    }
+  }
+  
+  return result;
+}
+
+// 从小程序 bodyText 提取指标（专用函数）
+function extractMiniProgramMetrics(bodyText: string): Record<string, { value: string; change?: string }> {
+  const result: Record<string, { value: string; change?: string }> = {};
+  
+  const patterns = [
+    // 单行格式：指标名 值 较前日 变化
+    { name: '总访问用户数', regex: /总访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '私域渠道访问用户数', regex: /私域渠道访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '公域日常推广访问用户数', regex: /公域日常推广访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '流量激励访问用户数', regex: /流量激励访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '商业化推广访问用户数', regex: /商业化推广访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '新访问用户数', regex: /新访问用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '累计访问用户数', regex: /累计访问用户数\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '留存率', regex: /留存率\s*([\d,.]+)%?\s*较前日\s*([+\-\d.]+%?)/, unit: '%' },
+    { name: '人均访问时长（秒）', regex: /人均访问时长[（(]秒[）)]\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '次均访问时长（秒）', regex: /次均访问时长[（(]秒[）)]\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    
+    // 交易数据 - 多行格式：指标名(元)\n值\n万\n较前1日\n变化
+    { name: '引导交易金额', regex: /交易金额[（(]元[）)]\s*\n\s*([\d,.]+)\s*\n\s*万?\s*\n\s*较前\d+日\s*\n\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '引导交易笔数', regex: /交易笔数\s*\n\s*([\d,.]+)\s*\n\s*较前\d+日\s*\n\s*([+\-\d.]+%?)/ },
+    { name: '引导交易用户数', regex: /交易用户数\s*\n\s*([\d,.]+)\s*\n\s*较前\d+日\s*\n\s*([+\-\d.]+%?)/ },
+    { name: '客单价', regex: /客单价[（(]元[）)]\s*\n\s*([\d,.]+)\s*\n\s*万?\s*\n\s*较前\d+日\s*\n\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '笔单价', regex: /笔单价[（(]元[）)]\s*\n\s*([\d,.]+)\s*\n\s*较前\d+日\s*\n\s*([+\-\d.]+%?)/ },
+    
+    // 交易数据 - 单行格式（备用）
+    { name: '引导交易金额', regex: /引导交易金额\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+    { name: '引导交易笔数', regex: /引导交易笔数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '引导交易用户数', regex: /引导交易用户数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/ },
+    { name: '客单价', regex: /客单价\s*([\d,.]+)\s*万?\s*较前日\s*([+\-\d.]+%?)/, unit: '万' },
+  ];
+  
+  for (const pattern of patterns) {
+    if (result[pattern.name]) continue; // 已匹配则跳过
+    const match = bodyText.match(pattern.regex);
+    if (match) {
+      const value = pattern.unit ? `${match[1]}${pattern.unit}` : match[1];
+      result[pattern.name] = { value, change: match[2] };
+    }
+  }
+  
+  return result;
+}
+
 // 解析小程序数据
 function parseMiniProgramData(mp: any): any {
   const tabs = mp.tabs || {};
@@ -86,11 +167,17 @@ function parseMiniProgramData(mp: any): any {
   for (const [tabName, tabData] of Object.entries(tabs)) {
     const data = tabData as any;
     const bodyText = data.bodyText || '';
+    const rawMetrics = data.metrics || [];
+    
+    // 优先使用 bodyText，如果为空则使用 rawMetrics
+    const metrics = bodyText 
+      ? extractMiniProgramMetrics(bodyText)
+      : extractFromRawMetrics(rawMetrics);
     
     result[tabName] = {
-      metrics: extractFromBodyText(bodyText),
+      metrics,
       tables: parseTables(data.tables || []),
-      rawMetrics: data.metrics || []
+      rawMetrics
     };
   }
   

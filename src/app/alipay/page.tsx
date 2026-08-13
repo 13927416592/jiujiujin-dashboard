@@ -303,20 +303,20 @@ export default function AlipayPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard
             title="7 日交易金额"
-            value={data.overview["7 日交易金额"]?.value || "-"}
-            change={data.overview["7 日交易金额"]?.change}
+            value={data.overview["7日交易金额"]?.value || "-"}
+            change={data.overview["7日交易金额"]?.change}
             icon={DollarSign}
           />
           <KPICard
             title="7 日活跃用户"
-            value={data.overview["7 日活跃用户数"]?.value || data.overview["7 日交易用户数"]?.value || "-"}
-            change={data.overview["7 日活跃用户数"]?.change || data.overview["7 日交易用户数"]?.change}
+            value={data.overview["7日活跃用户数"]?.value || data.overview["7日交易用户数"]?.value || "-"}
+            change={data.overview["7日活跃用户数"]?.change || data.overview["7日交易用户数"]?.change}
             icon={Users}
           />
           <KPICard
             title="7 日交易笔数"
-            value={data.overview["7 日交易笔数"]?.value || "-"}
-            change={data.overview["7 日交易笔数"]?.change}
+            value={data.overview["7日交易笔数"]?.value || "-"}
+            change={data.overview["7日交易笔数"]?.change}
             icon={ShoppingCart}
           />
           <KPICard
