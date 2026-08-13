@@ -16,6 +16,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Download,
+  RefreshCw,
 } from "lucide-react";
 
 // 模拟数据
@@ -54,7 +56,37 @@ const mockData = {
 };
 
 export default function MeituanPage() {
-  const [data, setData] = useState(mockData);
+  const [data, setData] = useState<any>(mockData);
+  const [exporting, setExporting] = useState(false);
+  const [lastExport, setLastExport] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const response = await fetch('/api/data/meituan/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceLogin: false })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert('数据导出成功！');
+        setLastExport(result.timestamp);
+      } else if (result.action === 'login') {
+        alert('需要手动登录美团后台，请在浏览器中完成登录');
+        window.open('/api/data/meituan/login', '_blank');
+      } else {
+        alert('导出失败：' + result.message);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('导出失败，请重试');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#070A14] text-[#F7FAFF]">
@@ -65,9 +97,21 @@ export default function MeituanPage() {
             <h1 className="text-2xl font-bold text-[#F7FAFF]">美团运营</h1>
             <p className="text-sm text-[#9AA7C7] mt-1">美团平台运营数据监控与分析</p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-            <Clock className="w-4 h-4 text-[#9AA7C7]" />
-            <span className="text-xs text-[#9AA7C7]">数据更新：2026-08-13 09:00</span>
+          <div className="flex items-center gap-3">
+            {lastExport && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                <Clock className="w-4 h-4 text-[#9AA7C7]" />
+                <span className="text-xs text-[#9AA7C7]">上次导出：{new Date(lastExport).toLocaleString('zh-CN')}</span>
+              </div>
+            )}
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[#7C5CFF] to-[#69E7FF] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${exporting ? 'animate-spin' : ''}`} />
+              <span>{exporting ? '导出中...' : '导出数据'}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -76,7 +120,7 @@ export default function MeituanPage() {
       <div className="p-6 space-y-6">
         {/* KPI 指标卡 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {data.kpi.map((item, index) => (
+          {data.kpi.map((item: any, index: number) => (
             <div
               key={index}
               className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-5 hover:bg-white/8 transition-all duration-200 hover:shadow-[0_0_16px_rgba(124,92,255,0.12)]"
@@ -113,7 +157,7 @@ export default function MeituanPage() {
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
             <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">GTV 趋势（近 6 个月）</h3>
             <div className="space-y-3">
-              {data.gtvTrend.map((item, index) => (
+              {data.gtvTrend.map((item: any, index: number) => (
                 <div key={index} className="flex items-center gap-3">
                   <span className="text-xs text-[#9AA7C7] w-12">{item.month}</span>
                   <div className="flex-1 h-8 bg-white/5 rounded-lg overflow-hidden">
@@ -133,7 +177,7 @@ export default function MeituanPage() {
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
             <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">转化漏斗</h3>
             <div className="space-y-4">
-              {data.conversionFunnel.map((item, index) => (
+              {data.conversionFunnel.map((item: any, index: number) => (
                 <div key={index} className="flex items-center gap-4">
                   <span className="text-sm text-[#9AA7C7] w-16">{item.stage}</span>
                   <div className="flex-1">
@@ -161,7 +205,7 @@ export default function MeituanPage() {
           <div className="lg:col-span-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
             <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">门店 GTV 排名</h3>
             <div className="space-y-3">
-              {data.storeRanking.map((store, index) => (
+              {data.storeRanking.map((store: any, index: number) => (
                 <div
                   key={index}
                   className="flex items-center gap-4 p-3 bg-white/5 rounded-lg hover:bg-white/8 transition-colors"
@@ -194,7 +238,7 @@ export default function MeituanPage() {
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
             <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">预警通知</h3>
             <div className="space-y-3">
-              {data.alerts.map((alert, index) => (
+              {data.alerts.map((alert: any, index: number) => (
                 <div
                   key={index}
                   className="flex items-start gap-3 p-3 bg-white/5 rounded-lg"

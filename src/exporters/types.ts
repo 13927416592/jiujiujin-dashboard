@@ -9,7 +9,8 @@ export type Platform =
   | 'weibo'
   | 'bilibili'
   | 'alipay'
-  | 'amap';
+  | 'amap'
+  | 'meituan';
 
 /** 账号类型 */
 export type AccountType = 'brand' | 'store' | 'matrix';
@@ -75,6 +76,7 @@ export interface ExportResult {
   timestamp: string;
   data?: UnifiedMetrics[];
   error?: string;
+  message?: string;
   rawFile?: string;      // 原始数据文件路径
   convertedFile?: string; // 转换后文件路径
 }

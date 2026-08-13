@@ -6,10 +6,15 @@
 
 import { PlatformExporter, Platform, RawData, UnifiedMetrics, ExportResult } from './types';
 import { douyinExporter } from './douyin';
+import { MeituanExporter, DEFAULT_MEITUAN_CONFIG } from './meituan';
+
+// 创建美团导出器实例
+const meituanExporter = new MeituanExporter(DEFAULT_MEITUAN_CONFIG);
 
 /** 导出器注册表 */
 const exporterRegistry: Record<Platform, PlatformExporter> = {
   douyin: douyinExporter,
+  meituan: meituanExporter,
   // 后续添加其他平台
   // wechat: wechatExporter,
   // kuaishou: kuaishouExporter,
