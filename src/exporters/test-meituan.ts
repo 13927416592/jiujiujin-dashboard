@@ -23,7 +23,7 @@ async function main() {
     console.log('配置信息：');
     console.log(`- 输出目录：${outputDir}`);
     console.log(`- Cookie 文件：${DEFAULT_MEITUAN_CONFIG.cookieFile}`);
-    console.log(`- 导出页面：${DEFAULT_MEITUAN_CONFIG.pages.map(p => p.name).join(', ')}`);
+    console.log(`- 报表 URL：${DEFAULT_MEITUAN_CONFIG.reportUrl}`);
     console.log('');
 
     // 执行导出

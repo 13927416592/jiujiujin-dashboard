@@ -1,51 +1,34 @@
-/**
- * 美团数据导出器
- * 
- * 使用 Playwright 自动化方式导出美团经营宝数据
- * 支持：自动登录、导航到数据页面、下载 CSV、解析数据
- * 
- * 数据获取方式：
- * 1. 自动点击"下载明细表格"按钮
- * 2. 监听下载事件，保存 CSV 文件
- * 3. 解析 CSV 并转换为统一格式
- */
-
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PlatformExporter, RawData, UnifiedMetrics } from './types';
 
-/** 美团经营宝页面配置 */
-interface MeituanPageConfig {
-  name: string;           // 页面名称（如：客流分析、经营评分）
-  url: string;            // 页面 URL
-  downloadSelector: string; // 下载按钮选择器
-  dateRange?: string;     // 日期范围（如：近 7 天、近 30 天）
-}
-
-/** 美团数据导出配置 */
+/**
+ * 美团经营宝导出器配置
+ */
 export interface MeituanExportConfig {
-  baseUrl: string;                    // 美团经营宝基础 URL
-  pages: MeituanPageConfig[];         // 需要导出的页面列表
-  outputDir: string;                  // CSV 输出目录
-  cookieFile?: string;                // Cookie 文件路径
-  headless?: boolean;                 // 是否无头模式
-  timeout?: number;                   // 页面加载超时时间
+  baseUrl: string;
+  reportUrl: string;  // 报表中心 URL
+  outputDir: string;
+  cookieFile: string;
+  headless?: boolean;
+  timeout?: number;
 }
 
-/** 美团原始数据结构 */
+/**
+ * 美团原始数据结构（基于报表中心 Excel）
+ */
 export interface MeituanRawData {
-  exportDate: string;                 // 导出日期
-  pages: {
-    [pageName: string]: {
-      csvPath: string;                // CSV 文件路径
-      csvData: string[][];            // CSV 解析后的二维数组
-      headers: string[];              // 表头
-      rows: string[][];               // 数据行
-    };
-  };
+  exportDate: string;
+  reportName: string;
+  metrics: string[];
+  rows: string[][];
 }
 
+/**
+ * 美团经营宝数据导出器
+ * 通过报表中心下载 Excel 文件
+ */
 export class MeituanExporter implements PlatformExporter {
   platform = 'meituan' as const;
   private browser: Browser | null = null;
@@ -170,68 +153,76 @@ export class MeituanExporter implements PlatformExporter {
   }
 
   /**
-   * 解析 CSV 内容
+   * 下载报表中心 Excel 文件
    */
-  private parseCSV(content: string): { headers: string[]; rows: string[][] } {
-    const lines = content.split('\n').filter(line => line.trim());
-    if (lines.length === 0) {
-      return { headers: [], rows: [] };
-    }
-    
-    // 简单 CSV 解析（处理逗号分隔）
-    const parseLine = (line: string): string[] => {
-      const result: string[] = [];
-      let current = '';
-      let inQuotes = false;
-      
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-          result.push(current.trim());
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      
-      result.push(current.trim());
-      return result;
-    };
-    
-    const headers = parseLine(lines[0]);
-    const rows = lines.slice(1).map(parseLine);
-    
-    return { headers, rows };
-  }
-
-  /**
-   * 下载单个页面的 CSV
-   */
-  private async downloadPageCSV(pageConfig: MeituanPageConfig): Promise<{ csvPath: string; csvData: string[][]; headers: string[]; rows: string[][] } | null> {
+  async downloadReport(): Promise<string | null> {
     if (!this.page) throw new Error('Page not initialized');
     
-    console.log(`[Meituan] 正在导出：${pageConfig.name}`);
+    console.log('[Meituan] 正在访问报表中心...');
     
     try {
-      // 导航到页面
-      await this.page.goto(pageConfig.url, { 
+      // 导航到报表中心
+      await this.page.goto(this.config.reportUrl, { 
         waitUntil: 'networkidle',
         timeout: this.config.timeout || 60000 
       });
       
-      // 等待下载按钮出现
-      await this.page.waitForSelector(pageConfig.downloadSelector, { 
-        timeout: 10000 
-      });
+      await this.page.waitForTimeout(3000);
+      
+      // 查找"久久金美团经营数据"报表卡片
+      const reportCard = this.page.locator('text=久久金美团经营数据').first();
+      if (await reportCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[Meituan] 找到报表：久久金美团经营数据');
+        
+        // 点击"使用模板"按钮
+        const useTemplateBtn = this.page.locator('button:has-text("使用模板")').first();
+        if (await useTemplateBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await useTemplateBtn.click();
+          console.log('[Meituan] 已点击"使用模板"');
+          await this.page.waitForTimeout(3000);
+        }
+      }
+      
+      // 查找导出按钮（通常在报表页面的右上角）
+      const exportSelectors = [
+        'text=导出',
+        'text=下载',
+        'text=导出数据',
+        'button:has-text("导出")',
+        'button:has-text("下载")',
+        'a:has-text("导出")',
+        'a:has-text("下载")',
+      ];
+      
+      let exportBtn: any = null;
+      for (const selector of exportSelectors) {
+        try {
+          const el = this.page.locator(selector).first();
+          if (await el.isVisible({ timeout: 2000 })) {
+            exportBtn = el;
+            console.log(`[Meituan] 找到导出按钮：${selector}`);
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+      
+      if (!exportBtn) {
+        console.warn('[Meituan] 未找到导出按钮，尝试截图查看当前页面');
+        await this.page.screenshot({ 
+          path: path.join(this.config.outputDir, 'meituan_report_page.png'),
+          fullPage: false 
+        });
+        return null;
+      }
       
       // 监听下载事件
       const downloadPromise = this.page.waitForEvent('download', { timeout: 30000 });
       
-      // 点击下载按钮
-      await this.page.click(pageConfig.downloadSelector);
+      // 点击导出按钮
+      await exportBtn.click();
+      console.log('[Meituan] 已点击导出按钮，等待下载...');
       
       // 等待下载完成
       const download = await downloadPromise;
@@ -242,52 +233,53 @@ export class MeituanExporter implements PlatformExporter {
         fs.mkdirSync(outputDir, { recursive: true });
       }
       
-      const fileName = `meituan_${pageConfig.name}_${new Date().toISOString().split('T')[0]}.csv`;
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fileName = `meituan_report_${dateStr}.xlsx`;
       const filePath = path.join(outputDir, fileName);
       
       await download.saveAs(filePath);
-      console.log(`[Meituan] 已保存：${filePath}`);
+      console.log(`[Meituan] 报表已下载：${filePath}`);
       
-      // 读取并解析 CSV
-      const csvContent = fs.readFileSync(filePath, 'utf-8');
-      const { headers, rows } = this.parseCSV(csvContent);
-      
-      return {
-        csvPath: filePath,
-        csvData: [headers, ...rows],
-        headers,
-        rows
-      };
+      return filePath;
     } catch (error) {
-      console.error(`[Meituan] 导出 ${pageConfig.name} 失败：`, error);
+      console.error('[Meituan] 下载报表失败：', error);
       return null;
     }
   }
 
   /**
-   * 导出所有页面数据
+   * 解析 Excel 文件（简化版，返回原始数据）
+   */
+  private parseExcel(filePath: string): MeituanRawData {
+    // 注意：这里需要安装 xlsx 库来解析 Excel
+    // 暂时返回空结构，实际使用时需要实现
+    console.log(`[Meituan] 解析 Excel 文件：${filePath}`);
+    
+    return {
+      exportDate: new Date().toISOString(),
+      reportName: '久久金美团经营数据',
+      metrics: [],
+      rows: []
+    };
+  }
+
+  /**
+   * 导出数据
    */
   async export(): Promise<RawData> {
     if (!this.page) throw new Error('Browser not initialized');
     
-    console.log('[Meituan] 开始导出数据...');
+    console.log('[Meituan] 开始导出报表数据...');
     
-    const rawData: MeituanRawData = {
-      exportDate: new Date().toISOString(),
-      pages: {}
-    };
+    // 下载报表
+    const excelPath = await this.downloadReport();
     
-    // 遍历所有页面
-    for (const pageConfig of this.config.pages) {
-      const result = await this.downloadPageCSV(pageConfig);
-      
-      if (result) {
-        rawData.pages[pageConfig.name] = result;
-        console.log(`[Meituan] ${pageConfig.name}: ${result.rows.length} 行数据`);
-      } else {
-        console.warn(`[Meituan] ${pageConfig.name}: 导出失败`);
-      }
+    if (!excelPath) {
+      throw new Error('报表下载失败');
     }
+    
+    // 解析 Excel
+    const rawData = this.parseExcel(excelPath);
     
     // 保存原始数据
     const outputPath = path.join(
@@ -335,32 +327,11 @@ export class MeituanExporter implements PlatformExporter {
  */
 export const DEFAULT_MEITUAN_CONFIG: MeituanExportConfig = {
   baseUrl: 'https://e.dianping.com/',
+  reportUrl: 'https://e.dianping.com/',  // 报表中心 URL（需要导航到报表中心）
   outputDir: path.join(process.cwd(), 'src/exporters/output'),
   cookieFile: path.join(process.cwd(), 'src/exporters/cookies/meituan.json'),
   headless: false,  // 首次运行需要手动登录
   timeout: 60000,
-  pages: [
-    {
-      name: '客流分析',
-      url: 'https://e.dianping.com/merchant/flow-analysis',
-      downloadSelector: 'text=下载明细表格'
-    },
-    {
-      name: '经营评分',
-      url: 'https://e.dianping.com/merchant/rating',
-      downloadSelector: 'text=下载明细表格'
-    },
-    {
-      name: '评价分析',
-      url: 'https://e.dianping.com/merchant/review',
-      downloadSelector: 'text=下载明细表格'
-    },
-    {
-      name: '客资中心',
-      url: 'https://e.dianping.com/merchant/leads',
-      downloadSelector: 'text=下载明细表格'
-    }
-  ]
 };
 
 /**
