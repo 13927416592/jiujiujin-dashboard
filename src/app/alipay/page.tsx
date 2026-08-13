@@ -43,13 +43,13 @@ interface AlipayData {
   overview: Record<string, MetricData>;
   traffic: {
     overview: TrafficTabData;
-    miniProgram?: TrafficTabData;
-    lifeAccount?: TrafficTabData;
-    fanGroup?: TrafficTabData;
+    miniProgramTraffic?: TrafficTabData;
+    lifeAccountTraffic?: TrafficTabData;
+    fanGroupTraffic?: TrafficTabData;
   };
   miniPrograms?: MiniProgramData[];
-  lifeAccount?: TrafficTabData;
-  fanGroup?: TrafficTabData;
+  lifeAccountTraffic?: TrafficTabData;
+  fanGroupTraffic?: TrafficTabData;
 }
 
 // KPI 指标卡组件
@@ -309,8 +309,8 @@ export default function AlipayPage() {
           />
           <KPICard
             title="7 日活跃用户"
-            value={data.overview["7 日活跃用户数"]?.value || "-"}
-            change={data.overview["7 日活跃用户数"]?.change}
+            value={data.overview["7 日活跃用户数"]?.value || data.overview["7 日交易用户数"]?.value || "-"}
+            change={data.overview["7 日活跃用户数"]?.change || data.overview["7 日交易用户数"]?.change}
             icon={Users}
           />
           <KPICard
@@ -387,7 +387,7 @@ export default function AlipayPage() {
 
             {trafficSubTab === "traffic-mini" && (
               <>
-                {data.traffic.miniProgram?.tables?.map((table, i) => (
+                {data.traffic.miniProgramTraffic?.tables?.map((table, i) => (
                   <DataTable key={i} headers={table.headers} rows={table.rows} title={`小程序流量 ${i + 1}`} />
                 )) || (
                   <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6 text-[#9AA7C7]">
@@ -399,7 +399,7 @@ export default function AlipayPage() {
 
             {trafficSubTab === "traffic-life" && (
               <>
-                {data.traffic.lifeAccount?.tables?.map((table, i) => (
+                {data.traffic.lifeAccountTraffic?.tables?.map((table, i) => (
                   <DataTable key={i} headers={table.headers} rows={table.rows} title={`生活号 + 流量 ${i + 1}`} />
                 )) || (
                   <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6 text-[#9AA7C7]">
@@ -411,7 +411,7 @@ export default function AlipayPage() {
 
             {trafficSubTab === "traffic-fan" && (
               <>
-                {data.traffic.fanGroup?.tables?.map((table, i) => (
+                {data.traffic.fanGroupTraffic?.tables?.map((table, i) => (
                   <DataTable key={i} headers={table.headers} rows={table.rows} title={`粉丝群流量 ${i + 1}`} />
                 )) || (
                   <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6 text-[#9AA7C7]">
@@ -486,11 +486,11 @@ export default function AlipayPage() {
         {activeTab === "lifeAccount" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Object.entries(data.lifeAccount?.metrics || {}).slice(0, 8).map(([key, val]) => (
+              {Object.entries(data.lifeAccountTraffic?.metrics || {}).slice(0, 8).map(([key, val]) => (
                 <KPICard key={key} title={key} value={val.value} change={val.change} icon={MessageSquare} />
               ))}
             </div>
-            {data.lifeAccount?.tables?.map((table, i) => (
+            {data.lifeAccountTraffic?.tables?.map((table, i) => (
               <DataTable key={i} headers={table.headers} rows={table.rows} title={`生活号 + 数据 ${i + 1}`} />
             ))}
           </div>
@@ -500,11 +500,11 @@ export default function AlipayPage() {
         {activeTab === "fanGroup" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Object.entries(data.fanGroup?.metrics || {}).slice(0, 8).map(([key, val]) => (
+              {Object.entries(data.fanGroupTraffic?.metrics || {}).slice(0, 8).map(([key, val]) => (
                 <KPICard key={key} title={key} value={val.value} change={val.change} icon={Users} />
               ))}
             </div>
-            {data.fanGroup?.tables?.map((table, i) => (
+            {data.fanGroupTraffic?.tables?.map((table, i) => (
               <DataTable key={i} headers={table.headers} rows={table.rows} title={`粉丝群数据 ${i + 1}`} />
             ))}
           </div>
