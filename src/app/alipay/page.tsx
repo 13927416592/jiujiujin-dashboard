@@ -460,16 +460,25 @@ export default function AlipayPage() {
                   {Object.entries(mp.tabs || {}).map(([tabName, tabData]) => {
                     const currentTab = miniProgramTab[mp.id] || Object.keys(mp.tabs || {})[0];
                     if (tabName !== currentTab) return null;
+                    const hasMetrics = Object.keys(tabData.metrics || {}).length > 0;
+                    const hasTables = tabData.tables && tabData.tables.length > 0;
                     return (
                       <div key={tabName} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                          {Object.entries(tabData.metrics || {}).slice(0, 8).map(([key, val]) => (
-                            <KPICard key={key} title={key} value={val.value} change={val.change} icon={Activity} />
-                          ))}
-                        </div>
-                        {tabData.tables?.map((table, i) => (
+                        {hasMetrics && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {Object.entries(tabData.metrics || {}).slice(0, 8).map(([key, val]) => (
+                              <KPICard key={key} title={key} value={val.value} change={val.change} icon={Activity} />
+                            ))}
+                          </div>
+                        )}
+                        {hasTables && tabData.tables?.map((table, i) => (
                           <DataTable key={i} headers={table.headers} rows={table.rows} title={`${tabName} 数据 ${i + 1}`} />
                         ))}
+                        {!hasMetrics && !hasTables && (
+                          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6 text-[#9AA7C7]">
+                            <p className="text-sm">该 Tab 数据暂未解析，需要优化数据抓取脚本</p>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
