@@ -411,13 +411,14 @@ export default function AlipayPage() {
 
             {trafficSubTab === "traffic-fan" && (
               <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {Object.entries(data.traffic.fanGroupTraffic?.metrics || {}).slice(0, 8).map(([key, val]) => (
+                    <KPICard key={key} title={key} value={val.value} change={val.change} icon={Users} />
+                  ))}
+                </div>
                 {data.traffic.fanGroupTraffic?.tables?.map((table, i) => (
                   <DataTable key={i} headers={table.headers} rows={table.rows} title={`粉丝群流量 ${i + 1}`} />
-                )) || (
-                  <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6 text-[#9AA7C7]">
-                    暂无数据
-                  </div>
-                )}
+                ))}
               </>
             )}
           </div>
