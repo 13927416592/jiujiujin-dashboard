@@ -51,13 +51,12 @@ export class MeituanExporter implements PlatformExporter {
 
       await this.login(page);
 
-      const reportUrl = this.config.reportUrl || 'https://e.dianping.com/#/reportCenter';
-      console.log('📊 导航到报表中心...');
-      await page.goto(reportUrl, { waitUntil: 'networkidle', timeout: 30000 });
-      await page.waitForTimeout(5000);
+      // 导航到经营参谋 -> 报表中心
+      console.log('📊 导航到经营参谋 -> 报表中心...');
+      await this.navigateToReportCenter(page);
 
-      // Step 1: 点击"使用模板"
-      console.log('📋 点击"使用模板"...');
+      // 点击"使用模板"
+      console.log(' 点击"使用模板"...');
       const useTemplateBtn = page.locator('text=使用模板').first();
       if (await useTemplateBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
         await useTemplateBtn.click();
@@ -66,26 +65,24 @@ export class MeituanExporter implements PlatformExporter {
         throw new Error('未找到"使用模板"按钮');
       }
 
-      // Step 2: 等待对话框出现
+      // 等待对话框出现
       console.log('⏳ 等待下载对话框...');
       const dialog = page.locator('text=久久金美团经营数据下载').first();
       await dialog.waitFor({ state: 'visible', timeout: 10000 });
       await page.waitForTimeout(2000);
 
-      // Step 3: 选择日期范围
+      // 选择日期范围
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const dateStr = yesterday.toISOString().split('T')[0];
-      console.log(`📅 设置日期范围：${dateStr}`);
+      console.log(` 设置日期范围：${dateStr}`);
 
-      // 点击时间范围选择器
       const dateInput = page.locator('text=请选择时间范围').first();
       if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
         await dateInput.click();
         await page.waitForTimeout(1000);
 
-        // 选择日期（根据实际日期选择器调整）
-        // 这里尝试点击日历中的日期
+        // 选择日期
         const dateCell = page.locator(`text=${yesterday.getDate()}`).first();
         if (await dateCell.isVisible({ timeout: 2000 }).catch(() => false)) {
           await dateCell.click();
@@ -93,7 +90,7 @@ export class MeituanExporter implements PlatformExporter {
         }
       }
 
-      // Step 4: 点击下载按钮（对话框中的橙色按钮）
+      // 点击下载按钮
       console.log('⬇️  点击下载...');
       const downloadBtn = page.locator('button:has-text("下载")').last();
       if (await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -105,16 +102,14 @@ export class MeituanExporter implements PlatformExporter {
         const fileName = `meituan_report_${dateStr}.xlsx`;
         const filePath = path.join(this.config.outputDir!, fileName);
         await download.saveAs(filePath);
-        console.log(` 文件已保存：${filePath}`);
+        console.log(`📁 文件已保存：${filePath}`);
 
-        // 解析 Excel
         const data = this.parseExcel(filePath);
 
         const jsonPath = filePath.replace('.xlsx', '.json');
         fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2));
-        console.log(`📊 JSON 已保存：${jsonPath}`);
+        console.log(` JSON 已保存：${jsonPath}`);
 
-        // 保存 Cookie
         const cookies = await this.context.cookies();
         fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2));
 
@@ -154,13 +149,46 @@ export class MeituanExporter implements PlatformExporter {
       return;
     }
 
-    console.log('📱 需要登录，请在浏览器中完成...');
+    console.log(' 需要登录，请在浏览器中完成...');
     await page.goto('https://e.dianping.com/', { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(2000);
 
     await new Promise<void>((resolve) => {
       process.stdin.once('data', () => resolve());
     });
+  }
+
+  private async navigateToReportCenter(page: Page): Promise<void> {
+    // 先访问首页
+    await page.goto('https://e.dianping.com/', { waitUntil: 'networkidle', timeout: 30000 });
+    await page.waitForTimeout(3000);
+
+    // 点击"经营参谋"一级菜单
+    console.log(' 点击"经营参谋"...');
+    const advisorMenu = page.locator('text=经营参谋').first();
+    if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await advisorMenu.click();
+      await page.waitForTimeout(2000);
+    } else {
+      // 尝试点击已展开的菜单
+      const advisorMenuExpanded = page.locator('[class*="menu"] text=经营参谋, text=经营参谋').first();
+      if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await advisorMenuExpanded.click();
+        await page.waitForTimeout(2000);
+      } else {
+        throw new Error('未找到"经营参谋"菜单');
+      }
+    }
+
+    // 点击"报表中心"二级菜单
+    console.log('  点击"报表中心"...');
+    const reportCenter = page.locator('text=报表中心').first();
+    if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await reportCenter.click();
+      await page.waitForTimeout(5000);
+    } else {
+      throw new Error('未找到"报表中心"菜单');
+    }
   }
 
   private parseExcel(filePath: string): MeituanReportRow[] {
