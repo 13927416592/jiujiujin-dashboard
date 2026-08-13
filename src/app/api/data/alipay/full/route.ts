@@ -138,6 +138,26 @@ export async function GET() {
     // 解析小程序数据
     const miniPrograms = (miniProgram.programs || []).map(parseMiniProgramData);
     
+    // 解析生活号数据
+    const lifeAccountMetrics: Record<string, { value: string; change?: string }> = {};
+    const lifeAccountBodyText = lifeAccount.bodyText || '';
+    const lifeAccountMatch = lifeAccountBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+    if (lifeAccountMatch) {
+      lifeAccountMetrics['访问人数'] = { value: lifeAccountMatch[1], change: lifeAccountMatch[2] };
+    }
+    const lifeAccountVisitMatch = lifeAccountBodyText.match(/访问次数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+    if (lifeAccountVisitMatch) {
+      lifeAccountMetrics['访问次数'] = { value: lifeAccountVisitMatch[1], change: lifeAccountVisitMatch[2] };
+    }
+    
+    // 解析粉丝群数据
+    const fanGroupMetrics: Record<string, { value: string; change?: string }> = {};
+    const fanGroupBodyText = fanGroup.bodyText || '';
+    const fanGroupMatch = fanGroupBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+    if (fanGroupMatch) {
+      fanGroupMetrics['访问人数'] = { value: fanGroupMatch[1], change: fanGroupMatch[2] };
+    }
+    
     return NextResponse.json({
       date: rawData.date,
       overview: overviewData,
@@ -160,12 +180,12 @@ export async function GET() {
         }
       },
       miniPrograms,
-      lifeAccount: {
-        metrics: extractFromBodyText(lifeAccount.bodyText || ''),
+      lifeAccountTraffic: {
+        metrics: lifeAccountMetrics,
         tables: parseTables(lifeAccount.tables || [])
       },
-      fanGroup: {
-        metrics: extractFromBodyText(fanGroup.bodyText || ''),
+      fanGroupTraffic: {
+        metrics: fanGroupMetrics,
         tables: parseTables(fanGroup.tables || [])
       }
     });
