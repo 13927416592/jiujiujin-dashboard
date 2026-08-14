@@ -1,263 +1,261 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import {
-  Store,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  Users,
-  ShoppingCart,
-  Star,
-  MessageSquare,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
-  Download,
-  RefreshCw,
-} from "lucide-react";
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TrendingUp, TrendingDown, Minus, Store, Users, ShoppingCart, DollarSign, Star, Calendar } from 'lucide-react';
 
-// 模拟数据
-const mockData = {
-  kpi: [
-    { label: "GTV", value: "128.5 万", change: "+12.3%", trend: "up" },
-    { label: "订单量", value: "1,856", change: "+8.7%", trend: "up" },
-    { label: "客单价", value: "69.2", change: "+3.2%", trend: "up" },
-    { label: "转化率", value: "4.8%", change: "-0.5%", trend: "down" },
-  ],
-  gtvTrend: [
-    { month: "1 月", value: 98 },
-    { month: "2 月", value: 105 },
-    { month: "3 月", value: 112 },
-    { month: "4 月", value: 108 },
-    { month: "5 月", value: 118 },
-    { month: "6 月", value: 128.5 },
-  ],
-  conversionFunnel: [
-    { stage: "曝光", value: 125000, rate: "100%" },
-    { stage: "点击", value: 18750, rate: "15%" },
-    { stage: "下单", value: 3750, rate: "20%" },
-    { stage: "成交", value: 1856, rate: "49.5%" },
-  ],
-  storeRanking: [
-    { name: "久久金旗舰店", gtv: "45.2 万", orders: 652, rating: 4.8, status: "up" },
-    { name: "久久金体验店", gtv: "38.6 万", orders: 558, rating: 4.7, status: "up" },
-    { name: "久久金标准店", gtv: "28.3 万", orders: 409, rating: 4.6, status: "down" },
-    { name: "久久金社区店", gtv: "16.4 万", orders: 237, rating: 4.5, status: "up" },
-  ],
-  alerts: [
-    { type: "warning", message: "转化率连续 3 天下降", time: "2 小时前" },
-    { type: "error", message: "库存预警：黄金项链库存不足", time: "5 小时前" },
-    { type: "success", message: "GTV 突破 120 万", time: "1 天前" },
-  ],
-};
+interface MeituanData {
+  日期：string;
+  省份：string;
+  城市：string;
+  点评门店 ID: string;
+  门店名称：string;
+  [key: string]: string | number;
+}
 
 export default function MeituanPage() {
-  const [data, setData] = useState<any>(mockData);
-  const [exporting, setExporting] = useState(false);
-  const [lastExport, setLastExport] = useState<string | null>(null);
+  const [data, setData] = useState<MeituanData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedStore, setSelectedStore] = useState('all');
+  const [selectedDate, setSelectedDate] = useState('all');
 
-  const handleExport = async () => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
     try {
-      setExporting(true);
-      const response = await fetch('/api/data/meituan/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ forceLogin: false })
-      });
-      
-      const result = await response.json();
+      const res = await fetch('/api/meituan-data');
+      const result = await res.json();
       
       if (result.success) {
-        alert('数据导出成功！');
-        setLastExport(result.timestamp);
-      } else if (result.action === 'login') {
-        alert('需要手动登录美团后台，请在浏览器中完成登录');
-        window.open('/api/data/meituan/login', '_blank');
+        setData(result.data);
       } else {
-        alert('导出失败：' + result.message);
+        setError(result.error);
       }
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('导出失败，请重试');
+    } catch (err: any) {
+      setError(err.message);
     } finally {
-      setExporting(false);
+      setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#070A14] text-[#F7FAFF]">
-      {/* 页面标题 */}
-      <div className="px-6 py-5 border-b border-white/10">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-[#F7FAFF]">美团运营</h1>
-            <p className="text-sm text-[#9AA7C7] mt-1">美团平台运营数据监控与分析</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {lastExport && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                <Clock className="w-4 h-4 text-[#9AA7C7]" />
-                <span className="text-xs text-[#9AA7C7]">上次导出：{new Date(lastExport).toLocaleString('zh-CN')}</span>
-              </div>
-            )}
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[#7C5CFF] to-[#69E7FF] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className={`w-4 h-4 ${exporting ? 'animate-spin' : ''}`} />
-              <span>{exporting ? '导出中...' : '导出数据'}</span>
-            </button>
-          </div>
+  // 获取筛选选项
+  const stores = [...new Set(data.map(item => item.门店名称))];
+  const dates = [...new Set(data.map(item => item.日期))].sort();
+
+  // 筛选数据
+  const filteredData = data.filter(item => {
+    if (selectedStore !== 'all' && item.门店名称 !== selectedStore) return false;
+    if (selectedDate !== 'all' && item.日期 !== selectedDate) return false;
+    return true;
+  });
+
+  // 计算汇总指标
+  const summary = {
+    总曝光人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析']) || 0), 0),
+    总访问人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析_4']) || 0), 0),
+    总下单人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析_10']) || 0), 0),
+    总核销金额：filteredData.reduce((sum, item) => sum + (Number(item['交易分析']) || 0), 0),
+    总核销券数：filteredData.reduce((sum, item) => sum + (Number(item['交易分析_4']) || 0), 0),
+    新增评价数：filteredData.reduce((sum, item) => sum + (Number(item['评价分析']) || 0), 0),
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">加载美团数据中...</p>
         </div>
       </div>
+    );
+  }
 
-      {/* 内容区 */}
-      <div className="p-6 space-y-6">
-        {/* KPI 指标卡 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {data.kpi.map((item: any, index: number) => (
-            <div
-              key={index}
-              className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-5 hover:bg-white/8 transition-all duration-200 hover:shadow-[0_0_16px_rgba(124,92,255,0.12)]"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-[#9AA7C7]">{item.label}</span>
-                {item.trend === "up" ? (
-                  <TrendingUp className="w-4 h-4 text-[#62FAD3]" />
-                ) : (
-                  <TrendingDown className="w-4 h-4 text-[#FF6B6B]" />
-                )}
-              </div>
-              <div className="text-2xl font-bold text-[#F7FAFF] mb-2">{item.value}</div>
-              <div
-                className={`flex items-center gap-1 text-xs ${
-                  item.trend === "up" ? "text-[#62FAD3]" : "text-[#FF6B6B]"
-                }`}
-              >
-                {item.trend === "up" ? (
-                  <ArrowUpRight className="w-3 h-3" />
-                ) : (
-                  <ArrowDownRight className="w-3 h-3" />
-                )}
-                <span>{item.change}</span>
-                <span className="text-[#9AA7C7] ml-1">较上月</span>
-              </div>
-            </div>
-          ))}
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">加载失败：{error}</p>
+          <button onClick={loadData} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            重试
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* 页面标题 */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-white mb-2">美团经营数据看板</h1>
+          <p className="text-gray-400">实时监控美团平台运营数据</p>
         </div>
 
-        {/* GTV 趋势 + 转化漏斗 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* GTV 趋势 */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
-            <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">GTV 趋势（近 6 个月）</h3>
-            <div className="space-y-3">
-              {data.gtvTrend.map((item: any, index: number) => (
-                <div key={index} className="flex items-center gap-3">
-                  <span className="text-xs text-[#9AA7C7] w-12">{item.month}</span>
-                  <div className="flex-1 h-8 bg-white/5 rounded-lg overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#7C5CFF] to-[#69E7FF] rounded-lg flex items-center justify-end px-2"
-                      style={{ width: `${(item.value / 130) * 100}%` }}
-                    >
-                      <span className="text-xs font-medium text-white">{item.value}万</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+        {/* 筛选器 */}
+        <Card className="mb-6 bg-gray-800/50 backdrop-blur border-gray-700">
+          <CardContent className="p-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">门店筛选</label>
+                <select
+                  value={selectedStore}
+                  onChange={(e) => setSelectedStore(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="all">全部门店</option>
+                  {stores.map(store => (
+                    <option key={store} value={store}>{store}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">日期筛选</label>
+                <select
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="all">全部日期</option>
+                  {dates.map(date => (
+                    <option key={date} value={date}>{date}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* 转化漏斗 */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
-            <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">转化漏斗</h3>
-            <div className="space-y-4">
-              {data.conversionFunnel.map((item: any, index: number) => (
-                <div key={index} className="flex items-center gap-4">
-                  <span className="text-sm text-[#9AA7C7] w-16">{item.stage}</span>
-                  <div className="flex-1">
-                    <div className="h-10 bg-white/5 rounded-lg overflow-hidden relative">
-                      <div
-                        className="h-full bg-gradient-to-r from-[#7C5CFF]/80 to-[#69E7FF]/80 rounded-lg flex items-center px-3"
-                        style={{ width: `${(item.value / 125000) * 100}%` }}
-                      >
-                        <span className="text-xs font-medium text-white">
-                          {item.value.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs text-[#9AA7C7] w-12 text-right">{item.rate}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* 汇总卡片 */}
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <Card className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur border-blue-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-blue-300 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                总曝光人数
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">{summary.总曝光人数.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur border-green-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-green-300 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                总访问人数
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">{summary.总访问人数.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur border-purple-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-purple-300 flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4" />
+                总下单人数
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">{summary.总下单人数.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-500/20 to-orange-600/20 backdrop-blur border-orange-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-orange-300 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                总核销金额
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">¥{summary.总核销金额.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur border-red-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-red-300 flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4" />
+                总核销券数
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">{summary.总核销券数.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur border-yellow-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-yellow-300 flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                新增评价数
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white">{summary.新增评价数.toLocaleString()}</div>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* 门店排名 + 预警 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 门店排名 */}
-          <div className="lg:col-span-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
-            <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">门店 GTV 排名</h3>
-            <div className="space-y-3">
-              {data.storeRanking.map((store: any, index: number) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-4 p-3 bg-white/5 rounded-lg hover:bg-white/8 transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-[#7C5CFF]/20 flex items-center justify-center text-sm font-bold text-[#7C5CFF]">
-                    {index + 1}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-[#F7FAFF]">{store.name}</div>
-                    <div className="text-xs text-[#9AA7C7] mt-0.5">
-                      {store.orders} 单 · 评分 {store.rating}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-[#F7FAFF]">{store.gtv}</div>
-                    <div className="flex items-center gap-1 justify-end mt-0.5">
-                      {store.status === "up" ? (
-                        <TrendingUp className="w-3 h-3 text-[#62FAD3]" />
-                      ) : (
-                        <TrendingDown className="w-3 h-3 text-[#FF6B6B]" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+        {/* 数据表格 */}
+        <Card className="bg-gray-800/50 backdrop-blur border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Store className="w-5 h-5" />
+              门店数据明细
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-gray-700 hover:bg-gray-700/50">
+                    <TableHead className="text-gray-300">日期</TableHead>
+                    <TableHead className="text-gray-300">门店</TableHead>
+                    <TableHead className="text-gray-300">曝光人数</TableHead>
+                    <TableHead className="text-gray-300">访问人数</TableHead>
+                    <TableHead className="text-gray-300">下单人数</TableHead>
+                    <TableHead className="text-gray-300">核销金额</TableHead>
+                    <TableHead className="text-gray-300">核销券数</TableHead>
+                    <TableHead className="text-gray-300">新增评价</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredData.map((item, index) => (
+                    <TableRow key={index} className="border-gray-700 hover:bg-gray-700/50">
+                      <TableCell className="text-gray-300">{item.日期}</TableCell>
+                      <TableCell className="text-gray-300">{item.门店名称}</TableCell>
+                      <TableCell className="text-gray-300">{item['客流分析'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['客流分析_4'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['客流分析_10'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">¥{item['交易分析'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['交易分析_4'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['评价分析'] || 0}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          </div>
+            {filteredData.length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                暂无数据
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-          {/* 预警 */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6">
-            <h3 className="text-base font-semibold text-[#F7FAFF] mb-4">预警通知</h3>
-            <div className="space-y-3">
-              {data.alerts.map((alert: any, index: number) => (
-                <div
-                  key={index}
-                  className="flex items-start gap-3 p-3 bg-white/5 rounded-lg"
-                >
-                  {alert.type === "warning" ? (
-                    <AlertCircle className="w-4 h-4 text-[#FFB84D] mt-0.5 shrink-0" />
-                  ) : alert.type === "error" ? (
-                    <AlertCircle className="w-4 h-4 text-[#FF6B6B] mt-0.5 shrink-0" />
-                  ) : (
-                    <CheckCircle2 className="w-4 h-4 text-[#62FAD3] mt-0.5 shrink-0" />
-                  )}
-                  <div className="flex-1">
-                    <div className="text-xs text-[#F7FAFF]">{alert.message}</div>
-                    <div className="text-xs text-[#9AA7C7] mt-1">{alert.time}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* 数据说明 */}
+        <div className="mt-6 text-center text-gray-400 text-sm">
+          <p>数据更新时间：{new Date().toLocaleString('zh-CN')}</p>
+          <p className="mt-1">共 {filteredData.length} 条记录 | 门店数：{stores.length}</p>
         </div>
       </div>
     </div>
