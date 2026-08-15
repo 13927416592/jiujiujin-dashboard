@@ -1,16 +1,35 @@
 #!/bin/bash
 # 飞书告警脚本（使用飞书应用 API）
+#
+# 密钥通过环境变量读取，禁止在代码中硬编码：
+#   export FEISHU_APP_ID=cli_xxx
+#   export FEISHU_APP_SECRET=xxx
+#   export FEISHU_USER_ID=ou_xxx   # 或 export FEISHU_USER_PHONE=手机号
+#
+# 可写入项目根目录的 .env 文件（.env 已被 .gitignore 忽略），脚本会自动加载。
 
-# 飞书应用配置
-FEISHU_APP_ID="${FEISHU_APP_ID:-cli_aad2190108391bd3}"
-FEISHU_APP_SECRET="${FEISHU_APP_SECRET:-bFUsSZB8eJwtIqdmGMOxbd0ykWhMeGjb}"
-FEISHU_USER_ID="${FEISHU_USER_ID:-}"  # 需要配置：用户的 open_id 或 user_id
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# 告警消息
+# 自动加载 .env（如果存在）
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  set -a
+  . "$SCRIPT_DIR/.env"
+  set +a
+fi
+
+FEISHU_APP_ID="${FEISHU_APP_ID:-}"
+FEISHU_APP_SECRET="${FEISHU_APP_SECRET:-}"
+FEISHU_USER_ID="${FEISHU_USER_ID:-}"
+
 MESSAGE="$1"
 
 if [ -z "$MESSAGE" ]; then
-    MESSAGE="支付宝数据抓取异常，请检查日志"
+    MESSAGE="数据抓取异常，请检查日志"
+fi
+
+if [ -z "$FEISHU_APP_ID" ] || [ -z "$FEISHU_APP_SECRET" ]; then
+    echo "错误: 未配置 FEISHU_APP_ID 或 FEISHU_APP_SECRET（请在 .env 中设置）"
+    exit 1
 fi
 
 # 获取 tenant_access_token
