@@ -1,0 +1,272 @@
+[
+  {
+    "name": "_lxsdk_cuid",
+    "value": "19ffb04836bc8-0f20635473570f-1e525630-13c680-19ffb04836bc8",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1821182804.843569,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_lxsdk",
+    "value": "19ffb04836bc8-0f20635473570f-1e525630-13c680-19ffb04836bc8",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1821182804.843957,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "WEBDFPID",
+    "value": "1786622804861AEIIOAK75613c134b6a252faa6802015be905513404-1786622804861-1786622804861AEIIOAK75613c134b6a252faa6802015be905513404",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1821264796.023519,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_hc.v",
+    "value": "60172418-abbb-30bf-27a1-2b6996bf3f4f.1786622805",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1818158804,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "com.sankuai.nibexperience.rcf.websdk_strategy",
+    "value": "",
+    "domain": "rcf.meituan.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "AWPTALOS2180",
+    "value": "",
+    "domain": "ecom.meituan.com",
+    "path": "/",
+    "expires": 1818158832.881443,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "_lxsdk_cuid",
+    "value": "19ffb04937dc8-0f047391d549e2-1e525630-13c680-19ffb04937dc8",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1821182808.957975,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_lxsdk",
+    "value": "19ffb04937dc8-0f047391d549e2-1e525630-13c680-19ffb04937dc8",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1821182808.958327,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "WEBDFPID",
+    "value": "0v4w51yy7z6w5zz8z3w879x14068686v80uuy950y7z579589x3v4825-1786709210926-1786622808929EIYMSUU75613c134b6a252faa6802015be905512069",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1821182832.943327,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "utm_source_rg",
+    "value": "AM%254fpXtX.%25435%25e98-YEUUC0m-Y00a0n-aCBwE8emamam9aeppUBYeUC0YCBYaBwn98aNY",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1821182810,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "eplt",
+    "value": "bdYeFIM_tcMdmYNQmSHDBViIs4ks7tYQ7MJY2jIx3vj8d44WNJsYhyfcABXLQxKobwTtPuI7QQ3XCcRtSUw6Uw",
+    "domain": "epassport.meituan.com",
+    "path": "/",
+    "expires": 1792325232.78237,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "eprt",
+    "value": "NiG0Vmm7NLXXolLfb6sy7Pr0FfxcUzyL6xSj3FZJ10VFKSb86DrE1OJzIyGx-bW0DC30WbYLnpLs5JIgEUVD3Q",
+    "domain": "epassport.meituan.com",
+    "path": "/",
+    "expires": 1792325232.782472,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "e_b_id_352126",
+    "value": "ecbf82830f2f974328c65886524d2a98",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1792325232,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "bizType",
+    "value": "2",
+    "domain": "ecom.meituan.com",
+    "path": "/",
+    "expires": 1821182833.439314,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "com.sankuai.meishi.fe.kdb-bsid",
+    "value": "bdYeFIM_tcMdmYNQmSHDBViIs4ks7tYQ7MJY2jIx3vj8d44WNJsYhyfcABXLQxKobwTtPuI7QQ3XCcRtSUw6Uw",
+    "domain": ".meituan.com",
+    "path": "/",
+    "expires": 1821182833.439439,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "com.sankuai.meishi.fe.bizsettle-bsid",
+    "value": "bdYeFIM_tcMdmYNQmSHDBViIs4ks7tYQ7MJY2jIx3vj8d44WNJsYhyfcABXLQxKobwTtPuI7QQ3XCcRtSUw6Uw",
+    "domain": "ecom.meituan.com",
+    "path": "/",
+    "expires": 1821182833.439492,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "com.sankuai.meishi.fe.bizvisual-bsid",
+    "value": "bdYeFIM_tcMdmYNQmSHDBViIs4ks7tYQ7MJY2jIx3vj8d44WNJsYhyfcABXLQxKobwTtPuI7QQ3XCcRtSUw6Uw",
+    "domain": "ecom.meituan.com",
+    "path": "/",
+    "expires": 1821182833.439543,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "bizType",
+    "value": "2",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "edper",
+    "value": "bdYeFIM_tcMdmYNQmSHDBViIs4ks7tYQ7MJY2jIx3vj8d44WNJsYhyfcABXLQxKobwTtPuI7QQ3XCcRtSUw6Uw",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1821182833.571081,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "mpmerchant_portal_shopid",
+    "value": "1000299423",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1794480781.009307,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "merchantBookShopID",
+    "value": "1000299423",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "merchantCategoryID",
+    "value": "33981",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_gw_ab_call_30962_44",
+    "value": "TRUE",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": 1789296411.216799,
+    "httpOnly": true,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_gw_ab_30962_44",
+    "value": "365",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": 1789296411.216785,
+    "httpOnly": true,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "AWPTALOS30702",
+    "value": "",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": 1818240772.778496,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "logan_session_token",
+    "value": "jc7qhsfhb6iaptnm6hxi",
+    "domain": "e.dianping.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_lxsdk_s",
+    "value": "19fffe1a384-145-0dd-714%7C%7C317",
+    "domain": ".dianping.com",
+    "path": "/",
+    "expires": 1786706629,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  }
+]
