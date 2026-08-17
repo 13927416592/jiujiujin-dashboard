@@ -9,7 +9,8 @@ export type Platform =
   | 'weibo'
   | 'bilibili'
   | 'alipay'
-  | 'amap';
+  | 'amap'
+  | 'meituan';
 
 /** 账号类型 */
 export type AccountType = 'brand' | 'store' | 'matrix';
@@ -60,11 +61,25 @@ export interface UnifiedMetrics {
   platformSpecific?: Record<string, any>;
 }
 
+/** 导出配置（各平台导出器共用的基础字段） */
+export interface ExportConfig {
+  headless?: boolean;
+  slowMo?: number;
+  outputDir?: string;
+  cookiePath?: string;
+  cookieFile?: string;
+  reportUrl?: string;
+  [key: string]: unknown;
+}
+
 /** 原始数据（从平台 API/CSV 获取的原始格式） */
 export interface RawData {
   platform: Platform;
   timestamp: string;
   data: Record<string, any>;
+  /** 原始数据记录数组（部分导出器使用） */
+  records?: any[];
+  accountId?: string;
 }
 
 /** 导出结果 */
@@ -73,10 +88,11 @@ export interface ExportResult {
   platform: Platform;
   accountId: string;
   timestamp: string;
-  data?: UnifiedMetrics[];
+  data?: UnifiedMetrics[] | any[];
   error?: string;
   rawFile?: string;      // 原始数据文件路径
   convertedFile?: string; // 转换后文件路径
+  filePath?: string;     // 兼容旧字段：导出文件路径
 }
 
 /** 批量导出报告 */

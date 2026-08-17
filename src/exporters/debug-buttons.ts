@@ -49,7 +49,7 @@ async function debugButtons() {
         text: el.textContent?.trim().substring(0, 50),
         class: el.className?.toString().substring(0, 50),
         id: el.id,
-        visible: el.offsetParent !== null,
+        visible: (el as HTMLElement).offsetParent !== null,
       }));
   });
   console.log(`找到 ${templateElements.length} 个元素`);

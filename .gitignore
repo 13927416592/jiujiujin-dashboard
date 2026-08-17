@@ -163,3 +163,8 @@ Desktop.ini
 # Misc
 .coze-logs
 .codegraph/
+
+# 敏感与运行时数据
+**/cookies/
+src/exporters/output/
+*.cookies.json

@@ -19,8 +19,10 @@ async function main() {
   if (result.success) {
     console.log('数据条数:', (result.data as any[])?.length || 0);
     console.log('文件路径:', result.filePath);
+    process.exit(0);
   } else {
-    console.log('错误:', result.error);
+    console.error('错误:', result.error);
+    process.exit(1);
   }
 }
 
