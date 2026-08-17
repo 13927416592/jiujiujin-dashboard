@@ -6,11 +6,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TrendingUp, TrendingDown, Minus, Store, Users, ShoppingCart, DollarSign, Star, Calendar } from 'lucide-react';
 
 interface MeituanData {
-  日期：string;
-  省份：string;
-  城市：string;
-  点评门店 ID: string;
-  门店名称：string;
+  日期: string;
+  省份: string;
+  城市: string;
+  点评门店ID: string;
+  门店名称: string;
   [key: string]: string | number;
 }
 
@@ -55,12 +55,12 @@ export default function MeituanPage() {
 
   // 计算汇总指标
   const summary = {
-    总曝光人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析']) || 0), 0),
-    总访问人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析_4']) || 0), 0),
-    总下单人数：filteredData.reduce((sum, item) => sum + (Number(item['客流分析_10']) || 0), 0),
-    总核销金额：filteredData.reduce((sum, item) => sum + (Number(item['交易分析']) || 0), 0),
-    总核销券数：filteredData.reduce((sum, item) => sum + (Number(item['交易分析_4']) || 0), 0),
-    新增评价数：filteredData.reduce((sum, item) => sum + (Number(item['评价分析']) || 0), 0),
+    totalExposure: filteredData.reduce((sum, item) => sum + (Number(item['客流分析']) || 0), 0),
+    totalVisitors: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_4']) || 0), 0),
+    totalOrders: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_10']) || 0), 0),
+    totalRedeemAmount: filteredData.reduce((sum, item) => sum + (Number(item['交易分析']) || 0), 0),
+    totalRedeemCount: filteredData.reduce((sum, item) => sum + (Number(item['交易分析_4']) || 0), 0),
+    newReviews: filteredData.reduce((sum, item) => sum + (Number(item['评价分析']) || 0), 0),
   };
 
   if (loading) {
@@ -140,7 +140,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.总曝光人数.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{summary.totalExposure.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -152,7 +152,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.总访问人数.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{summary.totalVisitors.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -164,7 +164,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.总下单人数.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{summary.totalOrders.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -176,7 +176,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">¥{summary.总核销金额.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">¥{summary.totalRedeemAmount.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -188,7 +188,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.总核销券数.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{summary.totalRedeemCount.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -200,7 +200,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.新增评价数.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{summary.newReviews.toLocaleString()}</div>
             </CardContent>
           </Card>
         </div>

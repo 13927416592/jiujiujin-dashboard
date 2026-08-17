@@ -7,19 +7,23 @@
 import { PlatformExporter, Platform, RawData, UnifiedMetrics, ExportResult } from './types';
 import { douyinExporter } from './douyin';
 import { MeituanExporter, DEFAULT_MEITUAN_CONFIG } from './meituan';
+import { AlipayExporter } from './alipay';
 
 // 创建美团导出器实例
 const meituanExporter = new MeituanExporter(DEFAULT_MEITUAN_CONFIG);
+// 创建支付宝导出器实例
+const alipayExporter = new AlipayExporter();
 
 /** 导出器注册表 */
-const exporterRegistry: Record<Platform, PlatformExporter> = {
+const exporterRegistry: Partial<Record<Platform, unknown>> = {
   douyin: douyinExporter,
   meituan: meituanExporter,
+  alipay: alipayExporter,
   // 后续添加其他平台
   // wechat: wechatExporter,
   // kuaishou: kuaishouExporter,
   // xiaohongshu: xiaohongshuExporter,
-} as any;
+};
 
 /**
  * 注册新的平台导出器
@@ -33,7 +37,7 @@ export function registerExporter(platform: Platform, exporter: PlatformExporter)
  * 获取平台导出器
  */
 export function getExporter(platform: Platform): PlatformExporter | undefined {
-  return exporterRegistry[platform];
+  return exporterRegistry[platform] as PlatformExporter | undefined;
 }
 
 /**

@@ -2,22 +2,44 @@ import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
-import { PlatformExporter, ExportResult, ExportConfig } from './types';
+import { ExportResult, ExportConfig, RawData, UnifiedMetrics } from './types';
 
 export interface MeituanExportConfig extends ExportConfig {
   reportName?: string;
   reportUrl?: string;
+  cookieFile?: string;
 }
+
+/** 默认配置（供测试脚本/API 使用） */
+export const DEFAULT_MEITUAN_CONFIG: Required<
+  Pick<MeituanExportConfig, 'headless' | 'slowMo' | 'outputDir' | 'cookiePath' | 'reportUrl'>
+> &
+  MeituanExportConfig = {
+  headless: true,
+  slowMo: 0,
+  outputDir: path.join(process.cwd(), 'src', 'exporters', 'output'),
+  cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'meituan.json'),
+  cookieFile: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'meituan.json'),
+  reportUrl: 'https://e.dianping.com/',
+};
 
 interface MeituanReportRow {
   [key: string]: string | number;
 }
 
-export class MeituanExporter implements PlatformExporter {
+/** 便捷函数：执行一次美团数据导出 */
+export async function exportMeituanData(
+  config: MeituanExportConfig = {}
+): Promise<ExportResult> {
+  const exporter = new MeituanExporter({ ...DEFAULT_MEITUAN_CONFIG, ...config });
+  return exporter.export();
+}
+
+export class MeituanExporter {
   platform = 'meituan' as const;
-  private config: MeituanExportConfig;
+  config: MeituanExportConfig;
   private browser: Browser | null = null;
-  private context: BrowserContext | null = null;
+  context: BrowserContext | null = null;
 
   constructor(config: MeituanExportConfig) {
     this.config = {
@@ -29,7 +51,65 @@ export class MeituanExporter implements PlatformExporter {
     };
   }
 
+  /** 兼容 API 路由：初始化浏览器 */
+  async init(headless?: boolean): Promise<void> {
+    if (this.browser) return;
+    if (typeof headless === 'boolean') this.config.headless = headless;
+    this.browser = await chromium.launch({
+      headless: this.config.headless,
+      slowMo: this.config.slowMo,
+    });
+    this.context = await this.browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+  }
+
+  /** 兼容 API 路由：加载 Cookie */
+  async loadCookies(cookieFile?: string): Promise<void> {
+    if (!this.context) throw new Error('浏览器未初始化，请先调用 init()');
+    const cookiePath = cookieFile || this.config.cookiePath!;
+    if (fs.existsSync(cookiePath)) {
+      const cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf-8'));
+      await this.context.addCookies(cookies);
+      console.log('🍪 已加载 Cookie');
+    }
+  }
+
+  /** 兼容接口：导出原始数据 */
+  async exportRaw(): Promise<RawData> {
+    const result = await this.export();
+    return {
+      platform: 'meituan',
+      timestamp: result.timestamp,
+      accountId: result.accountId,
+      data: { result },
+      records: result.data,
+    };
+  }
+
+  /** 兼容接口：转换为统一指标（美团为报表行数据，暂不转换） */
+  async convertToUnified(rawData: RawData): Promise<UnifiedMetrics[]> {
+    void rawData;
+    return [];
+  }
+
+  /** 兼容接口：关闭浏览器 */
+  async close(): Promise<void> {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+      this.context = null;
+    }
+  }
+
   async export(): Promise<ExportResult> {
+    // 若未初始化（命令行直接调用），在这里初始化
+    if (!this.browser) {
+      await this.init();
+    }
+    if (!this.context || !this.browser) {
+      throw new Error('浏览器初始化失败');
+    }
     try {
       this.browser = await chromium.launch({
         headless: this.config.headless,
