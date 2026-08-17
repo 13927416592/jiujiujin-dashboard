@@ -147,6 +147,11 @@ async function main() {
   console.log('测试总结:');
   console.log(`  转换逻辑测试: ${test1Result ? '✅ 通过' : '❌ 失败'}`);
   console.log(`  实时导出测试: ${test2Result ? '✅ 通过' : '⚠️ 跳过或失败（Cookie 可能过期）'}`);
+
+  // 定时任务依赖退出码判断成败：转换逻辑必须通过；实时导出需拿到数据
+  if (!test1Result || !test2Result) {
+    process.exit(1);
+  }
 }
 
 main().catch(console.error);

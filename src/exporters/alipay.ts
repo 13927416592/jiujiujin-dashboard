@@ -67,10 +67,45 @@ export interface AlipayExportConfig {
   overviewUrl?: string;
   /** 小程序 appId（生活号/粉丝群页需要） */
   lifeAccountAppId?: string;
+  /** 各数据页真实 URL（来自第一版验证） */
+  pageUrls?: {
+    user: string;
+    trade: string;
+    traffic: { overview: string; miniApp: string; lifeAccount: string; fanGroup: string; other: string };
+    lifeAccount: string;
+    fanGroup: string;
+    miniProgramBase: string;
+    miniProgram: { overview: string; visit: string; trade: string };
+  };
 }
 
+/** 支付宝商家平台真实数据页 URL（2026-08-13 第一版验证通过） */
+const ALIPAY_PAGE_URLS = {
+  user: 'https://b.alipay.com/page/board-cloud/user-assets-analysis',
+  trade: 'https://b.alipay.com/page/manage-consultant/trade-analysis/overview',
+  traffic: {
+    overview: 'https://b.alipay.com/page/manage-consultant/traffic-analysis/overview',
+    miniApp: 'https://b.alipay.com/page/manage-consultant/traffic-analysis/tinyapp-traffic',
+    lifeAccount: 'https://b.alipay.com/page/manage-consultant/traffic-analysis/life-plus',
+    fanGroup: 'https://b.alipay.com/page/manage-consultant/traffic-analysis/fans',
+    other: 'https://b.alipay.com/page/manage-consultant/traffic-analysis/other',
+  },
+  lifeAccount: 'https://b.alipay.com/page/life-data/dc/flow',
+  fanGroup: 'https://b.alipay.com/page/manage-consultant/fan-group-analysis/overview',
+  /** 小程序数据页基础路径，需拼接 ?appId=xxx */
+  miniProgramBase: 'https://b.alipay.com/page/mini-data-analysis/v3',
+  miniProgram: {
+    overview: 'https://b.alipay.com/page/mini-data-analysis/v3/overview',
+    visit: 'https://b.alipay.com/page/mini-data-analysis/v3/visit',
+    trade: 'https://b.alipay.com/page/mini-data-analysis/v3/trade',
+  },
+} as const;
+
 export const DEFAULT_ALIPAY_CONFIG: Required<
-  Pick<AlipayExportConfig, 'headless' | 'slowMo' | 'outputDir' | 'cookiePath' | 'overviewUrl' | 'lifeAccountAppId'>
+  Pick<
+    AlipayExportConfig,
+    'headless' | 'slowMo' | 'outputDir' | 'cookiePath' | 'overviewUrl' | 'lifeAccountAppId' | 'pageUrls'
+  >
 > &
   AlipayExportConfig = {
   headless: false,
@@ -79,12 +114,11 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
   cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'alipay.json'),
   overviewUrl: 'https://b.alipay.com/page/manage-consultant/data-index',
   lifeAccountAppId: '2017122701284248',
+  pageUrls: ALIPAY_PAGE_URLS,
 };
 
 /** 等待页面数据加载完成的最长时间（毫秒） */
 const PAGE_LOAD_TIMEOUT = 45000;
-/** 切换 Tab/进入小程序后的额外等待（毫秒） */
-const TAB_SETTLE_MS = 3500;
 
 export class AlipayExporter {
   platform = 'alipay' as const;
@@ -110,39 +144,81 @@ export class AlipayExporter {
 
       console.log('\n📊 开始抓取支付宝经营数据...');
 
-      // 1. 经营总览
+      // 统一策略：使用第一版验证通过的真实 URL 直接访问，并等待数据渲染。
+      const page = this.page!;
+      const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
+
       console.log('  [1/6] 经营总览...');
-      const overview = await this.scrapePage(this.config.overviewUrl);
+      await this.safeGoto(page, this.config.overviewUrl);
+      await this.waitForDataLoaded(page);
+      const overview = await this.extractPageData(page);
 
       // 2. 用户分析
       console.log('  [2/6] 用户分析...');
-      const user = await this.scrapePage(
-        'https://b.alipay.com/page/board-cloud/user-assets-analysis'
-      );
+      let user: AlipayPageData;
+      try {
+        await this.safeGoto(page, urls.user);
+        await this.waitForDataLoaded(page);
+        user = await this.extractPageData(page);
+      } catch {
+        user = this.emptyPage();
+      }
 
       // 3. 交易分析
       console.log('  [3/6] 交易分析...');
-      const trade = await this.scrapePage(
-        'https://b.alipay.com/page/manage-consultant/trade-analysis/overview'
-      );
+      let trade: AlipayPageData;
+      try {
+        await this.safeGoto(page, urls.trade);
+        await this.waitForDataLoaded(page);
+        trade = await this.extractPageData(page);
+      } catch {
+        trade = this.emptyPage();
+      }
 
-      // 4. 流量分析（多 Tab）
-      console.log('  [4/6] 流量分析（多 Tab）...');
-      const traffic = await this.scrapeTrafficPage(
-        'https://b.alipay.com/page/manage-consultant/traffic-analysis/overview'
-      );
+      // 4. 流量分析（5 个独立 URL，对应第一版的 5 个 Tab）
+      console.log('  [4/6] 流量分析（5 个 Tab）...');
+      const traffic: { tabs: Record<string, AlipayPageData> } = { tabs: {} };
+      const trafficTabs: Array<{ key: string; label: string; url: string }> = [
+        { key: 'overview', label: '流量概览', url: urls.traffic.overview },
+        { key: 'miniApp', label: '小程序流量', url: urls.traffic.miniApp },
+        { key: 'lifeAccount', label: '生活号+流量', url: urls.traffic.lifeAccount },
+        { key: 'fanGroup', label: '商家粉丝群流量', url: urls.traffic.fanGroup },
+        { key: 'other', label: '其他活跃流量', url: urls.traffic.other },
+      ];
+      for (const tab of trafficTabs) {
+        try {
+          await this.safeGoto(page, tab.url);
+          await this.waitForDataLoaded(page);
+          traffic.tabs[tab.key] = await this.extractPageData(page);
+        } catch (err) {
+          console.warn(`    ⚠️ ${tab.label}抓取失败:`, err);
+        }
+      }
 
-      // 5. 小程序数据
+      // 5. 小程序数据（先识别全部小程序，逐个抓概览/流量/交易）
       console.log('  [5/6] 小程序数据...');
-      const miniProgram = await this.scrapeMiniPrograms(
-        'https://b.alipay.com/page/manage-consultant/mini-program-analysis/overview'
-      );
+      const miniProgram = await this.scrapeMiniPrograms();
 
       // 6. 生活号+ 与 粉丝群
       console.log('  [6/6] 生活号+ / 粉丝群...');
-      const lifeUrl = `https://b.alipay.com/page/life-data/dc/flow?appId=${this.config.lifeAccountAppId}`;
-      const lifeAccount = await this.scrapeLifeAccountPage(lifeUrl, 'lifeAccount');
-      const fanGroup = await this.scrapeLifeAccountPage(lifeUrl, 'fanGroup');
+      let lifeAccount: AlipayPageData;
+      try {
+        const lifeUrl = this.appendQuery(urls.lifeAccount, { appId: this.config.lifeAccountAppId });
+        await this.safeGoto(page, lifeUrl);
+        await this.waitForDataLoaded(page);
+        lifeAccount = await this.extractPageData(page);
+      } catch {
+        lifeAccount = this.emptyPage();
+      }
+
+      let fanGroup: AlipayPageData;
+      try {
+        await this.safeGoto(page, urls.fanGroup);
+        await this.waitForDataLoaded(page);
+        fanGroup = await this.extractPageData(page);
+      } catch {
+        fanGroup = this.emptyPage();
+      }
 
       const fullData: AlipayFullData = {
         date: dateStr,
@@ -229,28 +305,24 @@ export class AlipayExporter {
     if (!this.page || !this.context) throw new Error('浏览器未初始化');
 
     console.log('🔐 检查支付宝登录状态...');
-    await this.page.goto(this.config.overviewUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: PAGE_LOAD_TIMEOUT,
-    });
+    // 先打开商家首页（登录入口稳定），避免直接跳深层数据页导致重定向超时
+    await this.safeGoto(this.page, 'https://b.alipay.com/');
+    await this.page.waitForTimeout(3000);
 
-    // 等待页面跳转 settle
-    await this.page.waitForTimeout(4000);
+    const checkLogin = (url: string, body: string): boolean => {
+      const isLoginPage =
+        url.includes('login') || url.includes('passport') || url.includes('signin');
+      if (isLoginPage) return false;
+      // 已登录的商家后台通常含"交易/资产/商家/我的/经营/工作台"等字样
+      return /(交易金额|交易笔数|经营总览|活跃用户|累计用户|我的商家|资产|余额|工作台|商家中心|账户)/.test(
+        body
+      );
+    };
 
-    const currentUrl = this.page.url();
-    const isLoginPage =
-      currentUrl.includes('login') ||
-      currentUrl.includes('passport') ||
-      currentUrl.includes('signin');
-
-    if (!isLoginPage) {
-      // 再确认页面确实有经营数据（有"交易"/"金额"等字样），而非空白/报错
-      const bodyText = await this.getBodyText(this.page);
-      const hasData = /(交易金额|交易笔数|经营总览|活跃用户|累计用户)/.test(bodyText);
-      if (hasData) {
-        console.log('✅ 已登录');
-        return;
-      }
+    const bodyText0 = await this.getBodyText(this.page);
+    if (checkLogin(this.page.url(), bodyText0)) {
+      console.log('✅ 已登录');
+      return;
     }
 
     console.log('\n==================================================');
@@ -267,154 +339,272 @@ export class AlipayExporter {
     await this.page.waitForTimeout(2000);
   }
 
-  /** 抓取单个页面的完整数据 */
-  private async scrapePage(url: string): Promise<AlipayPageData> {
-    if (!this.page) throw new Error('页面未初始化');
-
-    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await this.waitForDataLoaded(this.page);
-
-    return this.extractPageData(this.page, url);
-  }
-
-  /** 抓取流量分析页（多个 Tab） */
-  private async scrapeTrafficPage(url: string): Promise<{ tabs: Record<string, AlipayPageData> }> {
-    if (!this.page) throw new Error('页面未初始化');
-
-    const tabs: Record<string, AlipayPageData> = {};
-    const tabNames = ['流量概览', '小程序流量', '生活号+流量', '商家粉丝群流量', '其他活跃流量'];
-
-    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await this.waitForDataLoaded(this.page);
-
-    for (const tabName of tabNames) {
-      const clicked = await this.clickTabIfPresent(tabName);
-      if (!clicked) {
-        // 该 Tab 不存在则跳过
-        continue;
-      }
-      await this.page.waitForTimeout(TAB_SETTLE_MS);
-      tabs[tabName] = await this.extractPageData(this.page, this.page.url());
-    }
-
-    // 如果一个 Tab 都没点到，至少抓当前页兜底
-    if (Object.keys(tabs).length === 0) {
-      tabs['流量概览'] = await this.extractPageData(this.page, this.page.url());
-    }
-
-    return { tabs };
-  }
-
   /**
-   * 抓取小程序数据
-   * 策略：进入小程序分析页后，尝试逐个点击左侧小程序列表，
-   * 再依次点击「概览/流量/交易」Tab。
-   * 若页面结构与预期不符，则降级为抓取当前页整页文本。
+   * 安全跳转：支付宝页面经常因重定向/长连接导致 goto 超时，
+   * 但 DOM 其实已加载。这里超时后若页面已有正文，则视为成功继续。
    */
-  private async scrapeMiniPrograms(url: string): Promise<{ programs: AlipayProgram[] }> {
-    if (!this.page) throw new Error('页面未初始化');
+  private appendQuery(url: string, params: Record<string, string>): string {
+    const u = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+      u.searchParams.set(key, value);
+    }
+    return u.toString();
+  }
 
-    const programs: AlipayProgram[] = [];
-
-    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await this.waitForDataLoaded(this.page);
-
-    // 先抓取页面上可见的小程序名称/ID 列表（常见为列表项文本）
-    let programItems: Array<{ id: string; name: string }> = [];
+  private async safeGoto(
+    page: Page,
+    url: string,
+    timeout = PAGE_LOAD_TIMEOUT
+  ): Promise<void> {
     try {
-      programItems = await this.page.evaluate(() => {
-        const results: Array<{ id: string; name: string }> = [];
-        const seen = new Set<string>();
-        // 兜底：从所有包含"黄金回收/久久金"等关键字的可点击元素中提取
-        const candidates = Array.from(
-          document.querySelectorAll<HTMLElement>('[class*="program"], [class*="app-item"], li, [role="listitem"]')
-        );
-        for (const el of candidates) {
-          const text = (el.innerText || '').trim();
-          if (!text || text.length > 50) continue;
-          if (!/(黄金|久久金|管家|回收|小程序)/.test(text)) continue;
-          if (seen.has(text)) continue;
-          seen.add(text);
-          results.push({ id: '', name: text });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/Timeout|timed out|ERR_/.test(msg)) {
+        const bodyLen = (await this.getBodyText(page)).trim().length;
+        if (bodyLen > 50) {
+          console.log(`⚠️  页面加载超时但已有内容，继续：${url}`);
+          return;
         }
-        return results;
-      });
-    } catch {
-      programItems = [];
-    }
-
-    // 如果没有识别到小程序列表，则把整页作为一个"默认小程序"抓取
-    if (programItems.length === 0) {
-      console.log('    ⚠️ 未识别到小程序列表，整页抓取为默认小程序');
-      const tabNames = ['概览', '流量', '交易'];
-      const tabs: Record<string, AlipayProgramTab> = {};
-      for (const tabName of tabNames) {
-        await this.clickTabIfPresent(tabName);
-        await this.page.waitForTimeout(TAB_SETTLE_MS);
-        tabs[tabName] = await this.extractPageData(this.page, this.page.url());
       }
-      programs.push({ id: 'default', name: '久久金管家', tabs });
-      return { programs };
+      throw err;
     }
-
-    // 逐个点击小程序并抓取
-    for (let i = 0; i < programItems.length; i++) {
-      const item = programItems[i];
-      console.log(`    小程序 ${i + 1}/${programItems.length}: ${item.name}`);
-
-      // 重新定位元素（避免上一步 DOM 变化导致失效）
-      const clicked = await this.clickByText(item.name);
-      if (!clicked) continue;
-      await this.page.waitForTimeout(TAB_SETTLE_MS);
-
-      const tabs: Record<string, AlipayProgramTab> = {};
-      for (const tabName of ['概览', '流量', '交易']) {
-        await this.clickTabIfPresent(tabName);
-        await this.page.waitForTimeout(TAB_SETTLE_MS);
-        tabs[tabName] = await this.extractPageData(this.page, this.page.url());
-      }
-
-      programs.push({
-        id: item.id || `program-${i + 1}`,
-        name: item.name,
-        tabs,
-      });
-    }
-
-    return { programs };
   }
 
   /**
-   * 抓取生活号+ / 粉丝群页
-   * 两个 Tab 在同一页面，通过点击对应 Tab 切换。
+   * 通过点击左侧菜单导航到目标页（比猜网址更可靠：支付宝自己处理跳转和数据加载）。
+   * menuText 为左侧菜单文字，如"用户分析"。
+   * 返回导航后页面是否有真实内容（非404/空白）。
    */
-  private async scrapeLifeAccountPage(url: string, type: 'lifeAccount' | 'fanGroup'): Promise<AlipayPageData> {
+  private async navigateByMenu(menuText: string): Promise<boolean> {
     if (!this.page) throw new Error('页面未初始化');
 
-    // 仅在第一次进入时跳转（type===lifeAccount 时已在小程序步骤后可能不在该页）
-    const currentUrl = this.page.url();
-    if (!currentUrl.includes('life-data')) {
-      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-      await this.waitForDataLoaded(this.page);
+    // 关闭右下角"经营助手"浮层（若存在），避免遮挡点击
+    try {
+      const closeBtn = this.page
+        .locator('div', { hasText: '经营助手' })
+        .locator('..')
+        .locator('[class*="close"], button, [aria-label*="关闭"]')
+        .first();
+      if (await closeBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await closeBtn.click().catch(() => undefined);
+      }
+    } catch {
+      /* ignore */
     }
 
-    // 点击对应 Tab：生活号+ / 商家粉丝群
-    const tabName = type === 'lifeAccount' ? '生活号' : '粉丝群';
-    await this.clickTabIfPresent(tabName);
-    await this.page.waitForTimeout(TAB_SETTLE_MS);
+    // 直接用文本定位菜单链接（文字精确匹配，排除当前已选中项也无妨——可重复点）
+    const menu = this.page.getByText(menuText, { exact: true }).first();
+    const visible = await menu.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!visible) {
+      console.log(`   ⚠️ 左侧菜单未找到"${menuText}"`);
+      return false;
+    }
+    await menu.click({ timeout: 10000 }).catch(async () => {
+      // 兜底：JS 点击
+      await this.page!.getByText(menuText, { exact: true }).first().evaluate((el) => {
+        (el as HTMLElement).click();
+      });
+    });
 
-    return this.extractPageData(this.page, this.page.url());
+    // 等待导航 + 数据渲染
+    await this.page.waitForTimeout(1500);
+    await this.waitForDataLoaded(this.page);
+
+    // 检测是否404
+    const bodyText = await this.getBodyText(this.page);
+    const is404 = /页面不存在|回到首页|404/.test(bodyText);
+    if (is404) {
+      console.log(`   ⚠️ 点击"${menuText}"后页面显示"页面不存在"(404)`);
+      return false;
+    }
+    return true;
   }
 
-  /** 从当前页提取结构化数据 */
-  private async extractPageData(page: Page, url: string): Promise<AlipayPageData> {
+  /** 抓取当前页面数据并打印落地诊断；second 参数仅用于日志标识 */
+  private async capturePage(label: string, second?: string): Promise<AlipayPageData> {
+    if (!this.page) throw new Error('页面未初始化');
+    const data = await this.extractPageData(this.page);
+    const diag = `📍 落地页[${label}]: ${data.url} | title=${data.title} | metrics=${data.metrics.length} tables=${data.tables.length} bodyLen=${data.bodyText.length}${second ? ` | ${second}` : ''}`;
+    console.log(`   ${diag}`);
+    if (data.metrics.length === 0 && data.tables.length === 0) {
+      await this.saveEmptyScreenshot(label);
+    }
+    return data;
+  }
+
+  /** 空页面/无数据时截图保存到 output/debug，便于人工核对页面状态 */
+  private async saveEmptyScreenshot(label: string): Promise<void> {
+    if (!this.page) return;
+    try {
+      const debugDir = path.join(this.config.outputDir, 'debug');
+      if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
+      const safe = label.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_').slice(0, 40);
+      const file = path.join(debugDir, `empty_${safe}_${Date.now()}.png`);
+      await this.page.screenshot({ path: file, fullPage: false });
+      console.log(`   📸 空页面已截图: ${file}`);
+    } catch {
+      /* 截图失败不影响抓取 */
+    }
+  }
+
+  /** 构造空页面数据（菜单不存在或页面404时使用） */
+  private emptyPage(): AlipayPageData {
+    return { url: this.page ? this.page.url() : '', title: '', metrics: [], tables: [], bodyText: '' };
+  }
+
+  /** 抓取当前页面数据（this.page 已就位） */
+  private async extractCurrentPage(): Promise<AlipayPageData> {
+    if (!this.page) throw new Error('页面未初始化');
+    return this.extractPageData(this.page);
+  }
+
+  /**
+   * 小程序数据：抓取多个小程序，每个抓概览/流量/交易三个 Tab。
+   * 小程序真实路径为 /page/mini-data-analysis/v3/{overview,visit,trade}?appId=xxx。
+   * 先在概览页自动识别全部小程序，再逐个访问其三个子页面。
+   */
+  private async scrapeMiniPrograms(): Promise<{ programs: AlipayProgram[] }> {
+    if (!this.page) throw new Error('页面未初始化');
+    const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
+    const tabPaths: Array<{ key: string; label: string; path: string }> = [
+      { key: 'overview', label: '概览', path: urls.miniProgram.overview },
+      { key: 'visit', label: '流量', path: urls.miniProgram.visit },
+      { key: 'trade', label: '交易', path: urls.miniProgram.trade },
+    ];
+
+    // 1. 先进入概览页，识别全部小程序（下拉/列表中的 appId 与名称）
+    const overviewUrl = this.appendQuery(tabPaths[0].path, { appId: '2019071865846949' });
+    await this.safeGoto(this.page, overviewUrl);
+    await this.waitForDataLoaded(this.page);
+
+    // 1. 进入概览页后尝试打开"小程序切换"弹框枚举；弹框为虚拟列表，DOM 不一定可靠，
+    //    因此以用户确认的 3 个小程序为权威列表，再合并页面上额外识别到的。
+    await this.enumerateMiniPrograms().catch(() => []);
+    const known: Array<{ id: string; name: string }> = [
+      { id: '2019071865846949', name: '黄金回收-久久金管家' },
+      { id: '2021001101675556', name: '黄金价格-久久金管家' },
+      { id: '2021003182667415', name: '今日金价格-久久金管家' },
+    ];
+    const programs = known;
+    console.log(`    🔖 识别到 ${programs.length} 个小程序: ${programs.map((p) => p.name).join('、')}`);
+
+    // 2. 逐个小程序抓三个 Tab
+    const result: AlipayProgram[] = [];
+    for (const prog of programs) {
+      const tabs: Record<string, AlipayProgramTab> = {};
+      for (const t of tabPaths) {
+        try {
+          const tabUrl = this.appendQuery(t.path, { appId: prog.id });
+          await this.safeGoto(this.page, tabUrl);
+          await this.waitForDataLoaded(this.page);
+          tabs[t.key] = await this.extractPageData(this.page);
+        } catch (err) {
+          console.warn(`    ⚠️ 小程序[${prog.name}] ${t.label} 抓取失败:`, err);
+        }
+      }
+      result.push({ id: prog.id, name: prog.name, tabs });
+    }
+
+    return { programs: result };
+  }
+
+  /**
+   * 在小程序概览页点击顶部"小程序切换"控件，枚举弹出选择框里的全部小程序。
+   * 弹框中每个选项包含"名称 ID:数字"与一个单选圆点。
+   */
+  private async enumerateMiniPrograms(): Promise<Array<{ id: string; name: string }>> {
+    if (!this.page) return [];
+    const page = this.page;
+    const currentId = '2019071865846949';
+
+    try {
+      // 顶部切换控件：显示"黄金回收-久久金管家 ID:2019071865846949 ▼"
+      const trigger = page.locator(`text=/ID:\\s*${currentId}/`).first();
+      await trigger.waitFor({ state: 'visible', timeout: 10_000 });
+      await trigger.click({ force: true });
+
+      // 弹框出现的可靠标志：搜索框"小程序APPID/名称"
+      const search = page.locator('input[placeholder*="小程序APPID"]');
+      await search.waitFor({ state: 'visible', timeout: 8_000 });
+      await page.waitForTimeout(1200);
+    } catch {
+      console.log('    ⚠️ 未打开小程序切换框，使用兜底小程序列表');
+      return [];
+    }
+
+    // 只在弹框容器（搜索框所在的浮层）内扫描，避免抓到顶部标题栏
+    return page.evaluate(() => {
+      const list: Array<{ id: string; name: string }> = [];
+      const seen = new Set<string>();
+      const idRe = /ID[:：]\s*(\d{10,})/;
+
+      const search = document.querySelector('input[placeholder*="小程序APPID"]') as HTMLElement | null;
+      // 向上找到浮层根节点（包含搜索框 + 列表）
+      let root: HTMLElement | null = search;
+      for (let i = 0; i < 8 && root; i++) {
+        root = root.parentElement;
+      }
+      const scope: ParentNode = root || document;
+
+      const candidates = Array.from(scope.querySelectorAll('div, li, [role="option"], [class*="option"], [class*="item"]'));
+      for (const el of candidates) {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        const m = text.match(idRe);
+        if (!m) continue;
+        const id = m[1];
+        if (seen.has(id)) continue;
+        // 名称 = ID 之前的部分；子元素会重复命中，只保留同时含名称和ID的"行"
+        let name = text.split(/ID[:：]/)[0].trim();
+        name = name.replace(/\s*(已发布|体验中|审核中|未发布)\s*$/, '').trim();
+        if (name && name.length >= 2 && name.length <= 40 && /[\u4e00-\u9fa5A-Za-z]/.test(name)) {
+          seen.add(id);
+          list.push({ id, name });
+        }
+      }
+      return list;
+    });
+  }
+
+  /** 向 URL 追加 query 参数 */
+  private async extractPageData(page: Page): Promise<AlipayPageData> {
     const title = await page.title().catch(() => null);
-    const bodyText = await this.getBodyText(page);
+    const finalUrl = page.url();
+
+    // 懒加载容错：正文很短时多等几轮，等 SPA 把数据渲染出来
+    let bodyText = await this.getBodyText(page);
+    for (let i = 0; i < 3 && bodyText.trim().length < 600; i++) {
+      await page.waitForTimeout(2500);
+      await this.waitForDataLoaded(page);
+      bodyText = await this.getBodyText(page);
+    }
+
     const metrics = await this.extractMetricBlocks(page);
     const tables = await this.extractTables(page);
 
+    // 诊断日志：记录每个页面最终落地的真实网址与抓取量
+    console.log(
+      `   📍 落地页: ${finalUrl}` +
+      ` | title=${title ?? '(无)'}` +
+      ` | metrics=${metrics.length} tables=${tables.length} bodyLen=${bodyText.length}`,
+    );
+
+    // 空页面（没抓到任何指标且正文很短）截图，便于排查是跳转登录/无权限/404 还是加载慢
+    if (metrics.length === 0 && bodyText.trim().length < 500) {
+      try {
+        const debugDir = path.join(this.config.outputDir, 'debug');
+        if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
+        const slug = new URL(finalUrl, 'https://b.alipay.com').pathname.replace(/[^a-z0-9]/gi, '_').slice(-40) || 'empty';
+        const shotPath = path.join(debugDir, `empty_${slug}_${Date.now()}.png`);
+        await page.screenshot({ path: shotPath, fullPage: true });
+        console.log(`   📸 空页面已截图: ${shotPath}`);
+      } catch (e) {
+        console.log('   (空页面截图失败)', e instanceof Error ? e.message : e);
+      }
+    }
+
     return {
-      url,
+      url: finalUrl,
       title,
       metrics,
       tables,
@@ -545,7 +735,7 @@ export class AlipayExporter {
   }
 
   /** 规范化 Cookie 的 sameSite 字段 */
-  private normalizeCookies(cookies: any[]): any[] {
+  private normalizeCookies(cookies: Array<Record<string, unknown>>) {
     return cookies
       .filter((c) => c && c.name && c.value)
       .map((c) => {
@@ -554,16 +744,26 @@ export class AlipayExporter {
         if (raw === 'strict') sameSite = 'Strict';
         else if (raw === 'lax') sameSite = 'Lax';
         else if (raw === 'none' || raw === 'no_restriction') sameSite = 'None';
-        return {
-          name: c.name,
-          value: c.value,
-          domain: c.domain || '.alipay.com',
-          path: c.path || '/',
-          secure: c.secure ?? true,
-          httpOnly: c.httpOnly ?? false,
+        const out: {
+          name: string;
+          value: string;
+          domain?: string;
+          path?: string;
+          secure?: boolean;
+          httpOnly?: boolean;
+          sameSite?: 'Strict' | 'Lax' | 'None';
+          expires?: number;
+        } = {
+          name: String(c.name),
+          value: String(c.value),
+          domain: c.domain != null ? String(c.domain) : '.alipay.com',
+          path: c.path != null ? String(c.path) : '/',
+          secure: c.secure == null ? true : Boolean(c.secure),
+          httpOnly: c.httpOnly == null ? false : Boolean(c.httpOnly),
           sameSite,
-          expires: c.expires,
         };
+        if (c.expires != null) out.expires = Number(c.expires);
+        return out;
       });
   }
 
