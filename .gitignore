@@ -14,6 +14,18 @@ __pycache__/
 .env
 .cozeproj/reduction
 
+# === 敏感与运行时数据（严禁提交）===
+# 登录 Cookie / 会话凭证
+**/cookies/
+src/exporters/cookies/
+scripts/douyin-export/cookies/
+*.cookies.json
+# 抓取输出数据（含真实业务数据）
+src/exporters/output/
+scripts/douyin-export/downloads/
+# 飞书/第三方密钥
+feishu*.json
+
 # JS/TS bundlers & build outputs
 .next
 .nuxt
