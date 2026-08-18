@@ -34,7 +34,11 @@ function extractSequential(
     const idx = flat.indexOf(name);
     if (idx < 0) continue;
     // 只在指标名之后的一小段窗口内查找，防止跨指标串值
-    const window = flat.slice(idx + name.length, idx + name.length + 60);
+    let window = flat.slice(idx + name.length, idx + name.length + 60);
+
+    // 兼容「交易金额(元) 103 万」这类单位括号：把名称后紧跟的 (元)/(秒)/（元） 也并入窗口
+    const unitParen = window.match(/^[\s]*[（(][^）)]{1,4}[）)]/);
+    if (unitParen) window = window.slice(unitParen[0].length);
 
     // 先判断是否为「无数据」：指标名后紧跟「- 较前」
     const noData = /^[\s:：-]*-[^\d]{0,4}较前/.test(window);
@@ -50,12 +54,17 @@ function extractSequential(
     }
 
     const value = `${valueMatch[1]}${valueMatch[2] ?? ''}`;
-    // 变化率：在「较前X日」之后找 +/-数字%
+    // 变化率：必须紧跟在「较前X日」之后，避免串到下一个指标；
+    // 支持 +x% / -x%，也支持无符号的 0.00%
     const afterValue = window.slice(valueMatch.index! + valueMatch[0].length);
-    const changeMatch = afterValue.match(/([+-]\d+(?:\.\d+)?%?)/);
+    const changeMatch = afterValue.match(/较前\S*?日\s*([+-]?\d+(?:\.\d+)?%)/);
     result[name] = {
       value,
-      change: changeMatch && changeMatch[1] !== '-' ? changeMatch[1] : undefined,
+      change: changeMatch
+        ? changeMatch[1].startsWith('-') || changeMatch[1].startsWith('+')
+          ? changeMatch[1]
+          : undefined // 无符号视为无变化，不展示
+        : undefined,
     };
   }
   return result;
@@ -120,6 +129,10 @@ export const MINI_PROGRAM_METRIC_NAMES = [
   '引导交易金额',
   '引导交易笔数',
   '引导交易用户数',
+  // 小程序「交易」Tab（名称带 (元) 后缀，由扫描器自动跳过单位括号）
+  '交易金额',
+  '交易用户数',
+  '交易笔数',
   '客单价',
   '笔单价',
 ];
