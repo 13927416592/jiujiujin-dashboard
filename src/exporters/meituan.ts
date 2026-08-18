@@ -369,41 +369,35 @@ export class MeituanExporter {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - this.config.daysToDownload);
       const dateStr = yesterday.toISOString().split('T')[0];
-      const dateDayNum = yesterday.getDate();
-      console.log(` 设置日期范围：${dateStr}（日期数字 ${dateDayNum}）`);
+      console.log(` 设置日期范围：${dateStr}`);
 
-      // 日期范围选择器：点击"请选择时间范围"，在日历里点选昨天。
-      // 注意该控件可能是"单日"也可能是"起止范围"，这里做稳健处理。
-      const dateInput = frame
-        .locator(
-          'text=请选择时间范围, [placeholder*="时间"], [placeholder*="日期"], input[placeholder*="选择"]'
-        )
-        .first();
-      if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // 历史已跑通方案（commit 8496468）：日期选择器打开后点【快捷选项"昨天"】，
+      // 而不是在日历里点日期格子（点格子无法正确设置范围，导致下载不触发）。
+      const dateInput = frame.locator('input[placeholder="请选择时间范围"]').first();
+      if (!(await dateInput.isVisible({ timeout: 8000 }).catch(() => false))) {
+        // 兜底：用文本定位
+        const dateInputAlt = frame.locator('text=请选择时间范围').first();
+        if (await dateInputAlt.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await dateInputAlt.click();
+        } else {
+          throw new Error('未找到"请选择时间范围"输入框');
+        }
+      } else {
         await dateInput.click();
-        await frame.waitForTimeout(1200);
-
-        // 点击日历中的目标日期（昨天）。范围控件可能需要点两次（起、止都点同一天）。
-        const cell = frame.locator(`text=${dateDayNum}`).first();
-        if (await cell.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await cell.click();
-          await frame.waitForTimeout(800);
-          // 若日历仍开着，再点一次同一天（覆盖起止范围控件）
-          if (await cell.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await cell.click();
-            await frame.waitForTimeout(800);
-          }
-        }
-        // 尝试点"确定/确认"关闭日历弹层
-        const confirmDate = frame
-          .locator('button:has-text("确定"), button:has-text("确认"), [role="button"]:has-text("确定")')
-          .first();
-        if (await confirmDate.isVisible({ timeout: 1500 }).catch(() => false)) {
-          await confirmDate.click().catch(() => undefined);
-          await frame.waitForTimeout(800);
-        }
-        await page.keyboard.press('Escape').catch(() => undefined);
       }
+      await frame.waitForTimeout(2000);
+
+      const days = this.config.daysToDownload || 1;
+      let quickOption = '昨天';
+      if (days === 7) quickOption = '近7天';
+      else if (days === 30) quickOption = '近30天';
+      console.log(`   选择快捷选项：${quickOption}`);
+
+      const optionBtn = frame.locator(`text=${quickOption}`).first();
+      await optionBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await optionBtn.click();
+      await frame.waitForTimeout(2000);
+      console.log(`✅ 已选择时间范围：${quickOption}`);
 
       // 点下载前：截图 + 诊断对话框内可见按钮和文本，确认点的是正确的下载按钮
       fs.mkdirSync(this.config.outputDir, { recursive: true });
