@@ -569,59 +569,95 @@ export class MeituanExporter {
   }
 
   /**
-   * 关闭首页可能出现的引导遮罩/公告弹窗，避免它们拦截菜单点击。
-   * 历史上 8/14 成功下载时，这一步是用户手工点掉"知道了"完成的（driver.js 为 3 步引导）。
-   * 这里自动化：循环点掉"知道了/跳过/..."直到遮罩消失，再兜底从 DOM 移除遮罩层。
+   * 彻底关闭美团首页的 driver.js 新功能引导遮罩。
+   * 历史上 8/14 成功下载时这一步是用户手工点掉"知道了"完成的。
+   *
+   * 关键点：driver.js 不仅插入 .driver-overlay 等元素，还会在 <body> 上加
+   * `driver-active driver-fade` 两个 class，CSS 通过 body.driver-active 让整个页面
+   * 拦截指针事件。因此必须：1) 点掉气泡走完引导；2) 移除 body/html 上的 driver class；
+   * 3) 删除所有 driver 元素；4) 重置 body 样式；5) 用 MutationObserver 阻止它重建。
    */
   private async dismissOverlays(page: Page): Promise<void> {
+    // 先尝试点"知道了/跳过"把多步引导走完（最多 6 次）
     const dismissTexts = ['知道了', '我知道了', '跳过', '跳过引导', '完成', '不再提示', '下次再说', '关闭'];
-
-    // 先等一下让引导气泡渲染出来
-    await page.waitForTimeout(800);
-
-    // 多步引导：最多点 6 次"知道了/跳过"，把所有步骤走完
+    await page.waitForTimeout(500);
     for (let i = 0; i < 6; i++) {
       let clicked = false;
       for (const text of dismissTexts) {
-        // 用宽泛的元素选择器：driver.js 按钮可能是 button/div/span/a
         const btn = page
-          .locator(`.driver-popover :has-text("${text}"), .driver-popover button, button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), span:has-text("${text}"), div:has-text("${text}")`)
+          .locator(
+            `.driver-popover :has-text("${text}"), button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), span:has-text("${text}"), div.driver-popover-item:has-text("${text}")`
+          )
           .first();
-        if (await btn.isVisible({ timeout: 600 }).catch(() => false)) {
+        if (await btn.isVisible({ timeout: 400 }).catch(() => false)) {
           await btn.click({ timeout: 1500 }).catch(() => undefined);
-          await page.waitForTimeout(600);
+          await page.waitForTimeout(400);
           clicked = true;
           break;
         }
       }
-      // 点完一次后检查遮罩是否还在
-      const overlayStillThere = await page.locator('.driver-overlay, [class*="driver-overlay"]').first().isVisible({ timeout: 500 }).catch(() => false);
-      if (!clicked && !overlayStillThere) break;
+      if (!clicked) break;
     }
 
-    // 兜底：直接从 DOM 移除 driver.js 遮罩/高亮/气泡层（这些 SVG 会拦截指针事件）
-    await page
+    // 从 DOM 根上彻底清除 driver.js：删 body/html class、删所有 driver 元素、重置样式、
+    // 并挂一个 MutationObserver，在接下来的 3 秒内自动移除任何被重建的 driver 节点。
+    const removed = await page
       .evaluate(() => {
-        const selectors = [
-          '.driver-overlay',
-          '.driver-highlighted-element',
-          '.driver-popover',
-          '[class*="driver-overlay"]',
-          '[class*="driver-popover"]',
-          '.introjs-overlay',
-          '.introjs-tooltip',
-          '.shepherd-modal-overlay-container',
-        ];
-        for (const sel of selectors) {
-          document.querySelectorAll(sel).forEach((el) => el.remove());
-        }
-        document.body.style.removeProperty('overflow');
-        document.body.style.removeProperty('pointer-events');
-        document.documentElement.style.removeProperty('overflow');
-      })
-      .catch(() => undefined);
+        let count = 0;
+        const kill = (): number => {
+          let n = 0;
+          // 1) 移除 body/html 上的 driver class（这是指针拦截的根源）
+          for (const el of [document.body, document.documentElement]) {
+            if (!el) continue;
+            for (const cls of Array.from(el.classList)) {
+              if (cls && cls.toLowerCase().startsWith('driver')) {
+                el.classList.remove(cls);
+                n++;
+              }
+            }
+          }
+          // 2) 删除所有 class 含 driver 的元素（遮罩 SVG、高亮层、气泡等）
+          document.querySelectorAll('[class*="driver"]').forEach((el) => {
+            // 不要误删业务元素：只删明显是 driver 遮罩/弹层的节点
+            const cls = (el.className && typeof el.className === 'string' ? el.className : '').toLowerCase();
+            if (
+              cls.includes('driver-overlay') ||
+              cls.includes('driver-popover') ||
+              cls.includes('driver-highlight') ||
+              cls.includes('driver-stage')
+            ) {
+              el.remove();
+              n++;
+            }
+          });
+          // 3) 重置 body/html 样式
+          document.body.style.removeProperty('overflow');
+          document.body.style.removeProperty('pointer-events');
+          document.body.style.removeProperty('position');
+          document.documentElement.style.removeProperty('overflow');
+          return n;
+        };
 
-    await page.waitForTimeout(400);
+        count += kill();
+
+        // 4) 阻止 driver.js 在接下来几秒重建遮罩（引导翻页会重建）
+        try {
+          const observer = new MutationObserver(() => {
+            count += kill();
+          });
+          observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+          setTimeout(() => observer.disconnect(), 3000);
+        } catch {
+          /* MutationObserver 不可用时忽略 */
+        }
+        return count;
+      })
+      .catch(() => 0);
+
+    if (removed > 0) {
+      console.log(`   🧹 已清理引导遮罩（移除 ${removed} 处 driver 节点/class）`);
+    }
+    await page.waitForTimeout(500);
   }
 
   private async navigateToReportCenter(page: Page): Promise<Page> {
@@ -651,7 +687,11 @@ export class MeituanExporter {
       console.log(' 点击"经营参谋"...');
       const advisorMenu = page.locator('text=经营参谋').first();
       if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await advisorMenu.click();
+        // 再次清理（引导可能在渲染后才挂上 body class），失败则强制点击
+        await this.dismissOverlays(page);
+        await advisorMenu.click({ timeout: 8000 }).catch(async () => {
+          await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
+        });
         await page.waitForTimeout(2000);
       } else {
         const advisorMenuExpanded = page
@@ -659,7 +699,10 @@ export class MeituanExporter {
           .filter({ hasText: '经营参谋' })
           .first();
         if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await advisorMenuExpanded.click();
+          await this.dismissOverlays(page);
+          await advisorMenuExpanded.click({ timeout: 8000 }).catch(async () => {
+            await advisorMenuExpanded.click({ timeout: 5000, force: true }).catch(() => undefined);
+          });
           await page.waitForTimeout(2000);
         } else {
           throw new Error('未找到"经营参谋"菜单');
@@ -672,7 +715,10 @@ export class MeituanExporter {
       console.log('   点击"报表中心"...');
       const reportCenter = page.locator('text=报表中心').first();
       if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await reportCenter.click();
+        await this.dismissOverlays(page);
+        await reportCenter.click({ timeout: 8000 }).catch(async () => {
+          await reportCenter.click({ timeout: 5000, force: true }).catch(() => undefined);
+        });
         await page.waitForTimeout(5000);
       } else {
         throw new Error('未找到"报表中心"菜单');
