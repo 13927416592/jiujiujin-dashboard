@@ -11,13 +11,13 @@
         <string>/Users/yxd/jiujiujin-dashboard/scripts/meituan-daily.sh</string>
     </array>
 
-    <!-- 每天晚上 22:00 执行 -->
+    <!-- 每天早上 9:10 执行 -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>22</integer>
+        <integer>9</integer>
         <key>Minute</key>
-        <integer>0</integer>
+        <integer>10</integer>
     </dict>
 
     <key>StandardOutPath</key>
