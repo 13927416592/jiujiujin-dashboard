@@ -344,48 +344,72 @@ export class AlipayExporter {
     await this.safeGoto(this.page, 'https://b.alipay.com/');
     await this.page.waitForTimeout(3000);
 
-    const checkLogin = (url: string, body: string): boolean => {
-      const isLoginPage =
-        url.includes('login') || url.includes('passport') || url.includes('signin');
-      if (isLoginPage) return false;
-      // 已登录的商家后台通常含"交易/资产/商家/我的/经营/工作台"等字样
-      return /(交易金额|交易笔数|经营总览|活跃用户|累计用户|我的商家|资产|余额|工作台|商家中心|账户)/.test(
+    const LOGIN_URL_PATTERN = /(login|passport|signin|\/login)/i;
+    const isLoginUrl = (url: string): boolean => LOGIN_URL_PATTERN.test(url);
+
+    // 判断是否已登录：
+    // 1) 若被重定向到登录域 → 未登录
+    // 2) 落地在 b.alipay.com（含 portal/home 商家首页）且非登录页 → 视为已登录
+    //    （首页文案未必含"交易金额/工作台"等关键词，不能只靠文案判断，否则会误判）
+    // 3) 再用数据页能否访问做二次确认
+    const looksLoggedIn = async (): Promise<boolean> => {
+      const url = this.page!.url();
+      if (isLoginUrl(url)) return false;
+      if (url.includes('b.alipay.com')) return true;
+      const body = await this.getBodyText(this.page!);
+      return /(交易金额|交易笔数|经营总览|活跃用户|累计用户|我的商家|资产|余额|工作台|商家中心|账户|经营效果)/.test(
         body
       );
     };
 
-    const bodyText0 = await this.getBodyText(this.page);
-    if (checkLogin(this.page.url(), bodyText0)) {
-      console.log('✅ 已登录');
-      return;
-    }
-
-    // 首次判断可能因页面仍在跳转/渲染而误判，给几次重试机会
-    let loggedIn = false;
-    for (let i = 0; i < 3; i++) {
-      await this.page.waitForTimeout(2000);
-      const bodyTextRetry = await this.getBodyText(this.page);
-      if (checkLogin(this.page.url(), bodyTextRetry)) {
-        loggedIn = true;
-        break;
+    if (await looksLoggedIn()) {
+      console.log('✅ 已登录（首页校验通过，URL:', this.page.url(), '）');
+    } else {
+      // 首次判断可能因页面仍在跳转/渲染而误判，给几次重试机会
+      let loggedIn = false;
+      for (let i = 0; i < 3; i++) {
+        await this.page.waitForTimeout(2000);
+        if (await looksLoggedIn()) {
+          loggedIn = true;
+          break;
+        }
+      }
+      if (!loggedIn) {
+        // 无头模式下无法手动登录（浏览器不可见），直接失败退出
+        if (this.config.headless) {
+          console.error('❌ 未登录判定。落地 URL:', this.page.url());
+          throw new Error(
+            '无头模式下检测到支付宝未登录（Cookie 可能已过期，或被重定向到登录页）。请在终端运行一次 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）手动登录以刷新 Cookie。'
+          );
+        }
+        // 交互终端：提示手动登录
+        await this.promptManualLogin();
       }
     }
-    if (loggedIn) {
-      console.log('✅ 已登录');
-      return;
-    }
 
-    // 无头模式下无法手动登录（浏览器不可见），直接失败退出，
-    // 由调用方（定时任务）触发飞书告警，避免进程挂起。
-    if (this.config.headless) {
-      console.error('❌ 未登录判定。落地 URL:', this.page.url());
-      throw new Error(
-        '无头模式下检测到支付宝未登录（Cookie 可能已过期，或被风控重定向到登录页）。请在终端运行一次 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）手动登录以刷新 Cookie。'
-      );
+    // 二次确认：尝试打开真实数据页，若被踢回登录页则说明 Cookie 实际失效
+    console.log('🔎 二次确认数据页访问...');
+    await this.safeGoto(this.page, this.config.pageUrls.trade);
+    await this.page.waitForTimeout(4000);
+    if (isLoginUrl(this.page.url())) {
+      if (this.config.headless) {
+        console.error('❌ 数据页被重定向到登录页:', this.page.url());
+        throw new Error(
+          '无头模式下访问数据页被重定向到登录页（Cookie 已失效）。请运行 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）重新登录。'
+        );
+      }
+      console.log('⚠️ 数据页需要登录，进入手动登录流程...');
+      await this.promptManualLogin();
+    } else {
+      console.log('✅ 数据页可访问，登录有效');
     }
+  }
 
-    // 未登录：在交互终端下允许手动登录；在后台（如 launchd）下无 stdin，
-    // 不能傻等回车导致进程永久挂起。
+  /** 交互终端下提示用户手动登录，并自动检测登录成功（最长 5 分钟） */
+  private async promptManualLogin(): Promise<void> {
+    if (!this.page) throw new Error('页面未初始化');
+
+    // 后台（如 launchd）下无 stdin，不能傻等回车导致进程永久挂起
     const isInteractive = Boolean(process.stdin.isTTY);
     if (!isInteractive) {
       throw new Error(
@@ -415,8 +439,13 @@ export class AlipayExporter {
     const pollPromise = new Promise<void>((resolve, reject) => {
       const tick = async (): Promise<void> => {
         try {
-          const bodyText = await this.getBodyText(page);
-          if (checkLogin(page.url(), bodyText)) {
+          const url = page.url();
+          // 登录成功后会离开登录域、落到 b.alipay.com 业务页
+          const loggedIn =
+            !/(login|passport|signin)/i.test(url) &&
+            (url.includes('b.alipay.com') ||
+              /(交易金额|经营总览|工作台|商家中心|经营效果)/.test(await this.getBodyText(page)));
+          if (loggedIn) {
             resolve();
             return;
           }
