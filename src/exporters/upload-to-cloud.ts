@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import path from 'path';
+import { gzipSync } from 'node:zlib';
 
 export interface UploadOptions {
   platform: 'alipay' | 'meituan' | 'douyin';
@@ -69,17 +70,30 @@ export async function uploadSnapshot(options: UploadOptions): Promise<{
     unknown
   >;
 
+  // 大体积数据（如美团近30天约6万行、原始~60MB）超过反向代理请求体上限，
+  // 统一 gzip 压缩后 base64 传输，服务端按 Content-Encoding=gzip 自动解压。
+  const rawJson = JSON.stringify(raw);
+  const gzBase64 = gzipSync(Buffer.from(rawJson, 'utf-8')).toString('base64');
+  console.log(
+    `📦 上传载荷：原始 ${(rawJson.length / 1024 / 1024).toFixed(2)}MB → gzip+base64 ${(
+      gzBase64.length /
+      1024 /
+      1024
+    ).toFixed(2)}MB`
+  );
+
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Upload-Token': token,
+      'X-Content-Encoding': 'gzip-base64',
     },
     body: JSON.stringify({
       platform: options.platform,
       data_date: options.dataDate,
       source: options.source ?? 'local-mac',
-      raw_data: raw,
+      raw_data_encoded: gzBase64,
     }),
   });
 
