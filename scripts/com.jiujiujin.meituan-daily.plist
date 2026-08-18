@@ -11,13 +11,13 @@
         <string>/Users/yxd/jiujiujin-dashboard/scripts/meituan-daily.sh</string>
     </array>
 
-    <!-- 每天早上 9:10 执行（比用户 9 点上班晚 10 分钟，错开支付宝 9:00） -->
+    <!-- 每天早上 9:20 执行（比用户 9 点上班晚 20 分钟，错开支付宝 9:10） -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
         <integer>9</integer>
         <key>Minute</key>
-        <integer>10</integer>
+        <integer>20</integer>
     </dict>
 
     <key>WorkingDirectory</key>
