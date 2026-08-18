@@ -578,35 +578,112 @@ export class MeituanExporter {
    * 3) 删除所有 driver 元素；4) 重置 body 样式；5) 用 MutationObserver 阻止它重建。
    */
   private async dismissOverlays(page: Page): Promise<void> {
-    // 只精确处理 driver.js 引导：点掉气泡上的"知道了/跳过"，并从根上移除遮罩与 body class。
-    // 注意：不要用 div:has-text(...) 这类过宽选择器，否则可能误点开"反馈/举报"等其它弹窗。
+    // 统一关闭首页遮挡：重点消息面板、新功能引导气泡、顶部命令行提示条、driver.js 遮罩。
     await page.waitForTimeout(500);
 
-    // 1) 精确点击 driver 气泡内的按钮（class 含 driver-），最多 6 次走完多步引导
+    // 1) 关闭右侧"重点消息"面板：定位包含"重点消息"标题的浮层，点其内部/旁边的关闭 X
+    await page
+      .evaluate(() => {
+        const visible = (el: Element): boolean => {
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+        };
+        // 找所有文本含"重点消息"的元素，取最小的那个容器（标题本身），向上找浮层，再找关闭按钮
+        const heads = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(
+          (el) => el.children.length <= 2 && (el.textContent || '').trim() === '重点消息' && visible(el)
+        );
+        for (const head of heads) {
+          // 向上找一个较大的浮层容器
+          let panel: HTMLElement | null = head;
+          for (let i = 0; i < 6 && panel; i++) {
+            const r = panel.getBoundingClientRect();
+            if (r.width > 280 && r.height > 200) break;
+            panel = panel.parentElement;
+          }
+          const root = panel || document;
+          const closeBtn = Array.from(
+            root.querySelectorAll<HTMLElement>('[class*="close"], [aria-label*="关闭"], button')
+          ).find((el) => {
+            if (!visible(el)) return false;
+            const t = (el.textContent || '').trim();
+            const cls = (el.className && typeof el.className === 'string' ? el.className : '').toLowerCase();
+            const r = el.getBoundingClientRect();
+            // 关闭按钮通常很小、在右上角、无文字或只有 ×
+            return (
+              (t === '' || t === '×' || t === 'x' || cls.includes('close')) &&
+              r.width < 60 &&
+              r.height < 60
+            );
+          });
+          if (closeBtn) {
+            closeBtn.click();
+            return true;
+          }
+        }
+        return false;
+      })
+      .catch(() => false);
+    await page.waitForTimeout(500);
+
+    // 2) 关闭新功能引导气泡：优先点"跳过/知道了/完成/不再提示"，其次点气泡右上角 X
     for (let i = 0; i < 6; i++) {
-      const driverBtn = page
-        .locator(
-          '.driver-popover button, .driver-popover [role="button"], [class*="driver-popover"] button, .driver-close-btn'
-        )
-        .first();
-      if (await driverBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-        // 优先点"跳过/知道了/完成"，否则点气泡内最后一个按钮（通常是"下一步/知道了"）
-        const preferred = page
-          .locator(
-            '.driver-popover button:has-text("跳过"), .driver-popover button:has-text("知道了"), .driver-popover button:has-text("完成"), .driver-popover button:has-text("关闭")'
-          )
-          .first();
-        const target = (await preferred.isVisible({ timeout: 300 }).catch(() => false))
-          ? preferred
-          : driverBtn;
-        await target.click({ timeout: 1500 }).catch(() => undefined);
-        await page.waitForTimeout(500);
-      } else {
-        break;
-      }
+      const clicked = await page
+        .evaluate(() => {
+          const visible = (el: Element): boolean => {
+            const r = el.getBoundingClientRect();
+            const s = getComputedStyle(el);
+            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+          };
+          const skipTexts = ['跳过', '跳过引导', '知道了', '我知道了', '完成', '不再提示', '下次再说', '关闭'];
+          // 先找文本精确等于跳过类词的可见按钮/链接
+          const all = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], span, div'));
+          const btn = all.find((el) => {
+            if (!visible(el)) return false;
+            const t = (el.textContent || '').trim();
+            // 只匹配叶子级小按钮，避免点到大容器
+            return skipTexts.includes(t) && el.querySelectorAll('*').length <= 3;
+          });
+          if (btn) {
+            btn.click();
+            return true;
+          }
+          // 再找 driver-popover / 引导浮层里的关闭 X
+          const popover = document.querySelector<HTMLElement>(
+            '.driver-popover, [class*="driver-popover"], [class*="guide"], [class*="tour"], [class*="intro"]'
+          );
+          if (popover && visible(popover)) {
+            const x = popover.querySelector<HTMLElement>('[class*="close"], button');
+            if (x && visible(x)) {
+              x.click();
+              return true;
+            }
+          }
+          return false;
+        })
+        .catch(() => false);
+      if (!clicked) break;
+      await page.waitForTimeout(500);
     }
 
-    // 2) 从 DOM 根上清除 driver.js（移除 body/html 的 driver-* class、删遮罩节点、重置样式、阻止重建）
+    // 3) 关闭顶部"不支持的命令行标记"提示条（点其右侧 X）
+    await page
+      .evaluate(() => {
+        const bars = Array.from(document.querySelectorAll<HTMLElement>('*')).filter((el) =>
+          (el.textContent || '').includes('--disable-setuid-sandbox')
+        );
+        for (const bar of bars) {
+          const x = bar.querySelector<HTMLElement>('[class*="close"], button, [aria-label*="关闭"]');
+          if (x) {
+            x.click();
+            return;
+          }
+        }
+      })
+      .catch(() => undefined);
+    await page.waitForTimeout(300);
+
+    // 4) 从 DOM 根上清除 driver.js（body/html class、遮罩节点、阻止重建）
     const removed = await page
       .evaluate(() => {
         let count = 0;
@@ -671,32 +748,39 @@ export class MeituanExporter {
       });
       await page.waitForTimeout(3000);
 
-      // 1) 反复关闭可能遮挡页面的弹窗（反馈/举报/地区选择/消息面板/引导遮罩），
-      //    直到"取消/提交反馈/各省"这类弹窗特征消失或重试上限。
-      await this.dismissBlockingDialogs(page);
+      // 1) 关闭首页所有遮挡：重点消息面板、新功能引导气泡、顶部命令行提示条、driver.js 遮罩
+      await this.dismissOverlays(page);
 
-      // 2) 精确找到左侧菜单中的"经营参谋"（遍历 span.title 做精确文本匹配），
-      //    滚动到可视区域后再点击。
-      console.log(' 点击左侧菜单"经营参谋"...');
-      const advisorHandle = await this.findMenuTitle(page, '经营参谋');
-      if (!advisorHandle) {
-        await this.dumpVisibleMenu(page);
-        throw new Error('未找到左侧"经营参谋"菜单项');
+      // 2) 进入"经营参谋"。截图显示首页中部有"经营参谋"数据卡片（橙色图标），
+      //    其右侧有"查看更多"链接——这是历史上成功进入经营参谋页的入口。
+      //    左侧菜单此时可能是折叠态，作为兜底。
+      console.log(' 进入"经营参谋"卡片...');
+      let navigated = await this.enterAdvisorCard(page);
+      if (!navigated) {
+        // 兜底：展开并点击左侧菜单"经营参谋"
+        await this.expandSidebar(page);
+        const advisorHandle = await this.findMenuTitle(page, '经营参谋');
+        if (advisorHandle) {
+          await advisorHandle.evaluate((el: Element) => {
+            el.scrollIntoView({ block: 'center', inline: 'center' });
+            (el as HTMLElement).click();
+          });
+          await advisorHandle.dispose();
+          navigated = true;
+        }
       }
-      await this.dismissBlockingDialogs(page);
-      await advisorHandle.evaluate((el: Element) => {
-        el.scrollIntoView({ block: 'center', inline: 'center' });
-        (el as HTMLElement).click();
-      });
-      await advisorHandle.dispose();
-      await page.waitForTimeout(3000);
+      if (!navigated) {
+        await this.dumpVisibleMenu(page);
+        throw new Error('未找到"经营参谋"入口（首页卡片"查看更多"与左侧菜单均未命中）');
+      }
+      await page.waitForTimeout(4000);
 
-      // 3) 点击后再关一次弹窗 + 清引导遮罩
-      await this.dismissBlockingDialogs(page);
+      // 3) 进入后再次清理遮罩/弹窗（经营参谋页也可能弹引导或反馈框）
+      await this.dismissOverlays(page);
+      await this.dismissFeedbackDialog(page);
 
-      // 4) 找"报表中心"（子菜单或页面内链接），同样用精确文本遍历
+      // 4) 找"报表中心"
       console.log('   点击"报表中心"...');
-      let reportClicked = false;
       const reportHandle = await this.findClickableText(page, '报表中心', [
         'a',
         '[role="menuitem"]',
@@ -705,19 +789,16 @@ export class MeituanExporter {
         'div',
         'li',
       ]);
-      if (reportHandle) {
-        await this.dismissBlockingDialogs(page);
-        await reportHandle.evaluate((el: Element) => {
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-          (el as HTMLElement).click();
-        });
-        await reportHandle.dispose();
-        reportClicked = true;
-      }
-      if (!reportClicked) {
+      if (!reportHandle) {
         await this.dumpVisibleMenu(page);
-        throw new Error('点击经营参谋后未找到"报表中心"入口（可能是子菜单名称或页面结构变化）');
+        throw new Error('进入经营参谋后未找到"报表中心"入口（可能是子菜单名称或页面结构变化）');
       }
+      await this.dismissOverlays(page);
+      await reportHandle.evaluate((el: Element) => {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        (el as HTMLElement).click();
+      });
+      await reportHandle.dispose();
       await page.waitForTimeout(6000);
 
       // 5) 等待可能的新标签页
@@ -788,6 +869,112 @@ export class MeituanExporter {
 
       if (!acted) break;
     }
+  }
+
+  /**
+   * 关闭"提交反馈/举报 + 地区选择"对话框（若存在）。
+   * 该弹窗特征：含"提交反馈"或"点击此处发起举报/申诉" + 一串省市名 + "确定/取消"。
+   */
+  private async dismissFeedbackDialog(page: Page): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      const has = await page
+        .evaluate(() => {
+          const body = document.body.innerText || '';
+          return (
+            body.includes('提交反馈') &&
+            (body.includes('点击此处发起举报') || body.includes('全选'))
+          );
+        })
+        .catch(() => false);
+      if (!has) break;
+      await page.keyboard.press('Escape').catch(() => undefined);
+      await page.waitForTimeout(200);
+      const cancel = page
+        .locator('button:has-text("取消"), a:has-text("取消"), [role="button"]:has-text("取消")')
+        .first();
+      if (await cancel.isVisible({ timeout: 500 }).catch(() => false)) {
+        await cancel.click({ timeout: 1500 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+      } else {
+        break;
+      }
+    }
+  }
+
+  /**
+   * 点击首页"经营参谋"数据卡片右侧的"查看更多"进入经营参谋页。
+   * 截图中：卡片标题为"经营参谋"（橙色图标），其右上方有蓝色"查看更多"链接。
+   * 注意：只在"经营参谋"卡片附近找"查看更多"，避免误点其它卡片（如评价管理）的同名链接，
+   * 更要避免误点到反馈/举报入口。
+   */
+  private async enterAdvisorCard(page: Page): Promise<boolean> {
+    const clicked = await page
+      .evaluate(() => {
+        const visible = (el: Element): boolean => {
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+        };
+        // 找到文本为"经营参谋"的标题元素
+        const titles = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(
+          (el) =>
+            el.children.length <= 2 &&
+            (el.textContent || '').trim() === '经营参谋' &&
+            visible(el)
+        );
+        for (const title of titles) {
+          // 向上找卡片容器
+          let card: HTMLElement | null = title;
+          for (let i = 0; i < 6 && card; i++) {
+            const r = card.getBoundingClientRect();
+            if (r.width > 400 && r.height > 120) break;
+            card = card.parentElement;
+          }
+          const root = card || document;
+          // 在卡片内找文本精确为"查看更多"的链接/可点击元素
+          const more = Array.from(
+            root.querySelectorAll<HTMLElement>('a, button, [role="button"], span, div')
+          ).find((el) => {
+            if (!visible(el)) return false;
+            const t = (el.textContent || '').trim();
+            return t === '查看更多' && el.querySelectorAll('*').length <= 2;
+          });
+          if (more) {
+            more.click();
+            return true;
+          }
+        }
+        return false;
+      })
+      .catch(() => false);
+    if (clicked) {
+      console.log('   ✅ 已点击"经营参谋"卡片的"查看更多"');
+      await page.waitForTimeout(500);
+      // 点击后若误弹出反馈框则关掉
+      await this.dismissFeedbackDialog(page);
+    }
+    return clicked;
+  }
+
+  /** 展开左侧折叠的菜单栏（截图中左侧只显示一排 ▼）。 */
+  private async expandSidebar(page: Page): Promise<void> {
+    await page
+      .evaluate(() => {
+        const visible = (el: Element): boolean => {
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+        };
+        // 点击左侧导航的折叠展开触发器
+        const triggers = Array.from(
+          document.querySelectorAll<HTMLElement>('[class*="collapse"], [class*="expand"], [class*="toggle"], [class*="arrow"]')
+        ).filter((el) => visible(el) && el.getBoundingClientRect().left < 60);
+        for (const t of triggers.slice(0, 10)) {
+          t.click();
+        }
+      })
+      .catch(() => undefined);
+    await page.waitForTimeout(500);
   }
 
   /**
