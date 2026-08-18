@@ -16,7 +16,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { uploadSnapshot } from './upload-to-cloud';
+import { pruneMeituanPayload, MEITUAN_KEEP_COLUMNS } from './meituan-columns';
 
 type Platform = 'alipay' | 'meituan' | 'douyin';
 
@@ -61,14 +63,40 @@ async function main(): Promise<void> {
   console.log('数据日期:', dataDate);
   console.log('文件大小:', (stat.size / 1024 / 1024).toFixed(2), 'MB\n');
 
-  const result = await uploadSnapshot({
-    platform,
-    dataDate,
-    rawFile: abs,
-    source: 'local-mac',
-  });
+  // 美团数据裁剪到看板所需列，避免 30 天全量字段（~64MB）超过数据库写入上限
+  let uploadFile = abs;
+  let tempFile: string | null = null;
+  if (platform === 'meituan') {
+    const raw = JSON.parse(fs.readFileSync(abs, 'utf-8')) as Record<string, unknown>;
+    const pruned = pruneMeituanPayload(raw);
+    const prunedJson = JSON.stringify(pruned);
+    const original = JSON.stringify(raw);
+    console.log(
+      `✂️  列裁剪：原始 ${(original.length / 1024 / 1024).toFixed(2)}MB → 裁剪后 ${(
+        prunedJson.length /
+        1024 /
+        1024
+      ).toFixed(2)}MB（只保留看板需要的 ${MEITUAN_KEEP_COLUMNS.length} 列）`
+    );
+    tempFile = path.join(os.tmpdir(), `meituan-upload-${Date.now()}.json`);
+    fs.writeFileSync(tempFile, prunedJson, 'utf-8');
+    uploadFile = tempFile;
+  }
 
-  console.log('\n✅ 上传成功:', result.body);
+  try {
+    const result = await uploadSnapshot({
+      platform,
+      dataDate,
+      rawFile: uploadFile,
+      source: 'local-mac',
+    });
+
+    console.log('\n✅ 上传成功:', result.body);
+  } finally {
+    if (tempFile && fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+  }
   process.exit(0);
 }
 

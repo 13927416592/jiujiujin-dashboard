@@ -14,6 +14,7 @@
 
 import { MeituanExporter, DEFAULT_MEITUAN_CONFIG } from './meituan';
 import { uploadSnapshot } from './upload-to-cloud';
+import { pruneMeituanPayload } from './meituan-columns';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -68,19 +69,22 @@ async function main(): Promise<void> {
   console.log('时间:', result.timestamp);
 
   // result.filePath 在新实现里指向解析后的 JSON 路径
-  const rows = (result.data as unknown[]) || [];
+  const rows = ((result.data as unknown[]) || []) as Array<Record<string, unknown>>;
   console.log('数据条数:', rows.length);
 
   // 包装成带元信息的 raw_data，写一份 full JSON 供上传
   const dataDate = yesterdayShanghai();
   const fullJsonPath = path.join(outputDir, `meituan_full_${dataDate}.json`);
+
+  // 裁剪到看板实际使用的 11 列（报表有 30+ 指标列），避免近 30 天 6 万行 jsonb 超过数据库写入上限
+  const prunedRows = pruneMeituanPayload(rows);
   const payload = {
     platform: 'meituan',
     exportDate: dataDate,
     exportedAt: result.timestamp,
     accountId: result.accountId,
-    rowCount: rows.length,
-    rows,
+    rowCount: prunedRows.length,
+    rows: prunedRows,
   };
   fs.writeFileSync(fullJsonPath, JSON.stringify(payload, null, 2), 'utf-8');
   console.log('数据文件:', fullJsonPath);
