@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { saveSnapshot, type Platform } from '@/storage/database/snapshot-repo';
+import { gunzipSync } from 'node:zlib';
 
 /**
  * 平台数据上传接口
@@ -27,6 +28,8 @@ interface UploadBody {
   source?: string;
   summary?: Record<string, unknown> | null;
   raw_data?: Record<string, unknown>;
+  // 新格式：gzip 压缩后 base64 编码的 raw_data（用于大体积数据，绕过代理请求体限制）
+  raw_data_encoded?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -73,14 +76,30 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  if (!isRecord(body.raw_data)) {
+  // 4. 解析 raw_data：支持 gzip+base64 压缩格式（大体积数据）和明文旧格式
+  let rawData: Record<string, unknown>;
+  if (typeof body.raw_data_encoded === 'string' && body.raw_data_encoded.length > 0) {
+    try {
+      const buf = Buffer.from(body.raw_data_encoded, 'base64');
+      const json = gunzipSync(buf).toString('utf-8');
+      rawData = JSON.parse(json) as Record<string, unknown>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        { error: `raw_data_encoded 解压/解析失败: ${msg}` },
+        { status: 400 }
+      );
+    }
+  } else if (isRecord(body.raw_data)) {
+    rawData = body.raw_data;
+  } else {
     return NextResponse.json(
-      { error: 'raw_data 缺失或不是对象' },
+      { error: 'raw_data 缺失或不是对象（也未提供 raw_data_encoded）' },
       { status: 400 }
     );
   }
 
-  // 4. 写入数据库（同平台同日 upsert 覆盖）
+  // 5. 写入数据库（同平台同日 upsert 覆盖）
   try {
     const saved = await saveSnapshot({
       platform,
@@ -88,7 +107,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       fetched_at: new Date().toISOString(),
       source: body.source || 'unknown',
       summary: isRecord(body.summary) ? body.summary : null,
-      raw_data: body.raw_data,
+      raw_data: rawData,
     });
 
     return NextResponse.json({

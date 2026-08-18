@@ -36,6 +36,13 @@ async function main(): Promise<void> {
   console.log(`模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'}\n`);
 
   const outputDir = path.join(process.cwd(), 'src', 'exporters', 'output');
+
+  // 导出天数：默认 1（昨天，每日定时任务用）。
+  // 首次补历史数据时设 MEITUAN_EXPORT_DAYS=30，会在日期选择器点"近30天"。
+  // 导出器内部 7→"近7天"、30→"近30天"，其余→"昨天"。
+  const daysToDownload = Number(process.env.MEITUAN_EXPORT_DAYS) || 1;
+  console.log(`📅 导出时间范围：${daysToDownload === 1 ? '昨天' : `近${daysToDownload}天`}`);
+
   const exporter = new MeituanExporter({
     headless,
     slowMo: headless ? 0 : 300,
@@ -46,7 +53,7 @@ async function main(): Promise<void> {
     reportUrl: DEFAULT_MEITUAN_CONFIG.reportUrl,
     accountName: DEFAULT_MEITUAN_CONFIG.accountName,
     reportCardName: DEFAULT_MEITUAN_CONFIG.reportCardName,
-    daysToDownload: 1,
+    daysToDownload,
   });
 
   const result = await exporter.export();

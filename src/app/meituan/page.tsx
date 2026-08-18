@@ -25,6 +25,20 @@ interface MeituanSummary {
   recordCount: number;
 }
 
+interface MeituanResponse {
+  success: boolean;
+  data?: {
+    summary: MeituanSummary;
+    trend: unknown[];
+    stores: string[];
+    raw: MeituanData[];
+  };
+  data_date?: string;
+  fetched_at?: string;
+  source?: string;
+  error?: string;
+}
+
 export default function MeituanPage() {
   const [data, setData] = useState<MeituanData[]>([]);
   const [summary, setSummary] = useState<MeituanSummary | null>(null);
@@ -32,6 +46,8 @@ export default function MeituanPage() {
   const [error, setError] = useState('');
   const [selectedStore, setSelectedStore] = useState('all');
   const [selectedDate, setSelectedDate] = useState('all');
+  const [dataDate, setDataDate] = useState('');
+  const [fetchedAt, setFetchedAt] = useState('');
 
   useEffect(() => {
     loadData();
@@ -40,17 +56,18 @@ export default function MeituanPage() {
   const loadData = async () => {
     try {
       const res = await fetch('/api/meituan-data');
-      const result = await res.json();
+      const result: MeituanResponse = await res.json();
 
-      if (result.success) {
-        // 接口返回 { summary, trend, stores, raw }，明细数组在 raw
-        setData(Array.isArray(result.data?.raw) ? result.data.raw : []);
-        setSummary(result.data?.summary ?? null);
+      if (result.success && result.data) {
+        setData(result.data.raw ?? []);
+        setSummary(result.data.summary ?? null);
+        setDataDate(result.data_date ?? '');
+        setFetchedAt(result.fetched_at ?? '');
       } else {
         setError(result.error || '数据加载失败');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -272,7 +289,10 @@ export default function MeituanPage() {
 
         {/* 数据说明 */}
         <div className="mt-6 text-center text-gray-400 text-sm">
-          <p>数据更新时间：{new Date().toLocaleString('zh-CN')}</p>
+          <p>
+            数据日期：{dataDate || '—'}
+            {fetchedAt && ` · 入库时间：${new Date(fetchedAt).toLocaleString('zh-CN')}`}
+          </p>
           <p className="mt-1">共 {filteredData.length} 条记录 | 门店数：{stores.length}</p>
         </div>
       </div>
