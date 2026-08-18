@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page, ElementHandle } from 'playwright';
+import { chromium, BrowserContext, Page, Frame, ElementHandle } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
@@ -334,46 +334,62 @@ export class MeituanExporter {
       console.log('📊 导航到经营参谋 -> 报表中心...');
       const reportPage = await this.navigateToReportCenter(page);
 
-      console.log('⏳ 等待报表中心加载...');
-      await this.waitForReportCenter(reportPage);
+      // 报表中心的实际内容嵌在 iframe 里（URL 的 iUrl base64 解码指向 h5.dianping.com/.../report-center）。
+      // 必须在 frame 内定位元素，page.locator 不会穿透 iframe。
+      console.log('⏳ 等待报表中心 iframe 加载...');
+      const frame = await this.waitForReportFrame(reportPage);
+      console.log('✅ 已进入报表中心 iframe');
+
+      // 再次确保引导气泡已关闭（首页可能未点中）
+      await this.dismissGuideEverywhere(reportPage);
 
       console.log(' 点击"使用模板"...');
-      const useTemplateBtn = reportPage.locator('text=使用模板').first();
+      const useTemplateBtn = frame.locator('text=使用模板').first();
       if (await useTemplateBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
         await useTemplateBtn.click();
-        await reportPage.waitForTimeout(3000);
+        await frame.waitForTimeout(3000);
       } else {
         throw new Error('未找到"使用模板"按钮');
       }
 
       console.log('⏳ 等待下载对话框...');
-      const dialog = reportPage.locator(`text=${this.config.reportCardName}`).first();
-      await dialog.waitFor({ state: 'visible', timeout: 10000 }).catch(() => undefined);
-      await reportPage.waitForTimeout(2000);
+      // 历史成功版确认：点开"使用模板"后弹出的下载对话框标题是"久久金美团经营数据下载"（带"下载"后缀）
+      const dialogCandidates = [
+        frame.locator('text=久久金美团经营数据下载').first(),
+        frame.locator(`text=${this.config.reportCardName}`).first(),
+      ];
+      for (const d of dialogCandidates) {
+        if (await d.isVisible({ timeout: 4000 }).catch(() => false)) {
+          await d.waitFor({ state: 'visible', timeout: 6000 }).catch(() => undefined);
+          break;
+        }
+      }
+      await frame.waitForTimeout(2000);
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - this.config.daysToDownload);
       const dateStr = yesterday.toISOString().split('T')[0];
       console.log(` 设置日期范围：${dateStr}`);
 
-      const dateInput = reportPage.locator('text=请选择时间范围').first();
+      const dateInput = frame.locator('text=请选择时间范围').first();
       if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
         await dateInput.click();
-        await reportPage.waitForTimeout(1000);
+        await frame.waitForTimeout(1000);
 
-        const dateCell = reportPage.locator(`text=${yesterday.getDate()}`).first();
+        const dateCell = frame.locator(`text=${yesterday.getDate()}`).first();
         if (await dateCell.isVisible({ timeout: 2000 }).catch(() => false)) {
           await dateCell.click();
-          await reportPage.waitForTimeout(1000);
+          await frame.waitForTimeout(1000);
         }
       }
 
       console.log('⬇️  点击下载...');
-      const downloadBtn = reportPage.locator('button:has-text("下载")').last();
+      const downloadBtn = frame.locator('button:has-text("下载")').last();
       if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
         throw new Error('未找到"下载"按钮');
       }
 
+      // 下载事件由 page/context 派发（frame 本身不派发 download 事件）
       const [download] = await Promise.all([
         reportPage.waitForEvent('download', { timeout: 60000 }),
         downloadBtn.click(),
@@ -1000,6 +1016,88 @@ export class MeituanExporter {
     } catch {
       /* ignore */
     }
+  }
+
+  /**
+   * 报表中心内容在 iframe 内。返回包含"使用模板"或报表卡片标题的 Frame。
+   */
+  private async waitForReportFrame(page: Page): Promise<Frame> {
+    const want = this.config.reportCardName;
+    const deadline = Date.now() + 30000;
+    let lastErr: string = '';
+    while (Date.now() < deadline) {
+      const frames = page.frames();
+      for (const f of frames) {
+        try {
+          const hasCard = await f
+            .locator(`text=${want}`)
+            .first()
+            .isVisible({ timeout: 600 })
+            .catch(() => false);
+          if (hasCard) return f;
+          const hasBtn = await f
+            .locator('text=使用模板')
+            .first()
+            .isVisible({ timeout: 600 })
+            .catch(() => false);
+          if (hasBtn) return f;
+        } catch (e: unknown) {
+          lastErr = e instanceof Error ? e.message : String(e);
+        }
+      }
+      await page.waitForTimeout(800);
+    }
+    // 兜底：返回任意非主 frame
+    const sub = page.frames().find((f) => f !== page.mainFrame());
+    if (sub) return sub;
+    throw new Error(`未找到报表中心 iframe（${lastErr || '超时'}）`);
+  }
+
+  /**
+   * 在页面顶层和所有 iframe 内都尝试点掉右下角引导气泡的"跳过"，
+   * 防止首页那一次没点中、或跨页面后引导又出现。
+   */
+  private async dismissGuideEverywhere(page: Page): Promise<void> {
+    const targets = [page, ...page.frames()];
+    for (const scope of targets) {
+      try {
+        // 直接用 Playwright 精确匹配叶子文本
+        const skip = scope.locator('button:has-text("跳过"), [role="button"]:has-text("跳过")').first();
+        if (await skip.isVisible({ timeout: 400 }).catch(() => false)) {
+          await skip.click({ timeout: 1500 }).catch(() => undefined);
+          await page.waitForTimeout(400);
+        } else {
+          // 兜底：在 DOM 里找文本恰好为"跳过"的小节点并点击
+          const clicked = await scope
+            .evaluate(() => {
+              const all = Array.from(document.querySelectorAll<HTMLElement>('*'));
+              const visible = (el: Element): boolean => {
+                const r = el.getBoundingClientRect();
+                const s = getComputedStyle(el);
+                return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+              };
+              const leaf = all.find(
+                (el) => visible(el) && el.children.length <= 1 && (el.textContent || '').trim() === '跳过'
+              );
+              if (leaf) {
+                (leaf.closest('button,a,[role="button"],[class*="btn"]') || leaf).dispatchEvent(
+                  new MouseEvent('click', { bubbles: true, cancelable: true })
+                );
+                return true;
+              }
+              return false;
+            })
+            .catch(() => false);
+          if (clicked) {
+            await page.waitForTimeout(400);
+          }
+        }
+      } catch {
+        /* ignore frame cross-origin errors */
+      }
+    }
+    // 清掉顶层 body driver class
+    await this.dismissOverlays(page);
   }
 
   private async waitForReportCenter(page: Page): Promise<void> {
