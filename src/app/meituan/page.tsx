@@ -14,8 +14,20 @@ interface MeituanData {
   [key: string]: string | number;
 }
 
+interface MeituanSummary {
+  exposure: number;
+  visits: number;
+  orders: number;
+  sales: number;
+  coupons: number;
+  reviews: number;
+  storeCount: number;
+  recordCount: number;
+}
+
 export default function MeituanPage() {
   const [data, setData] = useState<MeituanData[]>([]);
+  const [summary, setSummary] = useState<MeituanSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedStore, setSelectedStore] = useState('all');
@@ -29,11 +41,13 @@ export default function MeituanPage() {
     try {
       const res = await fetch('/api/meituan-data');
       const result = await res.json();
-      
+
       if (result.success) {
-        setData(result.data);
+        // 接口返回 { summary, trend, stores, raw }，明细数组在 raw
+        setData(Array.isArray(result.data?.raw) ? result.data.raw : []);
+        setSummary(result.data?.summary ?? null);
       } else {
-        setError(result.error);
+        setError(result.error || '数据加载失败');
       }
     } catch (err: any) {
       setError(err.message);
@@ -53,8 +67,8 @@ export default function MeituanPage() {
     return true;
   });
 
-  // 计算汇总指标
-  const summary = {
+  // 筛选后按明细重算汇总（接口 summary 为全量，这里反映筛选结果）
+  const filteredSummary = {
     totalExposure: filteredData.reduce((sum, item) => sum + (Number(item['客流分析']) || 0), 0),
     totalVisitors: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_4']) || 0), 0),
     totalOrders: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_10']) || 0), 0),
@@ -65,10 +79,10 @@ export default function MeituanPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-[#070A14]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className="text-gray-400">加载美团数据中...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#7C5CFF] mx-auto mb-4"></div>
+          <p className="text-[#9AA7C7]">加载美团数据中...</p>
         </div>
       </div>
     );
@@ -76,10 +90,10 @@ export default function MeituanPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-[#070A14]">
         <div className="text-center">
-          <p className="text-red-400 mb-4">加载失败：{error}</p>
-          <button onClick={loadData} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          <p className="text-[#FF6B6B] mb-4">加载失败：{error}</p>
+          <button onClick={loadData} className="px-4 py-2 bg-[#7C5CFF] text-white rounded-lg hover:bg-[#7C5CFF]/80">
             重试
           </button>
         </div>
@@ -93,7 +107,11 @@ export default function MeituanPage() {
         {/* 页面标题 */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">美团经营数据看板</h1>
-          <p className="text-gray-400">实时监控美团平台运营数据</p>
+          <p className="text-gray-400">
+            {summary
+              ? `共 ${summary.storeCount} 家门店 · ${summary.recordCount} 条记录`
+              : '实时监控美团平台运营数据'}
+          </p>
         </div>
 
         {/* 筛选器 */}
@@ -140,7 +158,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.totalExposure.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{filteredSummary.totalExposure.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -152,7 +170,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.totalVisitors.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{filteredSummary.totalVisitors.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -164,7 +182,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.totalOrders.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{filteredSummary.totalOrders.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -176,7 +194,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">¥{summary.totalRedeemAmount.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">¥{filteredSummary.totalRedeemAmount.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -188,7 +206,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.totalRedeemCount.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{filteredSummary.totalRedeemCount.toLocaleString()}</div>
             </CardContent>
           </Card>
 
@@ -200,7 +218,7 @@ export default function MeituanPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{summary.newReviews.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-white">{filteredSummary.newReviews.toLocaleString()}</div>
             </CardContent>
           </Card>
         </div>

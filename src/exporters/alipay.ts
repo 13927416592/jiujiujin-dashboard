@@ -119,8 +119,6 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
 
 /** 等待页面数据加载完成的最长时间（毫秒） */
 const PAGE_LOAD_TIMEOUT = 45000;
-/** 切换 Tab/进入小程序后的额外等待（毫秒） */
-const TAB_SETTLE_MS = 3500;
 
 export class AlipayExporter {
   platform = 'alipay' as const;
@@ -327,15 +325,55 @@ export class AlipayExporter {
       return;
     }
 
+    // 未登录：在交互终端下允许手动登录；在后台（如 launchd）下无 stdin，
+    // 不能傻等回车导致进程永久挂起。
+    const isInteractive = Boolean(process.stdin.isTTY);
+    if (!isInteractive) {
+      throw new Error(
+        '支付宝未登录且当前为非交互环境（无终端），无法手动登录。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新 Cookie。'
+      );
+    }
+
     console.log('\n==================================================');
     console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密）');
-    console.log('👉  登录成功并看到经营数据后，回到终端按【回车键】继续');
+    console.log('👉  检测到登录成功后会自动继续（也可回到终端按【回车键】立即继续）');
     console.log('==================================================\n');
 
-    // 等待用户在终端按回车
-    await new Promise<void>((resolve) => {
-      process.stdin.once('data', () => resolve());
+    const page = this.page;
+
+    // 自动检测登录状态，最长等待 5 分钟；期间用户也可按回车手动触发继续。
+    const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+    const startTime = Date.now();
+
+    const enterPromise = new Promise<void>((resolve) => {
+      const onData = (): void => {
+        process.stdin.removeListener('data', onData);
+        resolve();
+      };
+      process.stdin.on('data', onData);
     });
+
+    const pollPromise = new Promise<void>((resolve, reject) => {
+      const tick = async (): Promise<void> => {
+        try {
+          const bodyText = await this.getBodyText(page);
+          if (checkLogin(page.url(), bodyText)) {
+            resolve();
+            return;
+          }
+          if (Date.now() - startTime > LOGIN_TIMEOUT_MS) {
+            reject(new Error('登录等待超时（5 分钟内未检测到登录成功）'));
+            return;
+          }
+          setTimeout(tick, 2000);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+      void tick();
+    });
+
+    await Promise.race([enterPromise, pollPromise]);
 
     console.log('⏳ 登录完成，继续抓取...');
     await this.page.waitForTimeout(2000);
@@ -518,40 +556,48 @@ export class AlipayExporter {
   private async enumerateMiniPrograms(): Promise<Array<{ id: string; name: string }>> {
     if (!this.page) return [];
     const page = this.page;
+    const currentId = '2019071865846949';
 
-    // 点击顶部展示"名称 ID:xxx ▼"的切换控件（"小程序分析"标题右侧的可点击区域）
-    const trigger = page
-      .locator('text=黄金回收-久久金管家')
-      .first();
     try {
+      // 顶部切换控件：显示"黄金回收-久久金管家 ID:2019071865846949 ▼"
+      const trigger = page.locator(`text=/ID:\\s*${currentId}/`).first();
       await trigger.waitFor({ state: 'visible', timeout: 10_000 });
-      await trigger.click({ force: true }).catch(async () => {
-        // 部分版本箭头单独可点，退而点击包含 ID 文案的整行
-        await page.locator('text=/ID:\\s*2019071865846949/').first().click({ force: true });
-      });
-      await page.waitForTimeout(1500);
+      await trigger.click({ force: true });
+
+      // 弹框出现的可靠标志：搜索框"小程序APPID/名称"
+      const search = page.locator('input[placeholder*="小程序APPID"]');
+      await search.waitFor({ state: 'visible', timeout: 8_000 });
+      await page.waitForTimeout(1200);
     } catch {
       console.log('    ⚠️ 未打开小程序切换框，使用兜底小程序列表');
+      return [];
     }
 
+    // 只在弹框容器（搜索框所在的浮层）内扫描，避免抓到顶部标题栏
     return page.evaluate(() => {
       const list: Array<{ id: string; name: string }> = [];
       const seen = new Set<string>();
-      // 弹框选项文本形如 "黄金回收-久久金管家  ID: 2019071865846949  已发布"
       const idRe = /ID[:：]\s*(\d{10,})/;
-      const candidates = Array.from(
-        document.querySelectorAll('[role="option"], li, [class*="option"], [class*="item"], div, span'),
-      );
+
+      const search = document.querySelector('input[placeholder*="小程序APPID"]') as HTMLElement | null;
+      // 向上找到浮层根节点（包含搜索框 + 列表）
+      let root: HTMLElement | null = search;
+      for (let i = 0; i < 8 && root; i++) {
+        root = root.parentElement;
+      }
+      const scope: ParentNode = root || document;
+
+      const candidates = Array.from(scope.querySelectorAll('div, li, [role="option"], [class*="option"], [class*="item"]'));
       for (const el of candidates) {
         const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
         const m = text.match(idRe);
         if (!m) continue;
         const id = m[1];
         if (seen.has(id)) continue;
-        // 名称取 ID 之前的部分，并去掉"已发布/体验中"等状态词与图标残留
+        // 名称 = ID 之前的部分；子元素会重复命中，只保留同时含名称和ID的"行"
         let name = text.split(/ID[:：]/)[0].trim();
-        name = name.replace(/^(小程序分析|请选择)\s*/, '').replace(/\s*(已发布|体验中|审核中|未发布).*$/, '').trim();
-        if (name && name.length <= 40) {
+        name = name.replace(/\s*(已发布|体验中|审核中|未发布)\s*$/, '').trim();
+        if (name && name.length >= 2 && name.length <= 40 && /[\u4e00-\u9fa5A-Za-z]/.test(name)) {
           seen.add(id);
           list.push({ id, name });
         }
