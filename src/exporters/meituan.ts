@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page } from 'playwright';
+import { chromium, BrowserContext, Page, ElementHandle } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
@@ -578,35 +578,40 @@ export class MeituanExporter {
    * 3) 删除所有 driver 元素；4) 重置 body 样式；5) 用 MutationObserver 阻止它重建。
    */
   private async dismissOverlays(page: Page): Promise<void> {
-    // 先尝试点"知道了/跳过"把多步引导走完（最多 6 次）
-    const dismissTexts = ['知道了', '我知道了', '跳过', '跳过引导', '完成', '不再提示', '下次再说', '关闭'];
+    // 只精确处理 driver.js 引导：点掉气泡上的"知道了/跳过"，并从根上移除遮罩与 body class。
+    // 注意：不要用 div:has-text(...) 这类过宽选择器，否则可能误点开"反馈/举报"等其它弹窗。
     await page.waitForTimeout(500);
+
+    // 1) 精确点击 driver 气泡内的按钮（class 含 driver-），最多 6 次走完多步引导
     for (let i = 0; i < 6; i++) {
-      let clicked = false;
-      for (const text of dismissTexts) {
-        const btn = page
+      const driverBtn = page
+        .locator(
+          '.driver-popover button, .driver-popover [role="button"], [class*="driver-popover"] button, .driver-close-btn'
+        )
+        .first();
+      if (await driverBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        // 优先点"跳过/知道了/完成"，否则点气泡内最后一个按钮（通常是"下一步/知道了"）
+        const preferred = page
           .locator(
-            `.driver-popover :has-text("${text}"), button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), span:has-text("${text}"), div.driver-popover-item:has-text("${text}")`
+            '.driver-popover button:has-text("跳过"), .driver-popover button:has-text("知道了"), .driver-popover button:has-text("完成"), .driver-popover button:has-text("关闭")'
           )
           .first();
-        if (await btn.isVisible({ timeout: 400 }).catch(() => false)) {
-          await btn.click({ timeout: 1500 }).catch(() => undefined);
-          await page.waitForTimeout(400);
-          clicked = true;
-          break;
-        }
+        const target = (await preferred.isVisible({ timeout: 300 }).catch(() => false))
+          ? preferred
+          : driverBtn;
+        await target.click({ timeout: 1500 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+      } else {
+        break;
       }
-      if (!clicked) break;
     }
 
-    // 从 DOM 根上彻底清除 driver.js：删 body/html class、删所有 driver 元素、重置样式、
-    // 并挂一个 MutationObserver，在接下来的 3 秒内自动移除任何被重建的 driver 节点。
+    // 2) 从 DOM 根上清除 driver.js（移除 body/html 的 driver-* class、删遮罩节点、重置样式、阻止重建）
     const removed = await page
       .evaluate(() => {
         let count = 0;
         const kill = (): number => {
           let n = 0;
-          // 1) 移除 body/html 上的 driver class（这是指针拦截的根源）
           for (const el of [document.body, document.documentElement]) {
             if (!el) continue;
             for (const cls of Array.from(el.classList)) {
@@ -616,78 +621,36 @@ export class MeituanExporter {
               }
             }
           }
-          // 2) 删除所有 class 含 driver 的元素（遮罩 SVG、高亮层、气泡等）
-          document.querySelectorAll('[class*="driver"]').forEach((el) => {
-            // 不要误删业务元素：只删明显是 driver 遮罩/弹层的节点
-            const cls = (el.className && typeof el.className === 'string' ? el.className : '').toLowerCase();
-            if (
-              cls.includes('driver-overlay') ||
-              cls.includes('driver-popover') ||
-              cls.includes('driver-highlight') ||
-              cls.includes('driver-stage')
-            ) {
+          document
+            .querySelectorAll(
+              '.driver-overlay, [class*="driver-overlay"], .driver-popover, [class*="driver-popover"], .driver-highlighted-element, [class*="driver-highlight"], .driver-stage'
+            )
+            .forEach((el) => {
               el.remove();
               n++;
-            }
-          });
-          // 3) 重置 body/html 样式
+            });
           document.body.style.removeProperty('overflow');
           document.body.style.removeProperty('pointer-events');
           document.body.style.removeProperty('position');
           document.documentElement.style.removeProperty('overflow');
           return n;
         };
-
         count += kill();
-
-        // 4) 阻止 driver.js 在接下来几秒重建遮罩（引导翻页会重建）
         try {
-          const observer = new MutationObserver(() => {
-            count += kill();
-          });
+          const observer = new MutationObserver(() => kill());
           observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-          setTimeout(() => observer.disconnect(), 3000);
+          setTimeout(() => observer.disconnect(), 2500);
         } catch {
-          /* MutationObserver 不可用时忽略 */
+          /* ignore */
         }
         return count;
       })
       .catch(() => 0);
 
     if (removed > 0) {
-      console.log(`   🧹 已清理引导遮罩（移除 ${removed} 处 driver 节点/class）`);
+      console.log(`   🧹 已清理引导遮罩（${removed} 处）`);
     }
-    await page.waitForTimeout(500);
-  }
-
-  /**
-   * 关闭右侧"重点消息"通知面板、顶部命令行提示条等非引导浮层。
-   * 这些浮层会抢占焦点/改变布局，但不属于 driver.js 引导，单独处理。
-   */
-  private async closeFloatingPanels(page: Page): Promise<void> {
-    // 按 Escape 关闭可能打开的弹窗/下拉
-    await page.keyboard.press('Escape').catch(() => undefined);
-    await page.waitForTimeout(300);
-
-    // 关闭右侧"重点消息"面板：找其右上角 X 关闭按钮
-    const closeButtons = page.locator(
-      '[class*="message"] [class*="close"], [class*="notice"] [class*="close"], [class*="drawer"] [class*="close"], [aria-label="关闭"], button[class*="close"]'
-    );
-    const count = await closeButtons.count().catch(() => 0);
-    for (let i = 0; i < Math.min(count, 5); i++) {
-      const btn = closeButtons.nth(i);
-      if (await btn.isVisible({ timeout: 400 }).catch(() => false)) {
-        await btn.click({ timeout: 1500 }).catch(() => undefined);
-        await page.waitForTimeout(300);
-      }
-    }
-
-    // 关闭顶部"不支持的命令行标记"提示条（若有 X）
-    const topBarClose = page.locator('text=--disable-setuid-sandbox').first();
-    if (await topBarClose.isVisible({ timeout: 500 }).catch(() => false)) {
-      const x = page.locator('button:has(svg), [class*="close"]').last();
-      await x.click({ timeout: 1000 }).catch(() => undefined);
-    }
+    await page.waitForTimeout(400);
   }
 
   private async navigateToReportCenter(page: Page): Promise<Page> {
@@ -702,60 +665,54 @@ export class MeituanExporter {
     this.context.on('page', onNewPage);
 
     try {
-      // 注意：这里沿用历史已验证可用的最简导航逻辑（纯 text 选择器 + networkidle），
-      // 不要加侧边栏作用域/遮罩移除等"优化"，它们曾导致子菜单点击失效。
       await page.goto('https://e.dianping.com/', {
         waitUntil: 'networkidle',
         timeout: 30000,
       });
       await page.waitForTimeout(3000);
 
-      // 关闭可能误弹的"提交反馈/举报"对话框、右侧消息面板，再清理 driver.js 引导遮罩
-      await page.keyboard.press('Escape').catch(() => undefined);
-      const cancelBtn = page.locator('button:has-text("取消"), a:has-text("取消")').first();
-      if (await cancelBtn.isVisible({ timeout: 800 }).catch(() => false)) {
-        await cancelBtn.click({ timeout: 2000 }).catch(() => undefined);
-        await page.waitForTimeout(500);
-      }
-      await this.closeFloatingPanels(page);
-      await this.dismissOverlays(page);
+      // 1) 反复关闭可能遮挡页面的弹窗（反馈/举报/地区选择/消息面板/引导遮罩），
+      //    直到"取消/提交反馈/各省"这类弹窗特征消失或重试上限。
+      await this.dismissBlockingDialogs(page);
 
-      // 直接点击左侧菜单中的"经营参谋"。
-      // Playwright 实测 text=经营参谋 的首个匹配就是左侧 <span class="title">经营参谋</span> 菜单项。
-      // 之前点不动纯属 driver.js 遮罩拦截，现已由 dismissOverlays 清除。
+      // 2) 精确找到左侧菜单中的"经营参谋"（遍历 span.title 做精确文本匹配），
+      //    滚动到可视区域后再点击。
       console.log(' 点击左侧菜单"经营参谋"...');
-      const advisorMenu = page.locator('span.title:has-text("经营参谋"), [class*="menu"] text=经营参谋, text=经营参谋').first();
-      if (!(await advisorMenu.isVisible({ timeout: 6000 }).catch(() => false))) {
+      const advisorHandle = await this.findMenuTitle(page, '经营参谋');
+      if (!advisorHandle) {
         await this.dumpVisibleMenu(page);
         throw new Error('未找到左侧"经营参谋"菜单项');
       }
-      await this.dismissOverlays(page);
-      await advisorMenu.click({ timeout: 8000 }).catch(async () => {
-        // 兜底：强制点击可见元素（绕过残余遮罩的 actionability 检查）
-        await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
+      await this.dismissBlockingDialogs(page);
+      await advisorHandle.evaluate((el: Element) => {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        (el as HTMLElement).click();
       });
+      await advisorHandle.dispose();
       await page.waitForTimeout(3000);
-      await this.closeFloatingPanels(page);
-      await this.dismissOverlays(page);
 
-      // 点击后可能跳转到经营参谋页，也可能展开子菜单。找"报表中心"。
+      // 3) 点击后再关一次弹窗 + 清引导遮罩
+      await this.dismissBlockingDialogs(page);
+
+      // 4) 找"报表中心"（子菜单或页面内链接），同样用精确文本遍历
       console.log('   点击"报表中心"...');
       let reportClicked = false;
-      const reportCandidates = [
-        // 子菜单/页面内链接优先
-        page.locator('a:has-text("报表中心"), [role="menuitem"]:has-text("报表中心")').first(),
-        page.locator('span.title:has-text("报表中心")').first(),
-        page.locator('text=报表中心').first(),
-      ];
-      for (const candidate of reportCandidates) {
-        if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
-          await this.dismissOverlays(page);
-          await candidate.click({ timeout: 8000 }).catch(async () => {
-            await candidate.click({ timeout: 5000, force: true }).catch(() => undefined);
-          });
-          reportClicked = true;
-          break;
-        }
+      const reportHandle = await this.findClickableText(page, '报表中心', [
+        'a',
+        '[role="menuitem"]',
+        'span.title',
+        'button',
+        'div',
+        'li',
+      ]);
+      if (reportHandle) {
+        await this.dismissBlockingDialogs(page);
+        await reportHandle.evaluate((el: Element) => {
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          (el as HTMLElement).click();
+        });
+        await reportHandle.dispose();
+        reportClicked = true;
       }
       if (!reportClicked) {
         await this.dumpVisibleMenu(page);
@@ -763,7 +720,7 @@ export class MeituanExporter {
       }
       await page.waitForTimeout(6000);
 
-      // 等待可能的新标签页
+      // 5) 等待可能的新标签页
       let target = page;
       if (newPages.length > 0) {
         target = newPages[newPages.length - 1];
@@ -788,17 +745,141 @@ export class MeituanExporter {
     }
   }
 
+  /**
+   * 反复关闭遮挡页面的弹窗：
+   * - 反馈/举报/地区选择类对话框（点"取消"）
+   * - 右上角 X 关闭按钮
+   * - driver.js 引导遮罩
+   * 最多重试 5 轮，直到检测不到弹窗特征。
+   */
+  private async dismissBlockingDialogs(page: Page): Promise<void> {
+    for (let round = 0; round < 5; round++) {
+      await page.keyboard.press('Escape').catch(() => undefined);
+      await page.waitForTimeout(200);
+
+      let acted = false;
+
+      // 精确点击对话框中的"取消/关闭"按钮（反馈/举报/地区选择弹窗）
+      const cancel = page
+        .locator(
+          'button:has-text("取消"), a:has-text("取消"), [role="button"]:has-text("取消")'
+        )
+        .first();
+      if (await cancel.isVisible({ timeout: 400 }).catch(() => false)) {
+        await cancel.click({ timeout: 1500 }).catch(() => undefined);
+        acted = true;
+        await page.waitForTimeout(500);
+      }
+
+      // 关闭右上角 X（限定在弹窗/抽屉/消息面板容器内，避免误点业务按钮）
+      const closeX = page
+        .locator(
+          '[role="dialog"] [class*="close"], .ant-modal-close, [class*="dialog"] [class*="close"], [class*="drawer"] [class*="close"], [class*="message"] [class*="close"]'
+        )
+        .first();
+      if (await closeX.isVisible({ timeout: 300 }).catch(() => false)) {
+        await closeX.click({ timeout: 1200 }).catch(() => undefined);
+        acted = true;
+        await page.waitForTimeout(500);
+      }
+
+      // 清 driver.js 引导遮罩
+      await this.dismissOverlays(page);
+
+      if (!acted) break;
+    }
+  }
+
+  /**
+   * 在页面中遍历指定标签，精确匹配文本内容，返回第一个可见且（尽量）可点击的元素句柄。
+   * 用 evaluate 做精确匹配，避免 Playwright text 选择器把子串/隐藏元素也算进去。
+   */
+  private async findMenuTitle(
+    page: Page,
+    text: string
+  ): Promise<ElementHandle<Element> | null> {
+    const handle = await page.evaluateHandle(
+      ({ target }) => {
+        const candidates = Array.from(document.querySelectorAll('span.title, .menu-item span, [class*="menu"] span'));
+        const match = candidates.find((el) => {
+          const t = (el.textContent || '').trim();
+          if (t !== target) return false;
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        });
+        return match || null;
+      },
+      { target: text }
+    );
+    const el = handle.asElement();
+    if (!el) {
+      await handle.dispose();
+      return null;
+    }
+    return el;
+  }
+
+  private async findClickableText(
+    page: Page,
+    text: string,
+    selectors: string[]
+  ): Promise<ElementHandle<Element> | null> {
+    const handle = await page.evaluateHandle(
+      ({ target, sels }) => {
+        const all: Element[] = [];
+        for (const sel of sels) {
+          document.querySelectorAll(sel).forEach((el) => all.push(el));
+        }
+        const match = all.find((el) => {
+          const t = (el.textContent || '').trim();
+          if (t !== target) return false;
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        });
+        return match || null;
+      },
+      { target: text, sels: selectors }
+    );
+    const el = handle.asElement();
+    if (!el) {
+      await handle.dispose();
+      return null;
+    }
+    return el;
+  }
+
   /** 诊断：打印当前页主要可见文本块/菜单，便于定位真实入口结构 */
   private async dumpVisibleMenu(page: Page): Promise<void> {
     try {
       const url = page.url();
       console.log(`   🔍 诊断当前页 URL: ${url}`);
-      const texts = await page
-        .locator('a, button, [role="menuitem"], [class*="menu-item"], [class*="card"], span[class*="title"]')
-        .allInnerTexts()
-        .catch(() => []);
-      const items = [...new Set(texts.map((t) => t.trim()).filter((t) => t && t.length < 24))];
-      console.log('   🔍 可见可点击项:', items.slice(0, 50).join(' | '));
+      const info = await page
+        .evaluate(() => {
+          const visible = (el: Element): boolean => {
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+          };
+          const titles = Array.from(document.querySelectorAll('span.title'))
+            .filter(visible)
+            .map((el) => (el.textContent || '').trim())
+            .filter((t) => t && t.length < 24);
+          const clickable = Array.from(
+            document.querySelectorAll('a, button, [role="menuitem"], li, [class*="menu-item"]')
+          )
+            .filter(visible)
+            .map((el) => (el.textContent || '').trim())
+            .filter((t) => t && t.length < 24);
+          return {
+            titles: [...new Set(titles)],
+            clickable: [...new Set(clickable)],
+          };
+        })
+        .catch(() => ({ titles: [] as string[], clickable: [] as string[] }));
+      console.log('   🔍 左侧菜单标题(span.title):', info.titles.slice(0, 40).join(' | ') || '(无)');
+      console.log('   🔍 可见可点击项:', info.clickable.slice(0, 60).join(' | ') || '(无)');
     } catch {
       /* ignore */
     }
