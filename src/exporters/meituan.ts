@@ -332,50 +332,50 @@ export class MeituanExporter {
       await this.dismissOverlays(page);
 
       console.log('📊 导航到经营参谋 -> 报表中心...');
-      await this.navigateToReportCenter(page);
+      const reportPage = await this.navigateToReportCenter(page);
 
       console.log('⏳ 等待报表中心加载...');
-      await this.waitForReportCenter(page);
+      await this.waitForReportCenter(reportPage);
 
       console.log(' 点击"使用模板"...');
-      const useTemplateBtn = page.locator('text=使用模板').first();
+      const useTemplateBtn = reportPage.locator('text=使用模板').first();
       if (await useTemplateBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
         await useTemplateBtn.click();
-        await page.waitForTimeout(3000);
+        await reportPage.waitForTimeout(3000);
       } else {
         throw new Error('未找到"使用模板"按钮');
       }
 
       console.log('⏳ 等待下载对话框...');
-      const dialog = page.locator(`text=${this.config.reportCardName}`).first();
+      const dialog = reportPage.locator(`text=${this.config.reportCardName}`).first();
       await dialog.waitFor({ state: 'visible', timeout: 10000 }).catch(() => undefined);
-      await page.waitForTimeout(2000);
+      await reportPage.waitForTimeout(2000);
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - this.config.daysToDownload);
       const dateStr = yesterday.toISOString().split('T')[0];
       console.log(` 设置日期范围：${dateStr}`);
 
-      const dateInput = page.locator('text=请选择时间范围').first();
+      const dateInput = reportPage.locator('text=请选择时间范围').first();
       if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
         await dateInput.click();
-        await page.waitForTimeout(1000);
+        await reportPage.waitForTimeout(1000);
 
-        const dateCell = page.locator(`text=${yesterday.getDate()}`).first();
+        const dateCell = reportPage.locator(`text=${yesterday.getDate()}`).first();
         if (await dateCell.isVisible({ timeout: 2000 }).catch(() => false)) {
           await dateCell.click();
-          await page.waitForTimeout(1000);
+          await reportPage.waitForTimeout(1000);
         }
       }
 
       console.log('⬇️  点击下载...');
-      const downloadBtn = page.locator('button:has-text("下载")').last();
+      const downloadBtn = reportPage.locator('button:has-text("下载")').last();
       if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
         throw new Error('未找到"下载"按钮');
       }
 
       const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 60000 }),
+        reportPage.waitForEvent('download', { timeout: 60000 }),
         downloadBtn.click(),
       ]);
 
@@ -608,7 +608,9 @@ export class MeituanExporter {
     await page.waitForTimeout(500);
   }
 
-  private async navigateToReportCenter(page: Page): Promise<void> {
+  private async navigateToReportCenter(page: Page): Promise<Page> {
+    if (!this.context) throw new Error('浏览器未初始化');
+
     await page.goto(this.config.reportUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(
       () => undefined
     );
@@ -616,12 +618,19 @@ export class MeituanExporter {
     // 跳转后再次清理可能出现的引导/弹窗
     await this.dismissOverlays(page);
 
+    // 监听新标签页：美团后台的"经营参谋/报表中心"常在新 tab 打开
+    const newPages: Page[] = [];
+    const onNewPage = (p: Page): void => {
+      newPages.push(p);
+    };
+    this.context.on('page', onNewPage);
+
     console.log(' 点击"经营参谋"...');
-    // 经营参谋在左侧菜单，可能是可展开项（点击后展开子菜单）。
+    // 经营参谋在左侧菜单，是可展开项（点击后展开子菜单）。
     // 优先点击左侧导航中的菜单项，避免误点首页中部"经营参谋"卡片。
     let advisorClicked = false;
     const advisorCandidates = [
-      page.locator('.ant-menu, [class*="menu"], [class*="sidebar"], nav, aside').first().locator('text=经营参谋').first(),
+      page.locator('aside, nav, [class*="sidebar"], [class*="sider"], [class*="menu"]').first().locator('text=经营参谋').first(),
       page.locator('text=经营参谋').first(),
     ];
     for (const candidate of advisorCandidates) {
@@ -640,16 +649,17 @@ export class MeituanExporter {
       }
     }
     if (!advisorClicked) {
+      this.context.off('page', onNewPage);
       throw new Error('未找到"经营参谋"菜单');
     }
     await page.waitForTimeout(2500);
     await this.dismissOverlays(page);
 
     console.log('   点击"报表中心"...');
-    // 点击后报表中心可能是子菜单，也可能直接跳转；先在左侧/弹出菜单中找
+    // 点击后报表中心可能在当前页跳转、在新标签页打开，或作为子菜单出现
     let reportClicked = false;
     const reportCandidates = [
-      page.locator('.ant-menu, [class*="menu"], [class*="submenu"], [class*="popover"], [class*="dropdown"]').locator('text=报表中心').first(),
+      page.locator('aside, nav, [class*="submenu"], [class*="popover"], [class*="dropdown"], [class*="menu"]').locator('text=报表中心').first(),
       page.locator('text=报表中心').first(),
     ];
     for (const candidate of reportCandidates) {
@@ -666,9 +676,48 @@ export class MeituanExporter {
       }
     }
     if (!reportClicked) {
-      throw new Error('未找到"报表中心"菜单');
+      this.context.off('page', onNewPage);
+      // 打印左侧菜单可见项，便于诊断子菜单结构
+      await this.dumpVisibleMenu(page);
+      throw new Error('未找到"报表中心"菜单（经营参谋展开后未见该子项）');
     }
-    await page.waitForTimeout(5000);
+
+    // 等待可能的新标签页或当前页跳转
+    await page.waitForTimeout(3000);
+    let target = page;
+    if (newPages.length > 0) {
+      target = newPages[newPages.length - 1];
+      console.log(`   📑 检测到新标签页，切换到：${target.url()}`);
+      try {
+        await target.waitForLoadState('domcontentloaded', { timeout: 15000 });
+      } catch {
+        /* ignore */
+      }
+      await target.waitForTimeout(4000);
+      this.page = target;
+    } else {
+      console.log(`   📍 当前页落地：${page.url()}`);
+    }
+
+    this.context.off('page', onNewPage);
+    await this.dismissOverlays(target);
+    return target;
+  }
+
+  /** 诊断：打印当前左侧菜单可见文本，用于定位子菜单真实结构 */
+  private async dumpVisibleMenu(page: Page): Promise<void> {
+    try {
+      const texts = await page
+        .locator('aside, nav, [class*="sidebar"], [class*="sider"], [class*="menu"]')
+        .first()
+        .locator('[class*="menu-item"], [class*="submenu"], a, span[class*="title"]')
+        .allInnerTexts()
+        .catch(() => []);
+      const items = texts.map((t) => t.trim()).filter((t) => t && t.length < 20);
+      console.log('   📋 当前可见菜单项:', [...new Set(items)].slice(0, 40).join(' | '));
+    } catch {
+      /* ignore */
+    }
   }
 
   private async waitForReportCenter(page: Page): Promise<void> {
