@@ -63,6 +63,11 @@ export interface AlipayExportConfig {
   slowMo?: number;
   outputDir?: string;
   cookiePath?: string;
+  /**
+   * 登录后需要在"请选择登录账号"页选择的企业名（员工身份）。
+   * 自动点击该企业卡片进入对应商家后台。留空则不自动选择。
+   */
+  enterpriseName?: string;
   /** 经营总览页 URL */
   overviewUrl?: string;
   /** 小程序 appId（生活号/粉丝群页需要） */
@@ -112,6 +117,7 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
   slowMo: 300,
   outputDir: path.join(process.cwd(), 'src', 'exporters', 'output'),
   cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'alipay.json'),
+  enterpriseName: '深圳市久久金供应链有限公司',
   overviewUrl: 'https://b.alipay.com/page/manage-consultant/data-index',
   lifeAccountAppId: '2017122701284248',
   pageUrls: ALIPAY_PAGE_URLS,
@@ -355,8 +361,10 @@ export class AlipayExporter {
     const looksLoggedIn = async (): Promise<boolean> => {
       const url = this.page!.url();
       if (isLoginUrl(url)) return false;
-      if (url.includes('b.alipay.com')) return true;
       const body = await this.getBodyText(this.page!);
+      // "请选择登录账号"页虽然在 b.alipay.com 上，但登录尚未完成，不算已登录
+      if (body.includes('请选择登录账号') && body.includes('登录员工身份')) return false;
+      if (url.includes('b.alipay.com')) return true;
       return /(交易金额|交易笔数|经营总览|活跃用户|累计用户|我的商家|资产|余额|工作台|商家中心|账户|经营效果)/.test(
         body
       );
@@ -387,10 +395,15 @@ export class AlipayExporter {
       }
     }
 
-    // 二次确认：尝试打开真实数据页，若被踢回登录页则说明 Cookie 实际失效
+    // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
+    await this.selectEnterpriseIfNeeded();
+
+    // 二次确认：尝试打开真实数据页，若被踢回登录页/选择账号页则说明需要处理
     console.log('🔎 二次确认数据页访问...');
     await this.safeGoto(this.page, this.config.pageUrls.trade);
     await this.page.waitForTimeout(4000);
+    // 数据页也可能再次弹选择账号页
+    await this.selectEnterpriseIfNeeded();
     if (isLoginUrl(this.page.url())) {
       if (this.config.headless) {
         console.error('❌ 数据页被重定向到登录页:', this.page.url());
@@ -402,6 +415,45 @@ export class AlipayExporter {
       await this.promptManualLogin();
     } else {
       console.log('✅ 数据页可访问，登录有效');
+    }
+  }
+
+  /**
+   * 检测到"请选择登录账号"页面时，自动点击配置的企业账号卡片。
+   * 一个支付宝账号可关联多家企业，登录后需选择其中一家进入商家后台。
+   */
+  private async selectEnterpriseIfNeeded(): Promise<void> {
+    if (!this.page) return;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const body = await this.getBodyText(this.page);
+      const isSelectPage = body.includes('请选择登录账号') && body.includes('登录员工身份');
+      if (!isSelectPage) return;
+
+      const target = this.config.enterpriseName;
+      if (!target) {
+        console.warn('⚠️ 当前在账号选择页，但未配置 enterpriseName，无法自动选择');
+        return;
+      }
+
+      console.log(`🏢 检测到账号选择页，自动选择企业：${target}`);
+
+      // 用文本定位企业卡片（整行可点，事件会冒泡到卡片容器）
+      // 优先匹配叶子文本节点，避免点到外层大容器
+      const locator = this.page
+        .locator(`text="${target}"`)
+        .first();
+
+      try {
+        await locator.waitFor({ timeout: 5000, state: 'visible' });
+        await locator.click({ timeout: 5000 });
+        console.log('✅ 已点击企业账号，等待跳转...');
+        await this.page.waitForTimeout(5000);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`⚠️ 点击企业"${target}"失败：${msg}，将重试`);
+        await this.page.waitForTimeout(1500);
+      }
     }
   }
 
@@ -465,6 +517,8 @@ export class AlipayExporter {
 
     console.log('⏳ 登录完成，继续抓取...');
     await this.page.waitForTimeout(2000);
+    // 手动登录成功后同样可能需要选择企业账号
+    await this.selectEnterpriseIfNeeded();
   }
 
   /**
