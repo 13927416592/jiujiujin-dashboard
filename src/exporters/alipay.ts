@@ -1328,18 +1328,77 @@ export class AlipayExporter {
     fs.mkdirSync(path.dirname(this.config.cookiePath), { recursive: true });
     fs.writeFileSync(this.config.cookiePath, JSON.stringify(cookies, null, 2), 'utf-8');
 
-    // 会话 Cookie 持久化：强制设 30 天后过期，下次启动补注回持久化目录
+    // 会话 Cookie 持久化：强制设 30 天后过期，写文件 + 在浏览器关闭前重新写回浏览器，
+    // 这样 Chrome 退出时会把它们以"持久 Cookie"落盘，而不是当作会话 Cookie 丢弃。
+    //
+    // 关键原因：运行中支付宝会用 Set-Cookie 把关键登录态改回"会话级（无 expires）"，
+    // 若不在关闭前覆盖回去，Chrome 关闭即丢，下次启动目录里登录态残缺、又被踢登录。
     const futureExpires = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-    const persisted = cookies.map((c) => ({
-      ...c,
-      expires: typeof c.expires === 'number' && c.expires > 0 ? c.expires : futureExpires,
-    }));
+    const persisted = cookies
+      .filter((c) => c.domain.includes('alipay.com'))
+      .map((c) => this.toPersistedCookie(c, futureExpires));
     fs.writeFileSync(this.config.sessionCookiePath, JSON.stringify(persisted, null, 2), 'utf-8');
+
+    // 关闭前把带过期时间的 Cookie 写回浏览器 Cookie 库，强制 Chrome 持久化到磁盘
+    try {
+      await this.context.addCookies(persisted);
+    } catch (err) {
+      console.warn('⚠️  Cookie 回写浏览器失败（不影响本次数据，可能影响下次免登录）：', err);
+    }
 
     // 诊断：打印支付宝关键 Cookie 名（不打印值），便于确认登录态是否落盘
     const alipayNames = cookies.filter((c) => c.domain.includes('alipay.com')).map((c) => c.name);
-    console.log(`🍪 Cookie 已保存（${cookies.length} 个，会话持久化 ${persisted.length} 个）`);
+    console.log(`🍪 Cookie 已保存（${cookies.length} 个，其中支付宝 ${alipayNames.length} 个已设为持久化并回写浏览器）`);
     console.log(`   🔑 支付宝 Cookie: ${alipayNames.join(', ')}`);
+  }
+
+  /**
+   * 把 context.cookies() 拿到的 Cookie 转成可回写 addCookies 的格式，
+   * 并把会话级 Cookie（expires 为 -1/0）设置为未来过期时间。保留 partitionKey。
+   */
+  private toPersistedCookie(
+    c: Awaited<ReturnType<BrowserContext['cookies']>>[number],
+    futureExpires: number
+  ): {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    httpOnly: boolean;
+    sameSite: 'Strict' | 'Lax' | 'None';
+    expires: number;
+    partitionKey?: string;
+  } {
+    const out: {
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      secure: boolean;
+      httpOnly: boolean;
+      sameSite: 'Strict' | 'Lax' | 'None';
+      expires: number;
+      partitionKey?: string;
+    } = {
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      sameSite: c.sameSite === 'None' ? 'None' : c.sameSite === 'Strict' ? 'Strict' : 'Lax',
+      expires: typeof c.expires === 'number' && c.expires > 0 ? c.expires : futureExpires,
+    };
+    // 保留分区键（CHIPS Cookie，如 _CHIPS-ALIPAYJSESSIONID 需要带分区键才会被正确发送/持久化）
+    const pk = c.partitionKey as unknown;
+    if (typeof pk === 'string') {
+      out.partitionKey = pk;
+    } else if (pk && typeof pk === 'object') {
+      const v = (pk as { topLevelSite?: unknown }).topLevelSite;
+      if (typeof v === 'string') out.partitionKey = v;
+    }
+    return out;
   }
 
   /** 关闭浏览器（持久化上下文直接关闭 context，其内部 browser 会一并退出） */
