@@ -22,6 +22,7 @@ scripts/douyin-export/cookies/
 *.cookies.json
 # Playwright 持久化浏览器用户目录（含完整登录态，严禁提交）
 src/exporters/browser-profile/
+src/exporters/browser-profile-meituan/
 # 抓取输出数据（含真实业务数据）
 src/exporters/output/
 scripts/douyin-export/downloads/

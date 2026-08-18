@@ -1,29 +1,103 @@
-import { MeituanExporter } from './meituan';
+/**
+ * 美团经营宝报表每日下载 + 上传入口
+ *
+ * 运行：npx tsx src/exporters/test-meituan-report.ts
+ *
+ * - 首次运行会弹出浏览器，请手动扫码/账密登录美团商家后台(e.dianping.com)
+ * - 登录成功后登录态会持久化到浏览器用户目录，后续运行自动免登录
+ * - 下载昨天的经营报表 xlsx，解析为 JSON，并自动上传到云端看板
+ *
+ * 自动化 / 定时任务：
+ *   脚本由 scripts/meituan-daily.sh 以有头模式调用（无头会被美团风控拦截）。
+ *   登录态失效时直接失败退出（exit 1），不会挂起等待，便于飞书告警。
+ */
+
+import { MeituanExporter, DEFAULT_MEITUAN_CONFIG } from './meituan';
+import { uploadSnapshot } from './upload-to-cloud';
+import * as fs from 'fs';
 import * as path from 'path';
 
-async function main() {
-  console.log('=== 美团报表下载测试 ===\n');
+function todayShanghai(): string {
+  // 按上海时区取当天日期（YYYY-MM-DD），避免 UTC 偏差
+  const now = new Date();
+  const shanghai = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return shanghai.toISOString().slice(0, 10);
+}
 
+function yesterdayShanghai(): string {
+  const now = new Date();
+  const shanghai = new Date(now.getTime() + 8 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000);
+  return shanghai.toISOString().slice(0, 10);
+}
+
+async function main(): Promise<void> {
+  const headless = process.env.HEADLESS === '1' || process.env.HEADLESS === 'true';
+  console.log('=== 美团经营宝报表下载 ===');
+  console.log(`模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'}\n`);
+
+  const outputDir = path.join(process.cwd(), 'src', 'exporters', 'output');
   const exporter = new MeituanExporter({
-    headless: false,
-    slowMo: 1000,
-    outputDir: path.join(process.cwd(), 'src', 'exporters', 'output'),
-    cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'meituan.json'),
-    daysToDownload: 1, // 每天下载 1 天数据
+    headless,
+    slowMo: headless ? 0 : 300,
+    outputDir,
+    cookiePath: DEFAULT_MEITUAN_CONFIG.cookiePath,
+    userDataDir: DEFAULT_MEITUAN_CONFIG.userDataDir,
+    sessionCookiePath: DEFAULT_MEITUAN_CONFIG.sessionCookiePath,
+    reportUrl: DEFAULT_MEITUAN_CONFIG.reportUrl,
+    accountName: DEFAULT_MEITUAN_CONFIG.accountName,
+    reportCardName: DEFAULT_MEITUAN_CONFIG.reportCardName,
+    daysToDownload: 1,
   });
 
   const result = await exporter.export();
 
-  console.log('\n=== 结果 ===');
-  console.log('成功:', result.success);
-  if (result.success) {
-    console.log('数据条数:', (result.data as any[])?.length || 0);
-    console.log('文件路径:', result.filePath);
-    process.exit(0);
-  } else {
-    console.error('错误:', result.error);
+  if (!result.success) {
+    console.error('\n❌ 下载失败:', result.error);
     process.exit(1);
   }
+
+  console.log('\n✅ 下载成功！');
+  console.log('平台:', result.platform);
+  console.log('时间:', result.timestamp);
+
+  // result.filePath 在新实现里指向解析后的 JSON 路径
+  const rows = (result.data as unknown[]) || [];
+  console.log('数据条数:', rows.length);
+
+  // 包装成带元信息的 raw_data，写一份 full JSON 供上传
+  const dataDate = yesterdayShanghai();
+  const fullJsonPath = path.join(outputDir, `meituan_full_${dataDate}.json`);
+  const payload = {
+    platform: 'meituan',
+    exportDate: dataDate,
+    exportedAt: result.timestamp,
+    accountId: result.accountId,
+    rowCount: rows.length,
+    rows,
+  };
+  fs.writeFileSync(fullJsonPath, JSON.stringify(payload, null, 2), 'utf-8');
+  console.log('数据文件:', fullJsonPath);
+
+  // 自动上传到云端看板
+  try {
+    console.log('\n☁️  正在上传到云端看板...');
+    const upload = await uploadSnapshot({
+      platform: 'meituan',
+      dataDate,
+      rawFile: fullJsonPath,
+      source: 'local-mac',
+    });
+    console.log('✅ 已上传到云端看板:', upload.body);
+  } catch (uploadErr) {
+    const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+    console.warn('⚠️  上传到云端失败（本地数据已保存，不影响下载）:', msg);
+  }
+
+  // 显式退出：Playwright/网络/stdin 可能残留句柄导致事件循环不退出
+  setTimeout(() => process.exit(0), 300);
 }
 
-main().catch(console.error);
+main().catch((err: unknown) => {
+  console.error('未捕获的异常:', err);
+  process.exit(1);
+});
