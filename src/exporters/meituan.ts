@@ -611,112 +611,76 @@ export class MeituanExporter {
   private async navigateToReportCenter(page: Page): Promise<Page> {
     if (!this.context) throw new Error('浏览器未初始化');
 
-    await page.goto(this.config.reportUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(
-      () => undefined
-    );
-    await page.waitForTimeout(3000);
-    // 跳转后再次清理可能出现的引导/弹窗
-    await this.dismissOverlays(page);
-
-    // 监听新标签页：美团后台的"经营参谋/报表中心"常在新 tab 打开
+    // 监听新标签页：美团后台的"经营参谋/报表中心"历史上在当前页跳转，
+    // 但也可能因改版在新 tab 打开，这里统一检测并切换。
     const newPages: Page[] = [];
     const onNewPage = (p: Page): void => {
       newPages.push(p);
     };
     this.context.on('page', onNewPage);
 
-    console.log(' 点击"经营参谋"...');
-    // 经营参谋在左侧菜单，是可展开项（点击后展开子菜单）。
-    // 优先点击左侧导航中的菜单项，避免误点首页中部"经营参谋"卡片。
-    let advisorClicked = false;
-    const advisorCandidates = [
-      page.locator('aside, nav, [class*="sidebar"], [class*="sider"], [class*="menu"]').first().locator('text=经营参谋').first(),
-      page.locator('text=经营参谋').first(),
-    ];
-    for (const candidate of advisorCandidates) {
-      if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await this.dismissOverlays(page);
-        try {
-          await candidate.click({ timeout: 5000 });
-          advisorClicked = true;
-          break;
-        } catch {
-          // 被遮罩拦截则用 JS 直接点击元素本身
-          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
-          advisorClicked = true;
-          break;
-        }
-      }
-    }
-    if (!advisorClicked) {
-      this.context.off('page', onNewPage);
-      throw new Error('未找到"经营参谋"菜单');
-    }
-    await page.waitForTimeout(2500);
-    await this.dismissOverlays(page);
-
-    console.log('   点击"报表中心"...');
-    // 点击后报表中心可能在当前页跳转、在新标签页打开，或作为子菜单出现
-    let reportClicked = false;
-    const reportCandidates = [
-      page.locator('aside, nav, [class*="submenu"], [class*="popover"], [class*="dropdown"], [class*="menu"]').locator('text=报表中心').first(),
-      page.locator('text=报表中心').first(),
-    ];
-    for (const candidate of reportCandidates) {
-      if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
-        try {
-          await candidate.click({ timeout: 5000 });
-          reportClicked = true;
-          break;
-        } catch {
-          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
-          reportClicked = true;
-          break;
-        }
-      }
-    }
-    if (!reportClicked) {
-      this.context.off('page', onNewPage);
-      // 打印左侧菜单可见项，便于诊断子菜单结构
-      await this.dumpVisibleMenu(page);
-      throw new Error('未找到"报表中心"菜单（经营参谋展开后未见该子项）');
-    }
-
-    // 等待可能的新标签页或当前页跳转
-    await page.waitForTimeout(3000);
-    let target = page;
-    if (newPages.length > 0) {
-      target = newPages[newPages.length - 1];
-      console.log(`   📑 检测到新标签页，切换到：${target.url()}`);
-      try {
-        await target.waitForLoadState('domcontentloaded', { timeout: 15000 });
-      } catch {
-        /* ignore */
-      }
-      await target.waitForTimeout(4000);
-      this.page = target;
-    } else {
-      console.log(`   📍 当前页落地：${page.url()}`);
-    }
-
-    this.context.off('page', onNewPage);
-    await this.dismissOverlays(target);
-    return target;
-  }
-
-  /** 诊断：打印当前左侧菜单可见文本，用于定位子菜单真实结构 */
-  private async dumpVisibleMenu(page: Page): Promise<void> {
     try {
-      const texts = await page
-        .locator('aside, nav, [class*="sidebar"], [class*="sider"], [class*="menu"]')
-        .first()
-        .locator('[class*="menu-item"], [class*="submenu"], a, span[class*="title"]')
-        .allInnerTexts()
-        .catch(() => []);
-      const items = texts.map((t) => t.trim()).filter((t) => t && t.length < 20);
-      console.log('   📋 当前可见菜单项:', [...new Set(items)].slice(0, 40).join(' | '));
-    } catch {
-      /* ignore */
+      // 注意：这里沿用历史已验证可用的最简导航逻辑（纯 text 选择器 + networkidle），
+      // 不要加侧边栏作用域/遮罩移除等"优化"，它们曾导致子菜单点击失效。
+      await page.goto('https://e.dianping.com/', {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+      });
+      await page.waitForTimeout(3000);
+
+      // 仅在首页加载后清理一次"新功能引导"遮罩（driver.js 会拦截点击），
+      // 点击菜单的流程保持与历史可用版本完全一致。
+      await this.dismissOverlays(page);
+
+      console.log(' 点击"经营参谋"...');
+      const advisorMenu = page.locator('text=经营参谋').first();
+      if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await advisorMenu.click();
+        await page.waitForTimeout(2000);
+      } else {
+        const advisorMenuExpanded = page
+          .locator('[class*="menu"]')
+          .filter({ hasText: '经营参谋' })
+          .first();
+        if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await advisorMenuExpanded.click();
+          await page.waitForTimeout(2000);
+        } else {
+          throw new Error('未找到"经营参谋"菜单');
+        }
+      }
+
+      console.log('   点击"报表中心"...');
+      const reportCenter = page.locator('text=报表中心').first();
+      if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await reportCenter.click();
+        await page.waitForTimeout(5000);
+      } else {
+        throw new Error('未找到"报表中心"菜单');
+      }
+
+      // 等待可能的新标签页
+      let target = page;
+      if (newPages.length > 0) {
+        target = newPages[newPages.length - 1];
+        try {
+          await target.waitForLoadState('networkidle', { timeout: 20000 });
+        } catch {
+          try {
+            await target.waitForLoadState('domcontentloaded', { timeout: 10000 });
+          } catch {
+            /* ignore */
+          }
+        }
+        await target.waitForTimeout(3000);
+        this.page = target;
+        console.log(`   📑 检测到新标签页，切换到：${target.url()}`);
+      } else {
+        console.log(`   📍 当前页落地：${page.url()}`);
+      }
+      return target;
+    } finally {
+      this.context.off('page', onNewPage);
     }
   }
 
