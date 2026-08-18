@@ -366,33 +366,35 @@ export class AlipayExporter {
       });
     });
 
-    // 兼容：持久化目录里还没有任何支付宝 Cookie 时，从旧版 cookie.json 迁移一次。
-    // 注意：不能用"Default/Cookies 文件是否存在"判断——全新 profile 也会生成空的 Cookies 文件。
-    const existingCookies = await this.context.cookies();
-    const alipayCookies = existingCookies.filter((c) => c.domain.includes('alipay.com'));
-    if (alipayCookies.length > 0) {
-      console.log(`🍪 持久化目录已保留 ${alipayCookies.length} 个支付宝 Cookie（免登录基础已就绪）`);
-    }
-
-    // 关键：补注上次成功运行保存的"会话级 Cookie"。
-    // 支付宝数据页所需的登录态常是无 expires 的会话 Cookie，Playwright 独立 profile
-    // 关闭后不会落盘；这里从 sessionCookiePath 读出，把持久化目录里缺失的补回去。
-    const existingKeys = new Set(alipayCookies.map((c) => `${c.domain}|${c.path}|${c.name}`));
-    const sessionCookies = this.loadSessionCookies(existingKeys);
-    if (sessionCookies.length > 0) {
-      await this.context.addCookies(sessionCookies);
+    // 关键：用上次成功运行保存的完整 Cookie 全集"强制覆盖"持久化目录里的支付宝 Cookie。
+    //
+    // 为什么不能只补缺失的：会话运行中支付宝会轮换关键登录态 Cookie（如 ALIPAYJSESSIONID/
+    // ctoken/auth_jwt）。持久化目录里可能残留"轮换前的旧值"，且因为同名而让"只补缺失"
+    // 逻辑跳过，导致带着失效会话访问数据页、被踢回 auth 登录页。因此先清掉所有 alipay
+    // 域 Cookie，再用文件里最近一次成功保存的最新全集写入，保证每次启动都是新鲜登录态。
+    const savedCookies = this.loadSessionCookies();
+    if (savedCookies.length > 0) {
+      // 清除持久化目录中现有的全部支付宝域 Cookie（含旧会话/旧值）
+      await this.context.clearCookies({});
+      await this.context.addCookies(savedCookies);
       const after = await this.context.cookies();
       const afterAlipay = after.filter((c) => c.domain.includes('alipay.com'));
-      console.log(`🍪 补注 ${sessionCookies.length} 个会话 Cookie，当前共 ${afterAlipay.length} 个支付宝 Cookie`);
-    } else if (alipayCookies.length === 0 && fs.existsSync(this.config.cookiePath)) {
-      // 首次迁移旧 cookie 文件（兜底）
-      try {
-        const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
-        const validCookies = this.normalizeCookies(cookies);
-        await this.context.addCookies(validCookies);
-        console.log(`🍪 已从旧 cookie 文件迁移 ${validCookies.length} 个 Cookie 到持久化目录`);
-      } catch (err) {
-        console.warn('⚠️  旧 Cookie 迁移失败（可忽略，重新登录即可）：', err);
+      console.log(`🍪 已用最近保存的登录态覆盖写入 ${savedCookies.length} 个 Cookie（其中支付宝 ${afterAlipay.length} 个）`);
+    } else {
+      // 兜底：没有会话存档时，若持久化目录本身已保留 Cookie 就沿用；否则迁移旧 cookie 文件
+      const existingCookies = await this.context.cookies();
+      const alipayCookies = existingCookies.filter((c) => c.domain.includes('alipay.com'));
+      if (alipayCookies.length > 0) {
+        console.log(`🍪 持久化目录已保留 ${alipayCookies.length} 个支付宝 Cookie（无会话存档，沿用）`);
+      } else if (fs.existsSync(this.config.cookiePath)) {
+        try {
+          const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
+          const validCookies = this.normalizeCookies(cookies);
+          await this.context.addCookies(validCookies);
+          console.log(`🍪 已从旧 cookie 文件迁移 ${validCookies.length} 个 Cookie 到持久化目录`);
+        } catch (err) {
+          console.warn('⚠️  旧 Cookie 迁移失败（可忽略，重新登录即可）：', err);
+        }
       }
     }
 
@@ -400,12 +402,11 @@ export class AlipayExporter {
   }
 
   /**
-   * 从 sessionCookiePath 读取上次保存的会话 Cookie，过滤掉持久化目录里已存在的，
-   * 并强制设置一个未来过期时间（30 天），确保 addCookies 后能真正写入磁盘。
+   * 从 sessionCookiePath 读取上次保存的 Cookie 全集，强制设置未来过期时间（30 天），
+   * 并保留 partitionKey（CHIPS 分区 Cookie，如 _CHIPS-ALIPAYJSESSIONID）。
+   * 返回可直接传给 context.addCookies 的 Cookie 数组。
    */
-  private loadSessionCookies(
-    existingKeys: Set<string>
-  ): Array<{
+  private loadSessionCookies(): Array<{
     name: string;
     value: string;
     domain: string;
@@ -414,6 +415,7 @@ export class AlipayExporter {
     httpOnly: boolean;
     sameSite: 'Strict' | 'Lax' | 'None';
     expires: number;
+    partitionKey?: string;
   }> {
     if (!fs.existsSync(this.config.sessionCookiePath)) return [];
     try {
@@ -428,23 +430,39 @@ export class AlipayExporter {
         httpOnly: boolean;
         sameSite: 'Strict' | 'Lax' | 'None';
         expires: number;
+        partitionKey?: string;
       }> = [];
       for (const c of raw) {
         if (!c || !c.name || !c.value) continue;
-        const domain = c.domain != null ? String(c.domain) : '.alipay.com';
-        const p = c.path != null ? String(c.path) : '/';
-        const key = `${domain}|${p}|${String(c.name)}`;
-        if (existingKeys.has(key)) continue;
-        out.push({
+        const cookie: {
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          secure: boolean;
+          httpOnly: boolean;
+          sameSite: 'Strict' | 'Lax' | 'None';
+          expires: number;
+          partitionKey?: string;
+        } = {
           name: String(c.name),
           value: String(c.value),
-          domain,
-          path: p,
+          domain: c.domain != null ? String(c.domain) : '.alipay.com',
+          path: c.path != null ? String(c.path) : '/',
           secure: c.secure == null ? true : Boolean(c.secure),
           httpOnly: c.httpOnly == null ? false : Boolean(c.httpOnly),
           sameSite: this.mapSameSite(c.sameSite),
           expires: futureExpires,
-        });
+        };
+        // 保留分区键（CHIPS Cookie，如 _CHIPS-ALIPAYJSESSIONID 依赖它才能正确发送）
+        const pk = c.partitionKey;
+        if (pk && typeof pk === 'string') {
+          cookie.partitionKey = pk;
+        } else if (pk && typeof pk === 'object' && pk !== null && 'topLevelSite' in pk) {
+          const v = (pk as { topLevelSite?: unknown }).topLevelSite;
+          if (typeof v === 'string') cookie.partitionKey = v;
+        }
+        out.push(cookie);
       }
       return out;
     } catch (err) {
@@ -542,6 +560,22 @@ export class AlipayExporter {
       }
       console.log(`   ⏳ 第 ${attempt} 次访问数据页尚未就绪，当前 URL: ${cur}`);
       await this.page.waitForTimeout(2000);
+    }
+
+    // 三次都被踢到登录页时，先回首页让会话刷新一次（首页校验通过说明 Cookie 有效，
+    // 可能是直接深链数据页触发了风控/会话冷启动），再重试一次数据页。
+    if (!dataPageOk && this.page.url().includes('auth.alipay.com')) {
+      console.log('   🔄 数据页被踢登录，回首页预热会话后重试一次...');
+      await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
+      await this.page.waitForTimeout(4000);
+      await this.selectEnterpriseIfNeeded();
+      await this.safeGoto(this.page, this.config.pageUrls.trade);
+      await this.page.waitForTimeout(5000);
+      await this.selectEnterpriseIfNeeded();
+      const cur = this.page.url();
+      if (cur.includes('b.alipay.com') && !isLoginUrl(cur) && !cur.includes('select-identity')) {
+        dataPageOk = true;
+      }
     }
 
     if (!dataPageOk) {
