@@ -76,6 +76,14 @@ export interface AlipayExportConfig {
    * 默认存放在项目 src/exporters/browser-profile/。
    */
   userDataDir?: string;
+  /**
+   * 会话 Cookie 持久化文件。
+   * 支付宝关键登录态常为"会话级 Cookie"（无 expires，浏览器关闭即丢），
+   * Playwright 独立 profile 关闭后这类 Cookie 不会落盘，导致重开仍要登录。
+   * 我们在每次成功运行后把全部 Cookie 强制设一个未来过期时间保存到此文件，
+   * 下次启动补注回持久化目录，实现跨次免登录。
+   */
+  sessionCookiePath?: string;
   /** 经营总览页 URL */
   overviewUrl?: string;
   /** 小程序 appId（生活号/粉丝群页需要） */
@@ -122,6 +130,7 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
     | 'outputDir'
     | 'cookiePath'
     | 'userDataDir'
+    | 'sessionCookiePath'
     | 'overviewUrl'
     | 'lifeAccountAppId'
     | 'pageUrls'
@@ -133,6 +142,7 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
   outputDir: path.join(process.cwd(), 'src', 'exporters', 'output'),
   cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'alipay.json'),
   userDataDir: path.join(process.cwd(), 'src', 'exporters', 'browser-profile'),
+  sessionCookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'alipay-session.json'),
   enterpriseName: '深圳市久久金供应链有限公司',
   overviewUrl: 'https://b.alipay.com/page/manage-consultant/data-index',
   lifeAccountAppId: '2017122701284248',
@@ -363,8 +373,19 @@ export class AlipayExporter {
     if (alipayCookies.length > 0) {
       console.log(`🍪 持久化目录已保留 ${alipayCookies.length} 个支付宝 Cookie（免登录基础已就绪）`);
     }
-    const hasAlipayCookie = alipayCookies.length > 0;
-    if (!hasAlipayCookie && fs.existsSync(this.config.cookiePath)) {
+
+    // 关键：补注上次成功运行保存的"会话级 Cookie"。
+    // 支付宝数据页所需的登录态常是无 expires 的会话 Cookie，Playwright 独立 profile
+    // 关闭后不会落盘；这里从 sessionCookiePath 读出，把持久化目录里缺失的补回去。
+    const existingKeys = new Set(alipayCookies.map((c) => `${c.domain}|${c.path}|${c.name}`));
+    const sessionCookies = this.loadSessionCookies(existingKeys);
+    if (sessionCookies.length > 0) {
+      await this.context.addCookies(sessionCookies);
+      const after = await this.context.cookies();
+      const afterAlipay = after.filter((c) => c.domain.includes('alipay.com'));
+      console.log(`🍪 补注 ${sessionCookies.length} 个会话 Cookie，当前共 ${afterAlipay.length} 个支付宝 Cookie`);
+    } else if (alipayCookies.length === 0 && fs.existsSync(this.config.cookiePath)) {
+      // 首次迁移旧 cookie 文件（兜底）
       try {
         const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
         const validCookies = this.normalizeCookies(cookies);
@@ -376,6 +397,68 @@ export class AlipayExporter {
     }
 
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
+  }
+
+  /**
+   * 从 sessionCookiePath 读取上次保存的会话 Cookie，过滤掉持久化目录里已存在的，
+   * 并强制设置一个未来过期时间（30 天），确保 addCookies 后能真正写入磁盘。
+   */
+  private loadSessionCookies(
+    existingKeys: Set<string>
+  ): Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    httpOnly: boolean;
+    sameSite: 'Strict' | 'Lax' | 'None';
+    expires: number;
+  }> {
+    if (!fs.existsSync(this.config.sessionCookiePath)) return [];
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.config.sessionCookiePath, 'utf-8')) as Array<Record<string, unknown>>;
+      const futureExpires = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+      const out: Array<{
+        name: string;
+        value: string;
+        domain: string;
+        path: string;
+        secure: boolean;
+        httpOnly: boolean;
+        sameSite: 'Strict' | 'Lax' | 'None';
+        expires: number;
+      }> = [];
+      for (const c of raw) {
+        if (!c || !c.name || !c.value) continue;
+        const domain = c.domain != null ? String(c.domain) : '.alipay.com';
+        const p = c.path != null ? String(c.path) : '/';
+        const key = `${domain}|${p}|${String(c.name)}`;
+        if (existingKeys.has(key)) continue;
+        out.push({
+          name: String(c.name),
+          value: String(c.value),
+          domain,
+          path: p,
+          secure: c.secure == null ? true : Boolean(c.secure),
+          httpOnly: c.httpOnly == null ? false : Boolean(c.httpOnly),
+          sameSite: this.mapSameSite(c.sameSite),
+          expires: futureExpires,
+        });
+      }
+      return out;
+    } catch (err) {
+      console.warn('⚠️  会话 Cookie 文件读取失败（可忽略）：', err);
+      return [];
+    }
+  }
+
+  /** 把任意来源的 sameSite 值映射为 Playwright 接受的枚举 */
+  private mapSameSite(raw: unknown): 'Strict' | 'Lax' | 'None' {
+    const v = String(raw ?? '').toLowerCase();
+    if (v === 'strict') return 'Strict';
+    if (v === 'none' || v === 'no_restriction') return 'None';
+    return 'Lax';
   }
 
   /** 确保已登录，未登录则等待用户手动登录 */
@@ -1202,13 +1285,25 @@ export class AlipayExporter {
       });
   }
 
-  /** 保存当前 Cookie */
+  /** 保存当前 Cookie：写常规 cookie 文件，并把全部 Cookie 设未来过期时间单独持久化（含会话级 Cookie） */
   private async saveCookies(): Promise<void> {
     if (!this.context) return;
     const cookies = await this.context.cookies();
     fs.mkdirSync(path.dirname(this.config.cookiePath), { recursive: true });
     fs.writeFileSync(this.config.cookiePath, JSON.stringify(cookies, null, 2), 'utf-8');
-    console.log(`🍪 Cookie 已保存（${cookies.length} 个）`);
+
+    // 会话 Cookie 持久化：强制设 30 天后过期，下次启动补注回持久化目录
+    const futureExpires = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+    const persisted = cookies.map((c) => ({
+      ...c,
+      expires: typeof c.expires === 'number' && c.expires > 0 ? c.expires : futureExpires,
+    }));
+    fs.writeFileSync(this.config.sessionCookiePath, JSON.stringify(persisted, null, 2), 'utf-8');
+
+    // 诊断：打印支付宝关键 Cookie 名（不打印值），便于确认登录态是否落盘
+    const alipayNames = cookies.filter((c) => c.domain.includes('alipay.com')).map((c) => c.name);
+    console.log(`🍪 Cookie 已保存（${cookies.length} 个，会话持久化 ${persisted.length} 个）`);
+    console.log(`   🔑 支付宝 Cookie: ${alipayNames.join(', ')}`);
   }
 
   /** 关闭浏览器（持久化上下文直接关闭 context，其内部 browser 会一并退出） */
