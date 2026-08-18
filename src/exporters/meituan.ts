@@ -353,8 +353,17 @@ export class MeituanExporter {
       }
 
       console.log('⏳ 等待下载对话框...');
-      const dialog = frame.locator(`text=${this.config.reportCardName}`).first();
-      await dialog.waitFor({ state: 'visible', timeout: 10000 }).catch(() => undefined);
+      // 历史成功版确认：点开"使用模板"后弹出的下载对话框标题是"久久金美团经营数据下载"（带"下载"后缀）
+      const dialogCandidates = [
+        frame.locator('text=久久金美团经营数据下载').first(),
+        frame.locator(`text=${this.config.reportCardName}`).first(),
+      ];
+      for (const d of dialogCandidates) {
+        if (await d.isVisible({ timeout: 4000 }).catch(() => false)) {
+          await d.waitFor({ state: 'visible', timeout: 6000 }).catch(() => undefined);
+          break;
+        }
+      }
       await frame.waitForTimeout(2000);
 
       const yesterday = new Date();
