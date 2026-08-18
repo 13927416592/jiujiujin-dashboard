@@ -171,16 +171,14 @@ export class AlipayExporter {
       const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
 
       console.log('  [1/6] 经营总览...');
-      await this.safeGoto(page, this.config.overviewUrl);
-      await this.waitForDataLoaded(page);
+      await this.gotoBusinessPage(page, this.config.overviewUrl);
       const overview = await this.extractPageData(page);
 
       // 2. 用户分析
       console.log('  [2/6] 用户分析...');
       let user: AlipayPageData;
       try {
-        await this.safeGoto(page, urls.user);
-        await this.waitForDataLoaded(page);
+        await this.gotoBusinessPage(page, urls.user);
         user = await this.extractPageData(page);
       } catch {
         user = this.emptyPage();
@@ -190,8 +188,7 @@ export class AlipayExporter {
       console.log('  [3/6] 交易分析...');
       let trade: AlipayPageData;
       try {
-        await this.safeGoto(page, urls.trade);
-        await this.waitForDataLoaded(page);
+        await this.gotoBusinessPage(page, urls.trade);
         trade = await this.extractPageData(page);
       } catch {
         trade = this.emptyPage();
@@ -455,36 +452,48 @@ export class AlipayExporter {
   }
 
   /**
-   * 检测到"请选择登录账号"页面时，自动点击配置的企业账号卡片。
-   * 一个支付宝账号可关联多家企业，登录后需选择其中一家进入商家后台。
+   * 检测到"选择登录账号/选择身份"页面时，自动点击配置的企业账号卡片。
+   * 一个支付宝账号可关联多家企业，登录后或访问特定业务页时会要求选择其中一家。
+   * 存在两种选择页：
+   *  1) 登录后"请选择登录账号 / 登录员工身份"页；
+   *  2) 访问部分业务页被重定向到 staffmng/account/select-identity?appScene=MRCH 页。
    */
   private async selectEnterpriseIfNeeded(): Promise<void> {
     if (!this.page) return;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const body = await this.getBodyText(this.page);
-      const isSelectPage = body.includes('请选择登录账号') && body.includes('登录员工身份');
-      if (!isSelectPage) return;
+    const target = this.config.enterpriseName;
+    const isSelectPage = (url: string, body: string): boolean => {
+      if (url.includes('/staffmng/account/select-identity') || url.includes('select-identity')) return true;
+      if (url.includes('/account/select') || /appScene=/.test(url)) {
+        // 含企业名选择列表特征才认定，避免误判普通业务页
+        if (body.includes('选择') && (body.includes('企业') || body.includes('身份') || body.includes('账号'))) return true;
+      }
+      return body.includes('请选择登录账号') && body.includes('登录员工身份');
+    };
 
-      const target = this.config.enterpriseName;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const url = this.page.url();
+      const body = await this.getBodyText(this.page);
+      if (!isSelectPage(url, body)) return;
+
       if (!target) {
         console.warn('⚠️ 当前在账号选择页，但未配置 enterpriseName，无法自动选择');
         return;
       }
 
-      console.log(`🏢 检测到账号选择页，自动选择企业：${target}`);
+      console.log(`🏢 检测到账号/身份选择页，自动选择企业：${target}`);
 
       // 用文本定位企业卡片（整行可点，事件会冒泡到卡片容器）
-      // 优先匹配叶子文本节点，避免点到外层大容器
-      const locator = this.page
-        .locator(`text="${target}"`)
-        .first();
+      const locator = this.page.locator(`text="${target}"`).first();
 
       try {
         await locator.waitFor({ timeout: 5000, state: 'visible' });
         await locator.click({ timeout: 5000 });
         console.log('✅ 已点击企业账号，等待跳转...');
+        // 点击后会经历 redirectUrl 跳转，等待业务页渲染
         await this.page.waitForTimeout(5000);
+        await this.waitForDataLoaded(this.page).catch(() => undefined);
+        // 跳转后可能再次落到选择页，循环里会继续处理
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`⚠️ 点击企业"${target}"失败：${msg}，将重试`);
@@ -613,6 +622,23 @@ export class AlipayExporter {
   }
 
   /**
+   * 跳转到业务数据页并等待加载，同时处理可能出现的"选择身份/选择企业"重定向。
+   * 部分业务页（如经营总览 data-index）即使已登录，也可能被重定向到
+   * staffmng/account/select-identity 要求重新选择企业身份。
+   */
+  private async gotoBusinessPage(page: Page, url: string): Promise<void> {
+    await this.safeGoto(page, url);
+    await this.waitForDataLoaded(page);
+    // 若被重定向到选择身份页，自动点击目标企业后会跳回 redirectUrl 指向的业务页
+    const before = page.url();
+    await this.selectEnterpriseIfNeeded();
+    const after = page.url();
+    if (after !== before) {
+      await this.waitForDataLoaded(page).catch(() => undefined);
+    }
+  }
+
+  /**
    * 通过点击左侧菜单导航到目标页（比猜网址更可靠：支付宝自己处理跳转和数据加载）。
    * menuText 为左侧菜单文字，如"用户分析"。
    * 返回导航后页面是否有真实内容（非404/空白）。
@@ -713,21 +739,23 @@ export class AlipayExporter {
    * 通过左侧菜单进入"小程序分析"，建立小程序子应用上下文。
    * 直接 goto mini-data-analysis/v3/* 会被重定向到"创建小程序"引导页，
    * 必须先像真实用户那样从左侧菜单点进来，子应用读取到会话/权限后才会展示数据页。
-   * 返回是否成功落在真实数据页。
+   *
+   * 注意："小程序分析"菜单项属于 board-cloud（棋盘密云）那套左侧菜单
+   * （分组为"经营阵地"，与用户分析/生活号+分析同组），在 manage-consultant
+   * （交易/流量分析）那套菜单里不存在。因此先跳到用户分析页加载正确的菜单，再点击。
    */
   private async enterMiniProgramAnalysis(): Promise<boolean> {
     if (!this.page) return false;
 
-    // 菜单可能在"经营效果"分组下；先保证有一个带左侧菜单的页面承载
     const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
-    await this.safeGoto(this.page, urls.trade).catch(() => undefined);
+    // 先跳到 board-cloud 体系的页面（用户分析），加载含"小程序分析"的左侧菜单
+    await this.gotoBusinessPage(this.page, urls.user).catch(() => undefined);
     await this.page.waitForTimeout(1500);
     await this.selectEnterpriseIfNeeded();
 
-    // 点击"小程序分析"菜单
+    // 点击"小程序分析"菜单（在"经营阵地"分组下）
     const clicked = await this.navigateByMenu('小程序分析');
     if (!clicked) {
-      // 菜单文案可能有差异，兜底再试一次
       await this.page.waitForTimeout(1000);
       const ok2 = await this.clickByText('小程序分析');
       if (!ok2) {
