@@ -11,13 +11,13 @@
         <string>/Users/yxd/jiujiujin-dashboard/scripts/alipay-daily.sh</string>
     </array>
     
-    <!-- 每天早上 9 点执行 -->
+    <!-- 每天早上 9:10 执行（比用户 9 点上班晚 10 分钟） -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
         <integer>9</integer>
         <key>Minute</key>
-        <integer>0</integer>
+        <integer>10</integer>
     </dict>
     
     <!-- 日志输出 -->
