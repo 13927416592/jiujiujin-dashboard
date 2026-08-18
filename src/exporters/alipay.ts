@@ -271,19 +271,33 @@ export class AlipayExporter {
 
   /** 初始化浏览器 */
   private async init(): Promise<void> {
-    this.browser = await chromium.launch({
-      // 新版无头模式（--headless=new），比旧版更接近真实浏览器，降低被风控拦截概率
-      headless: this.config.headless,
-      slowMo: this.config.slowMo,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-        '--disable-dev-shm-usage',
-        '--no-first-run',
-        '--no-default-browser-check',
-      ],
-    });
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-dev-shm-usage',
+      '--no-first-run',
+      '--no-default-browser-check',
+    ];
+
+    // 优先使用系统真实 Chrome（比 Playwright 自带 Chromium 更难被风控识别）；
+    // 若本机未安装 Chrome 则回退到自带 Chromium。
+    try {
+      this.browser = await chromium.launch({
+        channel: 'chrome',
+        headless: this.config.headless,
+        slowMo: this.config.slowMo,
+        args: launchArgs,
+      });
+      console.log('🌐 使用系统 Chrome 启动');
+    } catch {
+      this.browser = await chromium.launch({
+        headless: this.config.headless,
+        slowMo: this.config.slowMo,
+        args: launchArgs,
+      });
+      console.log('🌐 系统 Chrome 不可用，使用自带 Chromium');
+    }
 
     this.context = await this.browser.newContext({
       userAgent:
@@ -364,8 +378,9 @@ export class AlipayExporter {
     // 无头模式下无法手动登录（浏览器不可见），直接失败退出，
     // 由调用方（定时任务）触发飞书告警，避免进程挂起。
     if (this.config.headless) {
+      console.error('❌ 未登录判定。落地 URL:', this.page.url());
       throw new Error(
-        '无头模式下检测到支付宝未登录（Cookie 可能已过期）。请在终端运行一次 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）手动登录以刷新 Cookie。'
+        '无头模式下检测到支付宝未登录（Cookie 可能已过期，或被风控重定向到登录页）。请在终端运行一次 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）手动登录以刷新 Cookie。'
       );
     }
 
