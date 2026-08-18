@@ -578,112 +578,42 @@ export class MeituanExporter {
    * 3) 删除所有 driver 元素；4) 重置 body 样式；5) 用 MutationObserver 阻止它重建。
    */
   private async dismissOverlays(page: Page): Promise<void> {
-    // 统一关闭首页遮挡：重点消息面板、新功能引导气泡、顶部命令行提示条、driver.js 遮罩。
-    await page.waitForTimeout(500);
+    // 只需处理右下角的新功能引导气泡（1/3，含"跳过/下一步"）。
+    // 用户确认：右侧"重点消息"面板无需关闭也能正常操作；之前手工只点了"跳过"。
+    // 因此这里只做一件事：精确点掉"跳过"，再清掉 body 上的 driver-* class。
+    await page.waitForTimeout(800);
 
-    // 1) 关闭右侧"重点消息"面板：定位包含"重点消息"标题的浮层，点其内部/旁边的关闭 X
-    await page
+    // 1) 精确点"跳过"：遍历可见元素，找文本精确等于"跳过"的叶子节点，点它本身或可点击父级。
+    //    多步引导点一次"跳过"即整体结束，不需要逐页点"下一步"。
+    const skipped = await page
       .evaluate(() => {
         const visible = (el: Element): boolean => {
           const r = el.getBoundingClientRect();
           const s = getComputedStyle(el);
           return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
         };
-        // 找所有文本含"重点消息"的元素，取最小的那个容器（标题本身），向上找浮层，再找关闭按钮
-        const heads = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(
-          (el) => el.children.length <= 2 && (el.textContent || '').trim() === '重点消息' && visible(el)
-        );
-        for (const head of heads) {
-          // 向上找一个较大的浮层容器
-          let panel: HTMLElement | null = head;
-          for (let i = 0; i < 6 && panel; i++) {
-            const r = panel.getBoundingClientRect();
-            if (r.width > 280 && r.height > 200) break;
-            panel = panel.parentElement;
-          }
-          const root = panel || document;
-          const closeBtn = Array.from(
-            root.querySelectorAll<HTMLElement>('[class*="close"], [aria-label*="关闭"], button')
-          ).find((el) => {
-            if (!visible(el)) return false;
-            const t = (el.textContent || '').trim();
-            const cls = (el.className && typeof el.className === 'string' ? el.className : '').toLowerCase();
-            const r = el.getBoundingClientRect();
-            // 关闭按钮通常很小、在右上角、无文字或只有 ×
-            return (
-              (t === '' || t === '×' || t === 'x' || cls.includes('close')) &&
-              r.width < 60 &&
-              r.height < 60
-            );
-          });
-          if (closeBtn) {
-            closeBtn.click();
-            return true;
-          }
+        const all = Array.from(document.querySelectorAll<HTMLElement>('*'));
+        // 先找文本精确为"跳过"的小叶子节点
+        const leaf = all.find((el) => {
+          if (!visible(el)) return false;
+          if (el.children.length > 1) return false;
+          return (el.textContent || '').trim() === '跳过';
+        });
+        if (leaf) {
+          // 优先点它最近的可点击祖先（button/a/[role=button]），否则点自身
+          const clickable = leaf.closest('button,a,[role="button"],[class*="btn"]') || leaf;
+          (clickable as HTMLElement).click();
+          return true;
         }
         return false;
       })
       .catch(() => false);
-    await page.waitForTimeout(500);
-
-    // 2) 关闭新功能引导气泡：优先点"跳过/知道了/完成/不再提示"，其次点气泡右上角 X
-    for (let i = 0; i < 6; i++) {
-      const clicked = await page
-        .evaluate(() => {
-          const visible = (el: Element): boolean => {
-            const r = el.getBoundingClientRect();
-            const s = getComputedStyle(el);
-            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
-          };
-          const skipTexts = ['跳过', '跳过引导', '知道了', '我知道了', '完成', '不再提示', '下次再说', '关闭'];
-          // 先找文本精确等于跳过类词的可见按钮/链接
-          const all = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], span, div'));
-          const btn = all.find((el) => {
-            if (!visible(el)) return false;
-            const t = (el.textContent || '').trim();
-            // 只匹配叶子级小按钮，避免点到大容器
-            return skipTexts.includes(t) && el.querySelectorAll('*').length <= 3;
-          });
-          if (btn) {
-            btn.click();
-            return true;
-          }
-          // 再找 driver-popover / 引导浮层里的关闭 X
-          const popover = document.querySelector<HTMLElement>(
-            '.driver-popover, [class*="driver-popover"], [class*="guide"], [class*="tour"], [class*="intro"]'
-          );
-          if (popover && visible(popover)) {
-            const x = popover.querySelector<HTMLElement>('[class*="close"], button');
-            if (x && visible(x)) {
-              x.click();
-              return true;
-            }
-          }
-          return false;
-        })
-        .catch(() => false);
-      if (!clicked) break;
-      await page.waitForTimeout(500);
+    if (skipped) {
+      console.log('   ⏭️  已点掉引导气泡"跳过"');
     }
+    await page.waitForTimeout(800);
 
-    // 3) 关闭顶部"不支持的命令行标记"提示条（点其右侧 X）
-    await page
-      .evaluate(() => {
-        const bars = Array.from(document.querySelectorAll<HTMLElement>('*')).filter((el) =>
-          (el.textContent || '').includes('--disable-setuid-sandbox')
-        );
-        for (const bar of bars) {
-          const x = bar.querySelector<HTMLElement>('[class*="close"], button, [aria-label*="关闭"]');
-          if (x) {
-            x.click();
-            return;
-          }
-        }
-      })
-      .catch(() => undefined);
-    await page.waitForTimeout(300);
-
-    // 4) 从 DOM 根上清除 driver.js（body/html class、遮罩节点、阻止重建）
+    // 2) 从 DOM 根上清除 driver.js 残留（body/html 的 driver-* class 是指针拦截根源）
     const removed = await page
       .evaluate(() => {
         let count = 0;
