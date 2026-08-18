@@ -213,6 +213,9 @@ export class AlipayExporter {
         await this.safeGoto(page, lifeUrl);
         await this.waitForDataLoaded(page);
         lifeAccount = await this.extractPageData(page);
+        if (lifeAccount.bodyText.includes('您还没有创建生活号') || lifeAccount.bodyText.includes('还没有创建生活号')) {
+          console.log('    ℹ️  当前企业未开通生活号，生活号+分析无数据（属正常状态）');
+        }
       } catch {
         lifeAccount = this.emptyPage();
       }
@@ -480,16 +483,23 @@ export class AlipayExporter {
     const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
     const startTime = Date.now();
 
+    // stdin 监听器需要在结束时显式移除，否则 TTY 句柄会让 Node 进程无法退出
+    let onData: ((chunk: Buffer) => void) | null = null;
     const enterPromise = new Promise<void>((resolve) => {
-      const onData = (): void => {
-        process.stdin.removeListener('data', onData);
+      onData = (): void => {
+        if (onData) process.stdin.removeListener('data', onData);
+        onData = null;
         resolve();
       };
       process.stdin.on('data', onData);
     });
 
+    // 用可取消的定时器做轮询：race 结束后停止调度，避免遗留 setTimeout 链挂住进程
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const pollPromise = new Promise<void>((resolve, reject) => {
       const tick = async (): Promise<void> => {
+        if (stopped) return;
         try {
           const url = page.url();
           // 登录成功后会离开登录域、落到 b.alipay.com 业务页
@@ -505,7 +515,7 @@ export class AlipayExporter {
             reject(new Error('登录等待超时（5 分钟内未检测到登录成功）'));
             return;
           }
-          setTimeout(tick, 2000);
+          if (!stopped) timer = setTimeout(tick, 2000);
         } catch (err) {
           reject(err instanceof Error ? err : new Error(String(err)));
         }
@@ -513,7 +523,23 @@ export class AlipayExporter {
       void tick();
     });
 
-    await Promise.race([enterPromise, pollPromise]);
+    try {
+      await Promise.race([enterPromise, pollPromise]);
+    } finally {
+      // 无论哪个先结束，都停止轮询链并清理 stdin 监听
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (onData) {
+        process.stdin.removeListener('data', onData);
+        onData = null;
+      }
+      // 恢复 stdin 流动状态，避免影响后续读取
+      try {
+        process.stdin.pause();
+      } catch {
+        /* ignore */
+      }
+    }
 
     console.log('⏳ 登录完成，继续抓取...');
     await this.page.waitForTimeout(2000);
@@ -641,10 +667,81 @@ export class AlipayExporter {
     return this.extractPageData(this.page);
   }
 
+  /** 判断当前是否被重定向到了"创建小程序"引导页（说明子应用上下文未建立） */
+  private async isOnCreateMiniProgramPage(): Promise<boolean> {
+    if (!this.page) return false;
+    const url = this.page.url();
+    if (url.includes('/mini-portal/')) return true;
+    const body = await this.getBodyText(this.page);
+    return body.includes('创建小程序') && body.includes('营业额增长') && body.includes('引流到店');
+  }
+
+  /**
+   * 通过左侧菜单进入"小程序分析"，建立小程序子应用上下文。
+   * 直接 goto mini-data-analysis/v3/* 会被重定向到"创建小程序"引导页，
+   * 必须先像真实用户那样从左侧菜单点进来，子应用读取到会话/权限后才会展示数据页。
+   * 返回是否成功落在真实数据页。
+   */
+  private async enterMiniProgramAnalysis(): Promise<boolean> {
+    if (!this.page) return false;
+
+    // 菜单可能在"经营效果"分组下；先保证有一个带左侧菜单的页面承载
+    const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
+    await this.safeGoto(this.page, urls.trade).catch(() => undefined);
+    await this.page.waitForTimeout(1500);
+    await this.selectEnterpriseIfNeeded();
+
+    // 点击"小程序分析"菜单
+    const clicked = await this.navigateByMenu('小程序分析');
+    if (!clicked) {
+      // 菜单文案可能有差异，兜底再试一次
+      await this.page.waitForTimeout(1000);
+      const ok2 = await this.clickByText('小程序分析');
+      if (!ok2) {
+        console.warn('    ⚠️ 未能在左侧菜单找到"小程序分析"入口');
+        return false;
+      }
+      await this.page.waitForTimeout(2000);
+      await this.waitForDataLoaded(this.page);
+    }
+
+    // 等待子应用加载，并确认不是"创建小程序"页
+    await this.page.waitForTimeout(2500);
+    if (await this.isOnCreateMiniProgramPage()) {
+      console.warn('    ⚠️ 从菜单进入后仍落在"创建小程序"引导页，可能该企业无小程序或需初始化看板');
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 在小程序分析子应用内导航到指定小程序的指定 Tab。
+   * 必须在已进入小程序分析上下文后调用；通过修改 URL 触发子应用内路由切换。
+   * 若被重定向到创建页，则返回 false（调用方可重新建立上下文）。
+   */
+  private async gotoMiniTab(path: string, appId: string, label: string, progName: string): Promise<boolean> {
+    if (!this.page) return false;
+    const target = this.appendQuery(path, { appId });
+    await this.safeGoto(this.page, target);
+    await this.waitForDataLoaded(this.page);
+
+    if (await this.isOnCreateMiniProgramPage()) {
+      console.warn(`    ⚠️ [${progName}] ${label} 被重定向到"创建小程序"页，尝试重建上下文...`);
+      // 重建一次上下文后再试
+      const ok = await this.enterMiniProgramAnalysis();
+      if (!ok) return false;
+      await this.safeGoto(this.page, target);
+      await this.waitForDataLoaded(this.page);
+      if (await this.isOnCreateMiniProgramPage()) return false;
+    }
+    return true;
+  }
+
   /**
    * 小程序数据：抓取多个小程序，每个抓概览/流量/交易三个 Tab。
    * 小程序真实路径为 /page/mini-data-analysis/v3/{overview,visit,trade}?appId=xxx。
-   * 先在概览页自动识别全部小程序，再逐个访问其三个子页面。
+   * 直接 goto 深层 URL 会被重定向到"创建小程序"引导页，因此必须先从左侧菜单
+   * 点进"小程序分析"建立子应用上下文，再在子应用内切换小程序与 Tab。
    */
   private async scrapeMiniPrograms(): Promise<{ programs: AlipayProgram[] }> {
     if (!this.page) throw new Error('页面未初始化');
@@ -655,32 +752,34 @@ export class AlipayExporter {
       { key: 'trade', label: '交易', path: urls.miniProgram.trade },
     ];
 
-    // 1. 先进入概览页，识别全部小程序（下拉/列表中的 appId 与名称）
-    const overviewUrl = this.appendQuery(tabPaths[0].path, { appId: '2019071865846949' });
-    await this.safeGoto(this.page, overviewUrl);
-    await this.waitForDataLoaded(this.page);
-
-    // 1. 进入概览页后尝试打开"小程序切换"弹框枚举；弹框为虚拟列表，DOM 不一定可靠，
-    //    因此以用户确认的 3 个小程序为权威列表，再合并页面上额外识别到的。
-    await this.enumerateMiniPrograms().catch(() => []);
+    // 用户确认的 3 个小程序为权威列表（弹框枚举在重定向场景下不可靠）
     const known: Array<{ id: string; name: string }> = [
       { id: '2019071865846949', name: '黄金回收-久久金管家' },
       { id: '2021001101675556', name: '黄金价格-久久金管家' },
       { id: '2021003182667415', name: '今日金价格-久久金管家' },
     ];
-    const programs = known;
-    console.log(`    🔖 识别到 ${programs.length} 个小程序: ${programs.map((p) => p.name).join('、')}`);
+    console.log(`    🔖 待抓取 ${known.length} 个小程序: ${known.map((p) => p.name).join('、')}`);
 
-    // 2. 逐个小程序抓三个 Tab
+    // 先从菜单进入小程序分析，建立子应用上下文
+    const entered = await this.enterMiniProgramAnalysis();
+
+    // 逐个小程序抓三个 Tab
     const result: AlipayProgram[] = [];
-    for (const prog of programs) {
+    for (const prog of known) {
       const tabs: Record<string, AlipayProgramTab> = {};
       for (const t of tabPaths) {
         try {
-          const tabUrl = this.appendQuery(t.path, { appId: prog.id });
-          await this.safeGoto(this.page, tabUrl);
-          await this.waitForDataLoaded(this.page);
-          tabs[t.key] = await this.extractPageData(this.page);
+          let data: AlipayPageData | null = null;
+          if (entered) {
+            const ok = await this.gotoMiniTab(t.path, prog.id, t.label, prog.name);
+            if (ok) data = await this.extractPageData(this.page);
+          }
+          if (!data) {
+            // 上下文建立失败（无小程序/需初始化），记录空数据而非整体中断
+            console.warn(`    ⚠️ 小程序[${prog.name}] ${t.label} 未取到数据（可能需要在后台先打开一次该小程序看板）`);
+            data = this.emptyPage();
+          }
+          tabs[t.key] = data;
         } catch (err) {
           console.warn(`    ⚠️ 小程序[${prog.name}] ${t.label} 抓取失败:`, err);
         }
