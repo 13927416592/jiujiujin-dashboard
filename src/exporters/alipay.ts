@@ -359,7 +359,11 @@ export class AlipayExporter {
     // 兼容：持久化目录里还没有任何支付宝 Cookie 时，从旧版 cookie.json 迁移一次。
     // 注意：不能用"Default/Cookies 文件是否存在"判断——全新 profile 也会生成空的 Cookies 文件。
     const existingCookies = await this.context.cookies();
-    const hasAlipayCookie = existingCookies.some((c) => c.domain.includes('alipay.com'));
+    const alipayCookies = existingCookies.filter((c) => c.domain.includes('alipay.com'));
+    if (alipayCookies.length > 0) {
+      console.log(`🍪 持久化目录已保留 ${alipayCookies.length} 个支付宝 Cookie（免登录基础已就绪）`);
+    }
+    const hasAlipayCookie = alipayCookies.length > 0;
     if (!hasAlipayCookie && fs.existsSync(this.config.cookiePath)) {
       try {
         const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
@@ -383,7 +387,7 @@ export class AlipayExporter {
     await this.safeGoto(this.page, 'https://b.alipay.com/');
     await this.page.waitForTimeout(3000);
 
-    const LOGIN_URL_PATTERN = /(login|passport|signin|\/login)/i;
+    const LOGIN_URL_PATTERN = /(auth\.alipay\.com\/login|\/login\/|\/login\b|passport|sign[-_]?in)/i;
     const isLoginUrl = (url: string): boolean => LOGIN_URL_PATTERN.test(url);
 
     // 判断是否已登录：
@@ -431,20 +435,40 @@ export class AlipayExporter {
     // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
     await this.selectEnterpriseIfNeeded();
 
-    // 二次确认：尝试打开真实数据页，若被踢回登录页/选择账号页则说明需要处理
+    // 二次确认：尝试打开真实数据页。冷启动/持久化 profile 首次访问数据页时，
+    // 支付宝可能有一次瞬时重定向（选身份/鉴权回跳），因此重试几轮，不要第一次失败就判定未登录。
     console.log('🔎 二次确认数据页访问...');
-    await this.safeGoto(this.page, this.config.pageUrls.trade);
-    await this.page.waitForTimeout(4000);
-    // 数据页也可能再次弹选择账号页
-    await this.selectEnterpriseIfNeeded();
-    if (isLoginUrl(this.page.url())) {
+    let dataPageOk = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.safeGoto(this.page, this.config.pageUrls.trade);
+      // 给 SPA 充足的重定向/鉴权时间
+      await this.page.waitForTimeout(5000);
+      // 数据页可能再次要求选择企业身份（select-identity），自动处理
+      await this.selectEnterpriseIfNeeded();
+
+      const cur = this.page.url();
+      if (isLoginUrl(cur)) {
+        console.log(`   ⏳ 第 ${attempt} 次访问数据页落在登录页: ${cur}`);
+        await this.page.waitForTimeout(2000);
+        continue;
+      }
+      // 落地在 b.alipay.com 业务页（含 trade-analysis）即视为通过
+      if (cur.includes('b.alipay.com') && !cur.includes('select-identity') && !cur.includes('select-account')) {
+        dataPageOk = true;
+        break;
+      }
+      console.log(`   ⏳ 第 ${attempt} 次访问数据页尚未就绪，当前 URL: ${cur}`);
+      await this.page.waitForTimeout(2000);
+    }
+
+    if (!dataPageOk) {
       if (this.config.headless) {
-        console.error('❌ 数据页被重定向到登录页:', this.page.url());
+        console.error('❌ 数据页最终被重定向到登录页:', this.page.url());
         throw new Error(
           '无头模式下访问数据页被重定向到登录页（Cookie 已失效）。请运行 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）重新登录。'
         );
       }
-      console.log('⚠️ 数据页需要登录，进入手动登录流程...');
+      console.log('⚠️ 数据页需要登录，进入手动登录流程。落地 URL:', this.page.url());
       await this.promptManualLogin();
     } else {
       console.log('✅ 数据页可访问，登录有效');
