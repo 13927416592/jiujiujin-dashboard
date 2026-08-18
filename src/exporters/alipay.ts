@@ -359,7 +359,11 @@ export class AlipayExporter {
     // 兼容：持久化目录里还没有任何支付宝 Cookie 时，从旧版 cookie.json 迁移一次。
     // 注意：不能用"Default/Cookies 文件是否存在"判断——全新 profile 也会生成空的 Cookies 文件。
     const existingCookies = await this.context.cookies();
-    const hasAlipayCookie = existingCookies.some((c) => c.domain.includes('alipay.com'));
+    const alipayCookies = existingCookies.filter((c) => c.domain.includes('alipay.com'));
+    if (alipayCookies.length > 0) {
+      console.log(`🍪 持久化目录已保留 ${alipayCookies.length} 个支付宝 Cookie（免登录基础已就绪）`);
+    }
+    const hasAlipayCookie = alipayCookies.length > 0;
     if (!hasAlipayCookie && fs.existsSync(this.config.cookiePath)) {
       try {
         const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
@@ -383,7 +387,7 @@ export class AlipayExporter {
     await this.safeGoto(this.page, 'https://b.alipay.com/');
     await this.page.waitForTimeout(3000);
 
-    const LOGIN_URL_PATTERN = /(login|passport|signin|\/login)/i;
+    const LOGIN_URL_PATTERN = /(auth\.alipay\.com\/login|\/login\/|\/login\b|passport|sign[-_]?in)/i;
     const isLoginUrl = (url: string): boolean => LOGIN_URL_PATTERN.test(url);
 
     // 判断是否已登录：
@@ -431,20 +435,40 @@ export class AlipayExporter {
     // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
     await this.selectEnterpriseIfNeeded();
 
-    // 二次确认：尝试打开真实数据页，若被踢回登录页/选择账号页则说明需要处理
+    // 二次确认：尝试打开真实数据页。冷启动/持久化 profile 首次访问数据页时，
+    // 支付宝可能有一次瞬时重定向（选身份/鉴权回跳），因此重试几轮，不要第一次失败就判定未登录。
     console.log('🔎 二次确认数据页访问...');
-    await this.safeGoto(this.page, this.config.pageUrls.trade);
-    await this.page.waitForTimeout(4000);
-    // 数据页也可能再次弹选择账号页
-    await this.selectEnterpriseIfNeeded();
-    if (isLoginUrl(this.page.url())) {
+    let dataPageOk = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.safeGoto(this.page, this.config.pageUrls.trade);
+      // 给 SPA 充足的重定向/鉴权时间
+      await this.page.waitForTimeout(5000);
+      // 数据页可能再次要求选择企业身份（select-identity），自动处理
+      await this.selectEnterpriseIfNeeded();
+
+      const cur = this.page.url();
+      if (isLoginUrl(cur)) {
+        console.log(`   ⏳ 第 ${attempt} 次访问数据页落在登录页: ${cur}`);
+        await this.page.waitForTimeout(2000);
+        continue;
+      }
+      // 落地在 b.alipay.com 业务页（含 trade-analysis）即视为通过
+      if (cur.includes('b.alipay.com') && !cur.includes('select-identity') && !cur.includes('select-account')) {
+        dataPageOk = true;
+        break;
+      }
+      console.log(`   ⏳ 第 ${attempt} 次访问数据页尚未就绪，当前 URL: ${cur}`);
+      await this.page.waitForTimeout(2000);
+    }
+
+    if (!dataPageOk) {
       if (this.config.headless) {
-        console.error('❌ 数据页被重定向到登录页:', this.page.url());
+        console.error('❌ 数据页最终被重定向到登录页:', this.page.url());
         throw new Error(
           '无头模式下访问数据页被重定向到登录页（Cookie 已失效）。请运行 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）重新登录。'
         );
       }
-      console.log('⚠️ 数据页需要登录，进入手动登录流程...');
+      console.log('⚠️ 数据页需要登录，进入手动登录流程。落地 URL:', this.page.url());
       await this.promptManualLogin();
     } else {
       console.log('✅ 数据页可访问，登录有效');
@@ -740,39 +764,108 @@ export class AlipayExporter {
    * 直接 goto mini-data-analysis/v3/* 会被重定向到"创建小程序"引导页，
    * 必须先像真实用户那样从左侧菜单点进来，子应用读取到会话/权限后才会展示数据页。
    *
-   * 注意："小程序分析"菜单项属于 board-cloud（棋盘密云）那套左侧菜单
-   * （分组为"经营阵地"，与用户分析/生活号+分析同组），在 manage-consultant
-   * （交易/流量分析）那套菜单里不存在。因此先跳到用户分析页加载正确的菜单，再点击。
+   * "小程序分析"菜单项位于"经营阵地"分组，与"生活号+分析/商家粉丝群分析"同组，
+   * 该套左侧菜单出现在 life-data / 经营阵地 类页面上（不同业务模块菜单不同）。
+   * 因此依次在几个已知会渲染该菜单的页面上尝试点击，谁有就从谁进。
    */
   private async enterMiniProgramAnalysis(): Promise<boolean> {
     if (!this.page) return false;
-
     const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
-    // 先跳到 board-cloud 体系的页面（用户分析），加载含"小程序分析"的左侧菜单
-    await this.gotoBusinessPage(this.page, urls.user).catch(() => undefined);
-    await this.page.waitForTimeout(1500);
-    await this.selectEnterpriseIfNeeded();
 
-    // 点击"小程序分析"菜单（在"经营阵地"分组下）
-    const clicked = await this.navigateByMenu('小程序分析');
-    if (!clicked) {
-      await this.page.waitForTimeout(1000);
-      const ok2 = await this.clickByText('小程序分析');
-      if (!ok2) {
-        console.warn('    ⚠️ 未能在左侧菜单找到"小程序分析"入口');
-        return false;
-      }
+    // 候选承载页（按"菜单最可能含小程序分析"排序）：
+    // 1) 生活号+分析页（已确认正文含"经营阵地 / 小程序分析"菜单）
+    // 2) 商家粉丝群分析页
+    // 3) 用户分析页（棋盘密云，兜底）
+    const carriers: Array<{ name: string; url: string }> = [
+      { name: '生活号+分析', url: this.appendQuery(urls.lifeAccount, { appId: this.config.lifeAccountAppId }) },
+      { name: '粉丝群分析', url: urls.fanGroup },
+      { name: '用户分析', url: urls.user },
+    ];
+
+    for (const carrier of carriers) {
+      await this.gotoBusinessPage(this.page, carrier.url).catch(() => undefined);
       await this.page.waitForTimeout(2000);
-      await this.waitForDataLoaded(this.page);
+      await this.selectEnterpriseIfNeeded();
+
+      if (await this.clickMenuContaining('小程序分析')) {
+        await this.page.waitForTimeout(2500);
+        await this.waitForDataLoaded(this.page).catch(() => undefined);
+        if (await this.isOnCreateMiniProgramPage()) {
+          console.warn('    ⚠️ 从菜单进入后仍落在"创建小程序"引导页，可能该企业无小程序或需初始化看板');
+          return false;
+        }
+        return true;
+      }
     }
 
-    // 等待子应用加载，并确认不是"创建小程序"页
-    await this.page.waitForTimeout(2500);
-    if (await this.isOnCreateMiniProgramPage()) {
-      console.warn('    ⚠️ 从菜单进入后仍落在"创建小程序"引导页，可能该企业无小程序或需初始化看板');
-      return false;
+    // 所有承载页都没找到菜单：打印当前页可见的导航项，便于定位真实文案
+    console.warn('    ⚠️ 未能在任何承载页找到"小程序分析"入口');
+    await this.dumpVisibleMenuItems();
+    return false;
+  }
+
+  /**
+   * 点击左侧菜单中"包含"指定文字的可见项（比 exact 更宽容，避免菜单文案带图标/角标导致定位失败）。
+   * 优先点击 <a>/[role="menuitem"]/nav 内的元素。
+   */
+  private async clickMenuContaining(text: string): Promise<boolean> {
+    if (!this.page) return false;
+
+    // 先找可见的菜单链接/菜单项
+    const candidates = [
+      this.page.locator(`a:has-text("${text}")`),
+      this.page.locator(`[role="menuitem"]:has-text("${text}")`),
+      this.page.locator(`nav :text("${text}")`),
+      this.page.locator(`[class*="menu"] :text("${text}")`),
+      this.page.locator(`[class*="sider"] :text("${text}")`),
+      this.page.getByText(text, { exact: false }),
+    ];
+
+    for (const loc of candidates) {
+      const count = await loc.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const item = loc.nth(i);
+        const visible = await item.isVisible({ timeout: 1500 }).catch(() => false);
+        if (!visible) continue;
+        // 避免点到只是正文里偶然包含这几个字的大块区域：要求元素本身文本不长
+        const ownText = (await item.textContent().catch(() => '')) || '';
+        if (ownText.trim().length > 30) continue;
+        try {
+          await item.scrollIntoViewIfNeeded().catch(() => undefined);
+          await item.click({ timeout: 5000 });
+          return true;
+        } catch {
+          // 该元素点不动，试下一个候选
+        }
+      }
     }
-    return true;
+    return false;
+  }
+
+  /** 诊断用：打印当前页左侧/导航区域可见的短文本项，帮助定位真实菜单文案 */
+  private async dumpVisibleMenuItems(): Promise<void> {
+    if (!this.page) return;
+    try {
+      const items = await this.page.evaluate(() => {
+        const out: string[] = [];
+        const nodes = Array.from(
+          document.querySelectorAll<HTMLElement>('a, [role="menuitem"], nav *, [class*="menu"] *, [class*="sider"] *')
+        );
+        for (const el of nodes) {
+          const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
+          if (t && t.length <= 12 && /[\u4e00-\u9fa5]/.test(t)) {
+            const style = window.getComputedStyle(el);
+            if (style.display !== 'none' && style.visibility !== 'hidden') {
+              out.push(t);
+            }
+          }
+        }
+        return Array.from(new Set(out)).slice(0, 40);
+      });
+      console.log('    🔍 当前页可见菜单项:', items.join(' | '));
+    } catch {
+      /* ignore */
+    }
   }
 
   /**
