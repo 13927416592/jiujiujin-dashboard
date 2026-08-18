@@ -660,6 +660,36 @@ export class MeituanExporter {
     await page.waitForTimeout(500);
   }
 
+  /**
+   * 关闭右侧"重点消息"通知面板、顶部命令行提示条等非引导浮层。
+   * 这些浮层会抢占焦点/改变布局，但不属于 driver.js 引导，单独处理。
+   */
+  private async closeFloatingPanels(page: Page): Promise<void> {
+    // 按 Escape 关闭可能打开的弹窗/下拉
+    await page.keyboard.press('Escape').catch(() => undefined);
+    await page.waitForTimeout(300);
+
+    // 关闭右侧"重点消息"面板：找其右上角 X 关闭按钮
+    const closeButtons = page.locator(
+      '[class*="message"] [class*="close"], [class*="notice"] [class*="close"], [class*="drawer"] [class*="close"], [aria-label="关闭"], button[class*="close"]'
+    );
+    const count = await closeButtons.count().catch(() => 0);
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      const btn = closeButtons.nth(i);
+      if (await btn.isVisible({ timeout: 400 }).catch(() => false)) {
+        await btn.click({ timeout: 1500 }).catch(() => undefined);
+        await page.waitForTimeout(300);
+      }
+    }
+
+    // 关闭顶部"不支持的命令行标记"提示条（若有 X）
+    const topBarClose = page.locator('text=--disable-setuid-sandbox').first();
+    if (await topBarClose.isVisible({ timeout: 500 }).catch(() => false)) {
+      const x = page.locator('button:has(svg), [class*="close"]').last();
+      await x.click({ timeout: 1000 }).catch(() => undefined);
+    }
+  }
+
   private async navigateToReportCenter(page: Page): Promise<Page> {
     if (!this.context) throw new Error('浏览器未初始化');
 
@@ -680,49 +710,75 @@ export class MeituanExporter {
       });
       await page.waitForTimeout(3000);
 
-      // 仅在首页加载后清理一次"新功能引导"遮罩（driver.js 会拦截点击），
-      // 点击菜单的流程保持与历史可用版本完全一致。
+      // 关闭右侧"重点消息"面板等浮层，再清理 driver.js 引导遮罩
+      await this.closeFloatingPanels(page);
       await this.dismissOverlays(page);
 
-      console.log(' 点击"经营参谋"...');
-      const advisorMenu = page.locator('text=经营参谋').first();
-      if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 再次清理（引导可能在渲染后才挂上 body class），失败则强制点击
-        await this.dismissOverlays(page);
-        await advisorMenu.click({ timeout: 8000 }).catch(async () => {
-          await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
+      // 方案 A：优先点首页中部"经营参谋"卡片右上角的"查看更多"，直接进入经营参谋页面。
+      // 这是当前（侧边栏收起状态下）最可靠的入口。
+      let enteredAdvisor = false;
+      const advisorCardMore = page
+        .locator('text=经营参谋')
+        .first()
+        .locator('xpath=ancestor::*[self::div or self::section][1]')
+        .locator('text=查看更多')
+        .first();
+      // 上面的 ancestor 定位不一定稳定，再准备一个更直接的：
+      const viewMoreNearAdvisor = page.locator('text=查看更多').first();
+
+      console.log(' 进入"经营参谋"...');
+      if (await advisorCardMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await advisorCardMore.click({ timeout: 6000 }).catch(async () => {
+          await advisorCardMore.click({ timeout: 5000, force: true }).catch(() => undefined);
         });
-        await page.waitForTimeout(2000);
+        enteredAdvisor = true;
+      } else if (await viewMoreNearAdvisor.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await viewMoreNearAdvisor.click({ timeout: 6000 }).catch(async () => {
+          await viewMoreNearAdvisor.click({ timeout: 5000, force: true }).catch(() => undefined);
+        });
+        enteredAdvisor = true;
       } else {
-        const advisorMenuExpanded = page
-          .locator('[class*="menu"]')
-          .filter({ hasText: '经营参谋' })
-          .first();
-        if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await this.dismissOverlays(page);
-          await advisorMenuExpanded.click({ timeout: 8000 }).catch(async () => {
-            await advisorMenuExpanded.click({ timeout: 5000, force: true }).catch(() => undefined);
+        // 方案 B：尝试点左侧菜单中的"经营参谋"（侧边栏展开时可用）
+        const advisorMenu = page.locator('text=经营参谋').first();
+        if (await advisorMenu.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await advisorMenu.click({ timeout: 6000 }).catch(async () => {
+            await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
           });
-          await page.waitForTimeout(2000);
-        } else {
-          throw new Error('未找到"经营参谋"菜单');
+          enteredAdvisor = true;
         }
       }
 
-      // 经营参谋是引导高亮项，点击后第 2/3 步引导可能弹出，再清一次
+      if (!enteredAdvisor) {
+        await this.dumpVisibleMenu(page);
+        throw new Error('未找到"经营参谋"入口（卡片"查看更多"与左侧菜单均不可见）');
+      }
+
+      await page.waitForTimeout(5000);
+      await this.closeFloatingPanels(page);
       await this.dismissOverlays(page);
 
+      // 进入经营参谋页面后，找"报表中心"（可能是页面内的卡片/按钮，也可能是左侧子菜单）
       console.log('   点击"报表中心"...');
-      const reportCenter = page.locator('text=报表中心').first();
-      if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await this.dismissOverlays(page);
-        await reportCenter.click({ timeout: 8000 }).catch(async () => {
-          await reportCenter.click({ timeout: 5000, force: true }).catch(() => undefined);
-        });
-        await page.waitForTimeout(5000);
-      } else {
-        throw new Error('未找到"报表中心"菜单');
+      const reportCandidates = [
+        page.locator('text=报表中心').first(),
+        page.locator('a:has-text("报表中心"), [role="button"]:has-text("报表中心")').first(),
+      ];
+      let reportClicked = false;
+      for (const candidate of reportCandidates) {
+        if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
+          await this.dismissOverlays(page);
+          await candidate.click({ timeout: 8000 }).catch(async () => {
+            await candidate.click({ timeout: 5000, force: true }).catch(() => undefined);
+          });
+          reportClicked = true;
+          break;
+        }
       }
+      if (!reportClicked) {
+        await this.dumpVisibleMenu(page);
+        throw new Error('进入经营参谋后未找到"报表中心"入口');
+      }
+      await page.waitForTimeout(6000);
 
       // 等待可能的新标签页
       let target = page;
@@ -746,6 +802,22 @@ export class MeituanExporter {
       return target;
     } finally {
       this.context.off('page', onNewPage);
+    }
+  }
+
+  /** 诊断：打印当前页主要可见文本块/菜单，便于定位真实入口结构 */
+  private async dumpVisibleMenu(page: Page): Promise<void> {
+    try {
+      const url = page.url();
+      console.log(`   🔍 诊断当前页 URL: ${url}`);
+      const texts = await page
+        .locator('a, button, [role="menuitem"], [class*="menu-item"], [class*="card"], span[class*="title"]')
+        .allInnerTexts()
+        .catch(() => []);
+      const items = [...new Set(texts.map((t) => t.trim()).filter((t) => t && t.length < 24))];
+      console.log('   🔍 可见可点击项:', items.slice(0, 50).join(' | '));
+    } catch {
+      /* ignore */
     }
   }
 
