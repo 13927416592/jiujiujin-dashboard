@@ -332,50 +332,50 @@ export class MeituanExporter {
       await this.dismissOverlays(page);
 
       console.log('📊 导航到经营参谋 -> 报表中心...');
-      await this.navigateToReportCenter(page);
+      const reportPage = await this.navigateToReportCenter(page);
 
       console.log('⏳ 等待报表中心加载...');
-      await this.waitForReportCenter(page);
+      await this.waitForReportCenter(reportPage);
 
       console.log(' 点击"使用模板"...');
-      const useTemplateBtn = page.locator('text=使用模板').first();
+      const useTemplateBtn = reportPage.locator('text=使用模板').first();
       if (await useTemplateBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
         await useTemplateBtn.click();
-        await page.waitForTimeout(3000);
+        await reportPage.waitForTimeout(3000);
       } else {
         throw new Error('未找到"使用模板"按钮');
       }
 
       console.log('⏳ 等待下载对话框...');
-      const dialog = page.locator(`text=${this.config.reportCardName}`).first();
+      const dialog = reportPage.locator(`text=${this.config.reportCardName}`).first();
       await dialog.waitFor({ state: 'visible', timeout: 10000 }).catch(() => undefined);
-      await page.waitForTimeout(2000);
+      await reportPage.waitForTimeout(2000);
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - this.config.daysToDownload);
       const dateStr = yesterday.toISOString().split('T')[0];
       console.log(` 设置日期范围：${dateStr}`);
 
-      const dateInput = page.locator('text=请选择时间范围').first();
+      const dateInput = reportPage.locator('text=请选择时间范围').first();
       if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
         await dateInput.click();
-        await page.waitForTimeout(1000);
+        await reportPage.waitForTimeout(1000);
 
-        const dateCell = page.locator(`text=${yesterday.getDate()}`).first();
+        const dateCell = reportPage.locator(`text=${yesterday.getDate()}`).first();
         if (await dateCell.isVisible({ timeout: 2000 }).catch(() => false)) {
           await dateCell.click();
-          await page.waitForTimeout(1000);
+          await reportPage.waitForTimeout(1000);
         }
       }
 
       console.log('⬇️  点击下载...');
-      const downloadBtn = page.locator('button:has-text("下载")').last();
+      const downloadBtn = reportPage.locator('button:has-text("下载")').last();
       if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
         throw new Error('未找到"下载"按钮');
       }
 
       const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 60000 }),
+        reportPage.waitForEvent('download', { timeout: 60000 }),
         downloadBtn.click(),
       ]);
 
@@ -570,20 +570,36 @@ export class MeituanExporter {
 
   /**
    * 关闭首页可能出现的引导遮罩/公告弹窗，避免它们拦截菜单点击。
-   * 包括：driver.js 引导(.driver-overlay)、"知道了/跳过/下一步"气泡、通用弹窗关闭按钮。
+   * 历史上 8/14 成功下载时，这一步是用户手工点掉"知道了"完成的（driver.js 为 3 步引导）。
+   * 这里自动化：循环点掉"知道了/跳过/..."直到遮罩消失，再兜底从 DOM 移除遮罩层。
    */
   private async dismissOverlays(page: Page): Promise<void> {
-    // 1) 先尝试点击常见的"我知道了/跳过/关闭/下一步"按钮
-    const dismissTexts = ['知道了', '跳过', '我知道了', '不再提示', '关闭', '完成', '下次再说'];
-    for (const text of dismissTexts) {
-      const btn = page.locator(`button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), .driver-close-btn`).first();
-      if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
-        await btn.click({ timeout: 2000 }).catch(() => undefined);
-        await page.waitForTimeout(500);
+    const dismissTexts = ['知道了', '我知道了', '跳过', '跳过引导', '完成', '不再提示', '下次再说', '关闭'];
+
+    // 先等一下让引导气泡渲染出来
+    await page.waitForTimeout(800);
+
+    // 多步引导：最多点 6 次"知道了/跳过"，把所有步骤走完
+    for (let i = 0; i < 6; i++) {
+      let clicked = false;
+      for (const text of dismissTexts) {
+        // 用宽泛的元素选择器：driver.js 按钮可能是 button/div/span/a
+        const btn = page
+          .locator(`.driver-popover :has-text("${text}"), .driver-popover button, button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), span:has-text("${text}"), div:has-text("${text}")`)
+          .first();
+        if (await btn.isVisible({ timeout: 600 }).catch(() => false)) {
+          await btn.click({ timeout: 1500 }).catch(() => undefined);
+          await page.waitForTimeout(600);
+          clicked = true;
+          break;
+        }
       }
+      // 点完一次后检查遮罩是否还在
+      const overlayStillThere = await page.locator('.driver-overlay, [class*="driver-overlay"]').first().isVisible({ timeout: 500 }).catch(() => false);
+      if (!clicked && !overlayStillThere) break;
     }
 
-    // 2) 直接从 DOM 移除 driver.js 引导遮罩/高亮层（这些 SVG 会拦截指针事件）
+    // 兜底：直接从 DOM 移除 driver.js 遮罩/高亮/气泡层（这些 SVG 会拦截指针事件）
     await page
       .evaluate(() => {
         const selectors = [
@@ -591,6 +607,7 @@ export class MeituanExporter {
           '.driver-highlighted-element',
           '.driver-popover',
           '[class*="driver-overlay"]',
+          '[class*="driver-popover"]',
           '.introjs-overlay',
           '.introjs-tooltip',
           '.shepherd-modal-overlay-container',
@@ -598,77 +615,92 @@ export class MeituanExporter {
         for (const sel of selectors) {
           document.querySelectorAll(sel).forEach((el) => el.remove());
         }
-        // 某些引导会给 body 加 overflow:hidden / pointer-events:none
         document.body.style.removeProperty('overflow');
         document.body.style.removeProperty('pointer-events');
         document.documentElement.style.removeProperty('overflow');
       })
       .catch(() => undefined);
 
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
   }
 
-  private async navigateToReportCenter(page: Page): Promise<void> {
-    await page.goto(this.config.reportUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(
-      () => undefined
-    );
-    await page.waitForTimeout(3000);
-    // 跳转后再次清理可能出现的引导/弹窗
-    await this.dismissOverlays(page);
+  private async navigateToReportCenter(page: Page): Promise<Page> {
+    if (!this.context) throw new Error('浏览器未初始化');
 
-    console.log(' 点击"经营参谋"...');
-    // 经营参谋在左侧菜单，可能是可展开项（点击后展开子菜单）。
-    // 优先点击左侧导航中的菜单项，避免误点首页中部"经营参谋"卡片。
-    let advisorClicked = false;
-    const advisorCandidates = [
-      page.locator('.ant-menu, [class*="menu"], [class*="sidebar"], nav, aside').first().locator('text=经营参谋').first(),
-      page.locator('text=经营参谋').first(),
-    ];
-    for (const candidate of advisorCandidates) {
-      if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await this.dismissOverlays(page);
-        try {
-          await candidate.click({ timeout: 5000 });
-          advisorClicked = true;
-          break;
-        } catch {
-          // 被遮罩拦截则用 JS 直接点击元素本身
-          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
-          advisorClicked = true;
-          break;
+    // 监听新标签页：美团后台的"经营参谋/报表中心"历史上在当前页跳转，
+    // 但也可能因改版在新 tab 打开，这里统一检测并切换。
+    const newPages: Page[] = [];
+    const onNewPage = (p: Page): void => {
+      newPages.push(p);
+    };
+    this.context.on('page', onNewPage);
+
+    try {
+      // 注意：这里沿用历史已验证可用的最简导航逻辑（纯 text 选择器 + networkidle），
+      // 不要加侧边栏作用域/遮罩移除等"优化"，它们曾导致子菜单点击失效。
+      await page.goto('https://e.dianping.com/', {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+      });
+      await page.waitForTimeout(3000);
+
+      // 仅在首页加载后清理一次"新功能引导"遮罩（driver.js 会拦截点击），
+      // 点击菜单的流程保持与历史可用版本完全一致。
+      await this.dismissOverlays(page);
+
+      console.log(' 点击"经营参谋"...');
+      const advisorMenu = page.locator('text=经营参谋').first();
+      if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await advisorMenu.click();
+        await page.waitForTimeout(2000);
+      } else {
+        const advisorMenuExpanded = page
+          .locator('[class*="menu"]')
+          .filter({ hasText: '经营参谋' })
+          .first();
+        if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await advisorMenuExpanded.click();
+          await page.waitForTimeout(2000);
+        } else {
+          throw new Error('未找到"经营参谋"菜单');
         }
       }
-    }
-    if (!advisorClicked) {
-      throw new Error('未找到"经营参谋"菜单');
-    }
-    await page.waitForTimeout(2500);
-    await this.dismissOverlays(page);
 
-    console.log('   点击"报表中心"...');
-    // 点击后报表中心可能是子菜单，也可能直接跳转；先在左侧/弹出菜单中找
-    let reportClicked = false;
-    const reportCandidates = [
-      page.locator('.ant-menu, [class*="menu"], [class*="submenu"], [class*="popover"], [class*="dropdown"]').locator('text=报表中心').first(),
-      page.locator('text=报表中心').first(),
-    ];
-    for (const candidate of reportCandidates) {
-      if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
-        try {
-          await candidate.click({ timeout: 5000 });
-          reportClicked = true;
-          break;
-        } catch {
-          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
-          reportClicked = true;
-          break;
-        }
+      // 经营参谋是引导高亮项，点击后第 2/3 步引导可能弹出，再清一次
+      await this.dismissOverlays(page);
+
+      console.log('   点击"报表中心"...');
+      const reportCenter = page.locator('text=报表中心').first();
+      if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await reportCenter.click();
+        await page.waitForTimeout(5000);
+      } else {
+        throw new Error('未找到"报表中心"菜单');
       }
+
+      // 等待可能的新标签页
+      let target = page;
+      if (newPages.length > 0) {
+        target = newPages[newPages.length - 1];
+        try {
+          await target.waitForLoadState('networkidle', { timeout: 20000 });
+        } catch {
+          try {
+            await target.waitForLoadState('domcontentloaded', { timeout: 10000 });
+          } catch {
+            /* ignore */
+          }
+        }
+        await target.waitForTimeout(3000);
+        this.page = target;
+        console.log(`   📑 检测到新标签页，切换到：${target.url()}`);
+      } else {
+        console.log(`   📍 当前页落地：${page.url()}`);
+      }
+      return target;
+    } finally {
+      this.context.off('page', onNewPage);
     }
-    if (!reportClicked) {
-      throw new Error('未找到"报表中心"菜单');
-    }
-    await page.waitForTimeout(5000);
   }
 
   private async waitForReportCenter(page: Page): Promise<void> {
