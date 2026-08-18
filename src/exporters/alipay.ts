@@ -272,9 +272,17 @@ export class AlipayExporter {
   /** 初始化浏览器 */
   private async init(): Promise<void> {
     this.browser = await chromium.launch({
+      // 新版无头模式（--headless=new），比旧版更接近真实浏览器，降低被风控拦截概率
       headless: this.config.headless,
       slowMo: this.config.slowMo,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--no-default-browser-check',
+      ],
     });
 
     this.context = await this.browser.newContext({
@@ -283,6 +291,19 @@ export class AlipayExporter {
       viewport: { width: 1600, height: 1000 },
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai',
+    });
+
+    // 移除 navigator.webdriver 等自动化特征
+    await this.context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // @ts-expect-error chrome 对象在部分环境存在
+      window.chrome = window.chrome || { runtime: {} };
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+      });
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['zh-CN', 'zh', 'en'],
+      });
     });
 
     // 加载已有 Cookie
@@ -323,6 +344,29 @@ export class AlipayExporter {
     if (checkLogin(this.page.url(), bodyText0)) {
       console.log('✅ 已登录');
       return;
+    }
+
+    // 首次判断可能因页面仍在跳转/渲染而误判，给几次重试机会
+    let loggedIn = false;
+    for (let i = 0; i < 3; i++) {
+      await this.page.waitForTimeout(2000);
+      const bodyTextRetry = await this.getBodyText(this.page);
+      if (checkLogin(this.page.url(), bodyTextRetry)) {
+        loggedIn = true;
+        break;
+      }
+    }
+    if (loggedIn) {
+      console.log('✅ 已登录');
+      return;
+    }
+
+    // 无头模式下无法手动登录（浏览器不可见），直接失败退出，
+    // 由调用方（定时任务）触发飞书告警，避免进程挂起。
+    if (this.config.headless) {
+      throw new Error(
+        '无头模式下检测到支付宝未登录（Cookie 可能已过期）。请在终端运行一次 npx tsx src/exporters/test-alipay-full.ts（不加 HEADLESS=1）手动登录以刷新 Cookie。'
+      );
     }
 
     // 未登录：在交互终端下允许手动登录；在后台（如 launchd）下无 stdin，
