@@ -570,20 +570,36 @@ export class MeituanExporter {
 
   /**
    * 关闭首页可能出现的引导遮罩/公告弹窗，避免它们拦截菜单点击。
-   * 包括：driver.js 引导(.driver-overlay)、"知道了/跳过/下一步"气泡、通用弹窗关闭按钮。
+   * 历史上 8/14 成功下载时，这一步是用户手工点掉"知道了"完成的（driver.js 为 3 步引导）。
+   * 这里自动化：循环点掉"知道了/跳过/..."直到遮罩消失，再兜底从 DOM 移除遮罩层。
    */
   private async dismissOverlays(page: Page): Promise<void> {
-    // 1) 先尝试点击常见的"我知道了/跳过/关闭/下一步"按钮
-    const dismissTexts = ['知道了', '跳过', '我知道了', '不再提示', '关闭', '完成', '下次再说'];
-    for (const text of dismissTexts) {
-      const btn = page.locator(`button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), .driver-close-btn`).first();
-      if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
-        await btn.click({ timeout: 2000 }).catch(() => undefined);
-        await page.waitForTimeout(500);
+    const dismissTexts = ['知道了', '我知道了', '跳过', '跳过引导', '完成', '不再提示', '下次再说', '关闭'];
+
+    // 先等一下让引导气泡渲染出来
+    await page.waitForTimeout(800);
+
+    // 多步引导：最多点 6 次"知道了/跳过"，把所有步骤走完
+    for (let i = 0; i < 6; i++) {
+      let clicked = false;
+      for (const text of dismissTexts) {
+        // 用宽泛的元素选择器：driver.js 按钮可能是 button/div/span/a
+        const btn = page
+          .locator(`.driver-popover :has-text("${text}"), .driver-popover button, button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), span:has-text("${text}"), div:has-text("${text}")`)
+          .first();
+        if (await btn.isVisible({ timeout: 600 }).catch(() => false)) {
+          await btn.click({ timeout: 1500 }).catch(() => undefined);
+          await page.waitForTimeout(600);
+          clicked = true;
+          break;
+        }
       }
+      // 点完一次后检查遮罩是否还在
+      const overlayStillThere = await page.locator('.driver-overlay, [class*="driver-overlay"]').first().isVisible({ timeout: 500 }).catch(() => false);
+      if (!clicked && !overlayStillThere) break;
     }
 
-    // 2) 直接从 DOM 移除 driver.js 引导遮罩/高亮层（这些 SVG 会拦截指针事件）
+    // 兜底：直接从 DOM 移除 driver.js 遮罩/高亮/气泡层（这些 SVG 会拦截指针事件）
     await page
       .evaluate(() => {
         const selectors = [
@@ -591,6 +607,7 @@ export class MeituanExporter {
           '.driver-highlighted-element',
           '.driver-popover',
           '[class*="driver-overlay"]',
+          '[class*="driver-popover"]',
           '.introjs-overlay',
           '.introjs-tooltip',
           '.shepherd-modal-overlay-container',
@@ -598,14 +615,13 @@ export class MeituanExporter {
         for (const sel of selectors) {
           document.querySelectorAll(sel).forEach((el) => el.remove());
         }
-        // 某些引导会给 body 加 overflow:hidden / pointer-events:none
         document.body.style.removeProperty('overflow');
         document.body.style.removeProperty('pointer-events');
         document.documentElement.style.removeProperty('overflow');
       })
       .catch(() => undefined);
 
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
   }
 
   private async navigateToReportCenter(page: Page): Promise<Page> {
@@ -649,6 +665,9 @@ export class MeituanExporter {
           throw new Error('未找到"经营参谋"菜单');
         }
       }
+
+      // 经营参谋是引导高亮项，点击后第 2/3 步引导可能弹出，再清一次
+      await this.dismissOverlays(page);
 
       console.log('   点击"报表中心"...');
       const reportCenter = page.locator('text=报表中心').first();
