@@ -53,8 +53,10 @@ export async function GET() {
     // xlsx 解析会把中文表头也作为第一行数据（各字段值等于列名本身），过滤掉
     const data = rowsAll.filter((r) => r && r[COL.date] && r[COL.date] !== COL.date);
 
-    // 门店列表
-    const stores = [...new Set(data.map((r) => r[COL.storeName]).filter(Boolean))];
+    // 门店列表（去重 + 排序）
+    const stores = [...new Set(data.map((r) => r[COL.storeName]).filter(Boolean))].sort((a, b) =>
+      String(a).localeCompare(String(b), 'zh-CN')
+    );
 
     // 汇总
     const sum = (key: string): number =>
@@ -106,14 +108,18 @@ export async function GET() {
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    // 明细按日期降序（最近在前），再取前 500 条，避免 30 天全量（约 6 万行）payload 过大
+    const sortedRows = [...data].sort((a, b) =>
+      String(b[COL.date] || '').localeCompare(String(a[COL.date] || ''))
+    );
+
     return NextResponse.json({
       success: true,
       data: {
         summary,
         trend,
         stores,
-        // 明细：前端表格展示，最多返回前 500 条避免 payload 过大
-        raw: data.slice(0, 500),
+        raw: sortedRows.slice(0, 500),
       },
       data_date: snapshot.data_date,
       fetched_at: snapshot.fetched_at,
