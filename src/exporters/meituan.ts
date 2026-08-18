@@ -764,11 +764,13 @@ export class MeituanExporter {
     this.context.on('page', onNewPage);
 
     try {
+      // 用 domcontentloaded + 固定等待，不用 networkidle：
+      // 美团首页有长连接/轮询，networkidle 可能永远等不到而超时（历史 8496468 跑通版即是此做法）。
       await page.goto('https://e.dianping.com/', {
-        waitUntil: 'networkidle',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(8000);
 
       // 1) 关闭首页所有遮挡：重点消息面板、新功能引导气泡、顶部命令行提示条、driver.js 遮罩
       await this.dismissOverlays(page);
