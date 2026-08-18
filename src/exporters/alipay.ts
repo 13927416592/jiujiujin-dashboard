@@ -68,6 +68,14 @@ export interface AlipayExportConfig {
    * 自动点击该企业卡片进入对应商家后台。留空则不自动选择。
    */
   enterpriseName?: string;
+  /**
+   * 持久化浏览器用户目录（user-data-dir）。
+   * 支付宝数据页除 Cookie 外还依赖 localStorage/IndexedDB 中的登录态，
+   * 仅靠 addCookies 的临时 context 每次都会丢失登录态、被踢回登录页。
+   * 使用持久化目录后，整套浏览器状态跨次保留，登录一次可长期免登录。
+   * 默认存放在项目 src/exporters/browser-profile/。
+   */
+  userDataDir?: string;
   /** 经营总览页 URL */
   overviewUrl?: string;
   /** 小程序 appId（生活号/粉丝群页需要） */
@@ -109,7 +117,14 @@ const ALIPAY_PAGE_URLS = {
 export const DEFAULT_ALIPAY_CONFIG: Required<
   Pick<
     AlipayExportConfig,
-    'headless' | 'slowMo' | 'outputDir' | 'cookiePath' | 'overviewUrl' | 'lifeAccountAppId' | 'pageUrls'
+    | 'headless'
+    | 'slowMo'
+    | 'outputDir'
+    | 'cookiePath'
+    | 'userDataDir'
+    | 'overviewUrl'
+    | 'lifeAccountAppId'
+    | 'pageUrls'
   >
 > &
   AlipayExportConfig = {
@@ -117,6 +132,7 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
   slowMo: 300,
   outputDir: path.join(process.cwd(), 'src', 'exporters', 'output'),
   cookiePath: path.join(process.cwd(), 'src', 'exporters', 'cookies', 'alipay.json'),
+  userDataDir: path.join(process.cwd(), 'src', 'exporters', 'browser-profile'),
   enterpriseName: '深圳市久久金供应链有限公司',
   overviewUrl: 'https://b.alipay.com/page/manage-consultant/data-index',
   lifeAccountAppId: '2017122701284248',
@@ -141,8 +157,8 @@ export class AlipayExporter {
    * 执行全量数据导出
    */
   async export(): Promise<ExportResult> {
-    const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    // 按上海时区取当天日期（YYYY-MM-DD），避免 UTC 在晚间/凌晨取到前一天
+    const dateStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     try {
       await this.init();
@@ -278,7 +294,7 @@ export class AlipayExporter {
     }
   }
 
-  /** 初始化浏览器 */
+  /** 初始化浏览器（持久化用户目录，保留 Cookie/localStorage/IndexedDB 登录态） */
   private async init(): Promise<void> {
     const launchArgs = [
       '--no-sandbox',
@@ -289,32 +305,46 @@ export class AlipayExporter {
       '--no-default-browser-check',
     ];
 
-    // 优先使用系统真实 Chrome（比 Playwright 自带 Chromium 更难被风控识别）；
-    // 若本机未安装 Chrome 则回退到自带 Chromium。
-    try {
-      this.browser = await chromium.launch({
-        channel: 'chrome',
-        headless: this.config.headless,
-        slowMo: this.config.slowMo,
-        args: launchArgs,
-      });
-      console.log('🌐 使用系统 Chrome 启动');
-    } catch {
-      this.browser = await chromium.launch({
-        headless: this.config.headless,
-        slowMo: this.config.slowMo,
-        args: launchArgs,
-      });
-      console.log('🌐 系统 Chrome 不可用，使用自带 Chromium');
-    }
-
-    this.context = await this.browser.newContext({
+    const contextOptions = {
       userAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1600, height: 1000 },
       locale: 'zh-CN',
-      timezoneId: 'Asia/Shanghai',
-    });
+      timezoneId: 'Asia/Shanghai' as const,
+      args: launchArgs,
+      headless: this.config.headless,
+      slowMo: this.config.slowMo,
+    };
+
+    // 确保持久化目录存在
+    fs.mkdirSync(this.config.userDataDir, { recursive: true });
+
+    // 清理上次异常退出残留的单例锁文件，避免 launchPersistentContext 启动失败
+    for (const lockName of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+      const lockPath = path.join(this.config.userDataDir, lockName);
+      try {
+        if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // 使用持久化用户目录：整套浏览器状态（Cookie/localStorage/IndexedDB）跨次保留。
+    // 优先用系统真实 Chrome（更难被风控识别），失败回退自带 Chromium。
+    try {
+      this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
+        ...contextOptions,
+        channel: 'chrome',
+      });
+      console.log('🌐 使用系统 Chrome 启动（持久化用户目录）');
+    } catch {
+      this.context = await chromium.launchPersistentContext(this.config.userDataDir, contextOptions);
+      console.log('🌐 系统 Chrome 不可用，使用自带 Chromium（持久化用户目录）');
+    }
+
+    // 持久化 context 已经是一个 BrowserContext，但没有外层 browser 句柄；
+    // 关闭时直接 close context 即可。这里 browser 保持 null。
+    this.browser = null;
 
     // 移除 navigator.webdriver 等自动化特征
     await this.context.addInitScript(() => {
@@ -329,19 +359,30 @@ export class AlipayExporter {
       });
     });
 
-    // 加载已有 Cookie
-    if (fs.existsSync(this.config.cookiePath)) {
+    // 兼容：首次从旧版 cookie.json 迁移一次（之后持久化目录会自动保留，无需再加）
+    if (!this.hasPersistedCookies() && fs.existsSync(this.config.cookiePath)) {
       try {
         const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
         const validCookies = this.normalizeCookies(cookies);
         await this.context.addCookies(validCookies);
-        console.log(`🍪 已加载 ${validCookies.length} 个 Cookie`);
+        console.log(`🍪 已从旧 cookie 文件迁移 ${validCookies.length} 个 Cookie 到持久化目录`);
       } catch (err) {
-        console.warn('⚠️  Cookie 加载失败，将重新登录：', err);
+        console.warn('⚠️  旧 Cookie 迁移失败（可忽略，重新登录即可）：', err);
       }
     }
 
-    this.page = await this.context.newPage();
+    this.page = this.context.pages()[0] ?? (await this.context.newPage());
+  }
+
+  /** 判断持久化目录中是否已有 Cookie（避免每次重复导入旧 cookie 文件） */
+  private hasPersistedCookies(): boolean {
+    if (!this.context) return false;
+    try {
+      // 只要目录里存在 Cookies 物理文件即认为已持久化（Chromium/Chrome 均生成该文件）
+      return fs.existsSync(path.join(this.config.userDataDir, 'Default', 'Cookies'));
+    } catch {
+      return false;
+    }
   }
 
   /** 确保已登录，未登录则等待用户手动登录 */
@@ -1057,14 +1098,16 @@ export class AlipayExporter {
     console.log(`🍪 Cookie 已保存（${cookies.length} 个）`);
   }
 
-  /** 关闭浏览器 */
+  /** 关闭浏览器（持久化上下文直接关闭 context，其内部 browser 会一并退出） */
   private async close(): Promise<void> {
-    if (this.browser) {
+    if (this.context) {
+      await this.context.close().catch(() => undefined);
+    } else if (this.browser) {
       await this.browser.close().catch(() => undefined);
-      this.browser = null;
-      this.context = null;
-      this.page = null;
     }
+    this.browser = null;
+    this.context = null;
+    this.page = null;
   }
 }
 
