@@ -483,16 +483,23 @@ export class AlipayExporter {
     const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
     const startTime = Date.now();
 
+    // stdin 监听器需要在结束时显式移除，否则 TTY 句柄会让 Node 进程无法退出
+    let onData: ((chunk: Buffer) => void) | null = null;
     const enterPromise = new Promise<void>((resolve) => {
-      const onData = (): void => {
-        process.stdin.removeListener('data', onData);
+      onData = (): void => {
+        if (onData) process.stdin.removeListener('data', onData);
+        onData = null;
         resolve();
       };
       process.stdin.on('data', onData);
     });
 
+    // 用可取消的定时器做轮询：race 结束后停止调度，避免遗留 setTimeout 链挂住进程
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const pollPromise = new Promise<void>((resolve, reject) => {
       const tick = async (): Promise<void> => {
+        if (stopped) return;
         try {
           const url = page.url();
           // 登录成功后会离开登录域、落到 b.alipay.com 业务页
@@ -508,7 +515,7 @@ export class AlipayExporter {
             reject(new Error('登录等待超时（5 分钟内未检测到登录成功）'));
             return;
           }
-          setTimeout(tick, 2000);
+          if (!stopped) timer = setTimeout(tick, 2000);
         } catch (err) {
           reject(err instanceof Error ? err : new Error(String(err)));
         }
@@ -516,7 +523,23 @@ export class AlipayExporter {
       void tick();
     });
 
-    await Promise.race([enterPromise, pollPromise]);
+    try {
+      await Promise.race([enterPromise, pollPromise]);
+    } finally {
+      // 无论哪个先结束，都停止轮询链并清理 stdin 监听
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (onData) {
+        process.stdin.removeListener('data', onData);
+        onData = null;
+      }
+      // 恢复 stdin 流动状态，避免影响后续读取
+      try {
+        process.stdin.pause();
+      } catch {
+        /* ignore */
+      }
+    }
 
     console.log('⏳ 登录完成，继续抓取...');
     await this.page.waitForTimeout(2000);

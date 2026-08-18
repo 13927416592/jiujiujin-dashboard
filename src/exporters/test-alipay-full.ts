@@ -66,6 +66,10 @@ async function main(): Promise<void> {
     console.error('\n❌ 抓取失败:', result.error);
     process.exit(1);
   }
+
+  // 显式退出：Playwright/网络/stdin 可能残留句柄导致事件循环不退出
+  // （尤其 launchd 定时任务，必须保证进程结束）。给 stdout 一点时间 flush。
+  setTimeout(() => process.exit(0), 300);
 }
 
 main().catch((err: unknown) => {
