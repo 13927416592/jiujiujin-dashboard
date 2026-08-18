@@ -325,15 +325,55 @@ export class AlipayExporter {
       return;
     }
 
+    // 未登录：在交互终端下允许手动登录；在后台（如 launchd）下无 stdin，
+    // 不能傻等回车导致进程永久挂起。
+    const isInteractive = Boolean(process.stdin.isTTY);
+    if (!isInteractive) {
+      throw new Error(
+        '支付宝未登录且当前为非交互环境（无终端），无法手动登录。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新 Cookie。'
+      );
+    }
+
     console.log('\n==================================================');
     console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密）');
-    console.log('👉  登录成功并看到经营数据后，回到终端按【回车键】继续');
+    console.log('👉  检测到登录成功后会自动继续（也可回到终端按【回车键】立即继续）');
     console.log('==================================================\n');
 
-    // 等待用户在终端按回车
-    await new Promise<void>((resolve) => {
-      process.stdin.once('data', () => resolve());
+    const page = this.page;
+
+    // 自动检测登录状态，最长等待 5 分钟；期间用户也可按回车手动触发继续。
+    const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+    const startTime = Date.now();
+
+    const enterPromise = new Promise<void>((resolve) => {
+      const onData = (): void => {
+        process.stdin.removeListener('data', onData);
+        resolve();
+      };
+      process.stdin.on('data', onData);
     });
+
+    const pollPromise = new Promise<void>((resolve, reject) => {
+      const tick = async (): Promise<void> => {
+        try {
+          const bodyText = await this.getBodyText(page);
+          if (checkLogin(page.url(), bodyText)) {
+            resolve();
+            return;
+          }
+          if (Date.now() - startTime > LOGIN_TIMEOUT_MS) {
+            reject(new Error('登录等待超时（5 分钟内未检测到登录成功）'));
+            return;
+          }
+          setTimeout(tick, 2000);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+      void tick();
+    });
+
+    await Promise.race([enterPromise, pollPromise]);
 
     console.log('⏳ 登录完成，继续抓取...');
     await this.page.waitForTimeout(2000);
