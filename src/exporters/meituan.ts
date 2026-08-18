@@ -710,60 +710,43 @@ export class MeituanExporter {
       });
       await page.waitForTimeout(3000);
 
-      // 关闭右侧"重点消息"面板等浮层，再清理 driver.js 引导遮罩
+      // 关闭可能误弹的"提交反馈/举报"对话框、右侧消息面板，再清理 driver.js 引导遮罩
+      await page.keyboard.press('Escape').catch(() => undefined);
+      const cancelBtn = page.locator('button:has-text("取消"), a:has-text("取消")').first();
+      if (await cancelBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+        await cancelBtn.click({ timeout: 2000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+      }
       await this.closeFloatingPanels(page);
       await this.dismissOverlays(page);
 
-      // 方案 A：优先点首页中部"经营参谋"卡片右上角的"查看更多"，直接进入经营参谋页面。
-      // 这是当前（侧边栏收起状态下）最可靠的入口。
-      let enteredAdvisor = false;
-      const advisorCardMore = page
-        .locator('text=经营参谋')
-        .first()
-        .locator('xpath=ancestor::*[self::div or self::section][1]')
-        .locator('text=查看更多')
-        .first();
-      // 上面的 ancestor 定位不一定稳定，再准备一个更直接的：
-      const viewMoreNearAdvisor = page.locator('text=查看更多').first();
-
-      console.log(' 进入"经营参谋"...');
-      if (await advisorCardMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await advisorCardMore.click({ timeout: 6000 }).catch(async () => {
-          await advisorCardMore.click({ timeout: 5000, force: true }).catch(() => undefined);
-        });
-        enteredAdvisor = true;
-      } else if (await viewMoreNearAdvisor.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await viewMoreNearAdvisor.click({ timeout: 6000 }).catch(async () => {
-          await viewMoreNearAdvisor.click({ timeout: 5000, force: true }).catch(() => undefined);
-        });
-        enteredAdvisor = true;
-      } else {
-        // 方案 B：尝试点左侧菜单中的"经营参谋"（侧边栏展开时可用）
-        const advisorMenu = page.locator('text=经营参谋').first();
-        if (await advisorMenu.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await advisorMenu.click({ timeout: 6000 }).catch(async () => {
-            await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
-          });
-          enteredAdvisor = true;
-        }
-      }
-
-      if (!enteredAdvisor) {
+      // 直接点击左侧菜单中的"经营参谋"。
+      // Playwright 实测 text=经营参谋 的首个匹配就是左侧 <span class="title">经营参谋</span> 菜单项。
+      // 之前点不动纯属 driver.js 遮罩拦截，现已由 dismissOverlays 清除。
+      console.log(' 点击左侧菜单"经营参谋"...');
+      const advisorMenu = page.locator('span.title:has-text("经营参谋"), [class*="menu"] text=经营参谋, text=经营参谋').first();
+      if (!(await advisorMenu.isVisible({ timeout: 6000 }).catch(() => false))) {
         await this.dumpVisibleMenu(page);
-        throw new Error('未找到"经营参谋"入口（卡片"查看更多"与左侧菜单均不可见）');
+        throw new Error('未找到左侧"经营参谋"菜单项');
       }
-
-      await page.waitForTimeout(5000);
+      await this.dismissOverlays(page);
+      await advisorMenu.click({ timeout: 8000 }).catch(async () => {
+        // 兜底：强制点击可见元素（绕过残余遮罩的 actionability 检查）
+        await advisorMenu.click({ timeout: 5000, force: true }).catch(() => undefined);
+      });
+      await page.waitForTimeout(3000);
       await this.closeFloatingPanels(page);
       await this.dismissOverlays(page);
 
-      // 进入经营参谋页面后，找"报表中心"（可能是页面内的卡片/按钮，也可能是左侧子菜单）
+      // 点击后可能跳转到经营参谋页，也可能展开子菜单。找"报表中心"。
       console.log('   点击"报表中心"...');
-      const reportCandidates = [
-        page.locator('text=报表中心').first(),
-        page.locator('a:has-text("报表中心"), [role="button"]:has-text("报表中心")').first(),
-      ];
       let reportClicked = false;
+      const reportCandidates = [
+        // 子菜单/页面内链接优先
+        page.locator('a:has-text("报表中心"), [role="menuitem"]:has-text("报表中心")').first(),
+        page.locator('span.title:has-text("报表中心")').first(),
+        page.locator('text=报表中心').first(),
+      ];
       for (const candidate of reportCandidates) {
         if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
           await this.dismissOverlays(page);
@@ -776,7 +759,7 @@ export class MeituanExporter {
       }
       if (!reportClicked) {
         await this.dumpVisibleMenu(page);
-        throw new Error('进入经营参谋后未找到"报表中心"入口');
+        throw new Error('点击经营参谋后未找到"报表中心"入口（可能是子菜单名称或页面结构变化）');
       }
       await page.waitForTimeout(6000);
 
