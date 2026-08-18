@@ -328,6 +328,9 @@ export class MeituanExporter {
 
       await this.ensureLogin();
 
+      // 首页常有"新功能引导"遮罩(driver.js)、公告弹窗等拦截点击，先统一关闭
+      await this.dismissOverlays(page);
+
       console.log('📊 导航到经营参谋 -> 报表中心...');
       await this.navigateToReportCenter(page);
 
@@ -565,38 +568,107 @@ export class MeituanExporter {
     await page.waitForTimeout(2000);
   }
 
+  /**
+   * 关闭首页可能出现的引导遮罩/公告弹窗，避免它们拦截菜单点击。
+   * 包括：driver.js 引导(.driver-overlay)、"知道了/跳过/下一步"气泡、通用弹窗关闭按钮。
+   */
+  private async dismissOverlays(page: Page): Promise<void> {
+    // 1) 先尝试点击常见的"我知道了/跳过/关闭/下一步"按钮
+    const dismissTexts = ['知道了', '跳过', '我知道了', '不再提示', '关闭', '完成', '下次再说'];
+    for (const text of dismissTexts) {
+      const btn = page.locator(`button:has-text("${text}"), [role="button"]:has-text("${text}"), a:has-text("${text}"), .driver-close-btn`).first();
+      if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
+        await btn.click({ timeout: 2000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    // 2) 直接从 DOM 移除 driver.js 引导遮罩/高亮层（这些 SVG 会拦截指针事件）
+    await page
+      .evaluate(() => {
+        const selectors = [
+          '.driver-overlay',
+          '.driver-highlighted-element',
+          '.driver-popover',
+          '[class*="driver-overlay"]',
+          '.introjs-overlay',
+          '.introjs-tooltip',
+          '.shepherd-modal-overlay-container',
+        ];
+        for (const sel of selectors) {
+          document.querySelectorAll(sel).forEach((el) => el.remove());
+        }
+        // 某些引导会给 body 加 overflow:hidden / pointer-events:none
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('pointer-events');
+        document.documentElement.style.removeProperty('overflow');
+      })
+      .catch(() => undefined);
+
+    await page.waitForTimeout(500);
+  }
+
   private async navigateToReportCenter(page: Page): Promise<void> {
     await page.goto(this.config.reportUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(
       () => undefined
     );
     await page.waitForTimeout(3000);
+    // 跳转后再次清理可能出现的引导/弹窗
+    await this.dismissOverlays(page);
 
     console.log(' 点击"经营参谋"...');
-    const advisorMenu = page.locator('text=经营参谋').first();
-    if (await advisorMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await advisorMenu.click();
-      await page.waitForTimeout(2000);
-    } else {
-      const advisorMenuExpanded = page
-        .locator('[class*="menu"]')
-        .filter({ hasText: '经营参谋' })
-        .first();
-      if (await advisorMenuExpanded.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await advisorMenuExpanded.click();
-        await page.waitForTimeout(2000);
-      } else {
-        throw new Error('未找到"经营参谋"菜单');
+    // 经营参谋在左侧菜单，可能是可展开项（点击后展开子菜单）。
+    // 优先点击左侧导航中的菜单项，避免误点首页中部"经营参谋"卡片。
+    let advisorClicked = false;
+    const advisorCandidates = [
+      page.locator('.ant-menu, [class*="menu"], [class*="sidebar"], nav, aside').first().locator('text=经营参谋').first(),
+      page.locator('text=经营参谋').first(),
+    ];
+    for (const candidate of advisorCandidates) {
+      if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.dismissOverlays(page);
+        try {
+          await candidate.click({ timeout: 5000 });
+          advisorClicked = true;
+          break;
+        } catch {
+          // 被遮罩拦截则用 JS 直接点击元素本身
+          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
+          advisorClicked = true;
+          break;
+        }
       }
     }
+    if (!advisorClicked) {
+      throw new Error('未找到"经营参谋"菜单');
+    }
+    await page.waitForTimeout(2500);
+    await this.dismissOverlays(page);
 
     console.log('   点击"报表中心"...');
-    const reportCenter = page.locator('text=报表中心').first();
-    if (await reportCenter.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await reportCenter.click();
-      await page.waitForTimeout(5000);
-    } else {
+    // 点击后报表中心可能是子菜单，也可能直接跳转；先在左侧/弹出菜单中找
+    let reportClicked = false;
+    const reportCandidates = [
+      page.locator('.ant-menu, [class*="menu"], [class*="submenu"], [class*="popover"], [class*="dropdown"]').locator('text=报表中心').first(),
+      page.locator('text=报表中心').first(),
+    ];
+    for (const candidate of reportCandidates) {
+      if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
+        try {
+          await candidate.click({ timeout: 5000 });
+          reportClicked = true;
+          break;
+        } catch {
+          await candidate.evaluate((el) => (el as HTMLElement).click()).catch(() => undefined);
+          reportClicked = true;
+          break;
+        }
+      }
+    }
+    if (!reportClicked) {
       throw new Error('未找到"报表中心"菜单');
     }
+    await page.waitForTimeout(5000);
   }
 
   private async waitForReportCenter(page: Page): Promise<void> {
