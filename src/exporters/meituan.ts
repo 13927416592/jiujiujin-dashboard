@@ -371,33 +371,109 @@ export class MeituanExporter {
       const dateStr = yesterday.toISOString().split('T')[0];
       console.log(` 设置日期范围：${dateStr}`);
 
-      const dateInput = frame.locator('text=请选择时间范围').first();
-      if (await dateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // 历史已跑通方案（commit 8496468）：日期选择器打开后点【快捷选项"昨天"】，
+      // 而不是在日历里点日期格子（点格子无法正确设置范围，导致下载不触发）。
+      const dateInput = frame.locator('input[placeholder="请选择时间范围"]').first();
+      if (!(await dateInput.isVisible({ timeout: 8000 }).catch(() => false))) {
+        // 兜底：用文本定位
+        const dateInputAlt = frame.locator('text=请选择时间范围').first();
+        if (await dateInputAlt.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await dateInputAlt.click();
+        } else {
+          throw new Error('未找到"请选择时间范围"输入框');
+        }
+      } else {
         await dateInput.click();
-        await frame.waitForTimeout(1000);
+      }
+      await frame.waitForTimeout(2000);
 
-        const dateCell = frame.locator(`text=${yesterday.getDate()}`).first();
-        if (await dateCell.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await dateCell.click();
-          await frame.waitForTimeout(1000);
+      const days = this.config.daysToDownload || 1;
+      let quickOption = '昨天';
+      if (days === 7) quickOption = '近7天';
+      else if (days === 30) quickOption = '近30天';
+      console.log(`   选择快捷选项：${quickOption}`);
+
+      const optionBtn = frame.locator(`text=${quickOption}`).first();
+      await optionBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await optionBtn.click();
+      await frame.waitForTimeout(2000);
+      console.log(`✅ 已选择时间范围：${quickOption}`);
+
+      // 点下载前：截图 + 诊断对话框内可见按钮和文本，确认点的是正确的下载按钮
+      fs.mkdirSync(this.config.outputDir, { recursive: true });
+      const beforeDlShot = path.join(this.config.outputDir, `debug-before-download-${Date.now()}.png`);
+      await reportPage.screenshot({ path: beforeDlShot }).catch(() => undefined);
+      console.log(`📸 点下载前截图：${beforeDlShot}`);
+      const dialogInfo = await frame
+        .evaluate(() => {
+          const vis = (el: Element): boolean => {
+            const r = el.getBoundingClientRect();
+            const s = getComputedStyle(el);
+            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+          };
+          const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'))
+            .filter(vis)
+            .map((el) => (el.textContent || '').trim())
+            .filter((t) => t && t.length < 20);
+          const bodyText = (document.body.innerText || '').slice(0, 500);
+          return { buttons: [...new Set(buttons)], bodyText };
+        })
+        .catch(() => ({ buttons: [] as string[], bodyText: '' }));
+      console.log('   🔍 对话框内按钮:', dialogInfo.buttons.join(' | '));
+      console.log('   🔍 对话框文本片段:', dialogInfo.bodyText.replace(/\s+/g, ' ').slice(0, 200));
+
+      console.log('⬇️  点击下载...');
+      // 优先找文本精确为"下载"的按钮；兜底找带"下载"的按钮
+      let downloadBtn = frame.locator('button:has-text("下载"), [role="button"]:has-text("下载")').last();
+      if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
+        // 兜底：精确文本匹配
+        const handle = await this.findClickableText(frame as unknown as Page, '下载', [
+          'button',
+          '[role="button"]',
+          'a',
+        ]);
+        if (handle) {
+          await handle.dispose();
+          downloadBtn = frame.locator('text=下载').last();
+        } else {
+          throw new Error('未找到"下载"按钮');
         }
       }
 
-      console.log('⬇️  点击下载...');
-      const downloadBtn = frame.locator('button:has-text("下载")').last();
-      if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
-        throw new Error('未找到"下载"按钮');
+      // 关键：跨域 iframe 内触发的下载事件在 context 级别监听最稳，同时也在 page 级别等。
+      // 部分场景会先弹"导出确认/确定"二次弹窗，这里并行监听新弹窗。
+      const downloadCtx = this.context!.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+      const downloadPageP = reportPage.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+      await downloadBtn.click();
+      await frame.waitForTimeout(1500);
+
+      // 若出现二次确认弹窗（"确定/确认/导出/继续下载"），点掉它
+      const confirmSelectors = [
+        'button:has-text("确定")',
+        'button:has-text("确认")',
+        'button:has-text("导出")',
+        'button:has-text("继续下载")',
+      ];
+      for (const sel of confirmSelectors) {
+        const btn = frame.locator(sel).last();
+        if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
+          console.log(`   🔘 发现二次确认按钮：${sel}，点击`);
+          await btn.click().catch(() => undefined);
+          await frame.waitForTimeout(800);
+        }
       }
 
-      // 下载事件由 page/context 派发（frame 本身不派发 download 事件）
-      const [download] = await Promise.all([
-        reportPage.waitForEvent('download', { timeout: 60000 }),
-        downloadBtn.click(),
-      ]);
+      const [downloadFromCtx, downloadFromPage] = await Promise.all([downloadCtx, downloadPageP]);
+      const download = downloadFromCtx || downloadFromPage;
+      if (!download) {
+        const failShot = path.join(this.config.outputDir, `debug-download-fail-${Date.now()}.png`);
+        await reportPage.screenshot({ path: failShot }).catch(() => undefined);
+        console.log(`📸 下载失败截图：${failShot}`);
+        throw new Error('点击下载后 60 秒内未触发浏览器下载（可能是日期未选全、按钮不对或需要二次确认）');
+      }
 
       const fileName = `meituan_report_${dateStr}.xlsx`;
       downloadFilePath = path.join(this.config.outputDir, fileName);
-      fs.mkdirSync(this.config.outputDir, { recursive: true });
       await download.saveAs(downloadFilePath);
       console.log(` 文件已保存：${downloadFilePath}`);
 
