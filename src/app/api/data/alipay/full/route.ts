@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import path from 'path';
+import { getLatestSnapshot } from '@/storage/database/snapshot-repo';
 
 // 从 bodyText 提取关键指标（更全面的解析）
 function extractFromBodyText(bodyText: string): Record<string, { value: string; change?: string }> {
@@ -160,14 +159,16 @@ function extractMiniProgramMetrics(bodyText: string): Record<string, { value: st
 }
 
 // 解析小程序数据
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseMiniProgramData(mp: any): any {
   const tabs = mp.tabs || {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: Record<string, any> = {};
   
   for (const [tabName, tabData] of Object.entries(tabs)) {
-    const data = tabData as any;
-    const bodyText = data.bodyText || '';
-    const rawMetrics = data.metrics || [];
+    const data = tabData as Record<string, unknown>;
+    const bodyText = (data.bodyText as string) || '';
+    const rawMetrics = (data.metrics as string[]) || [];
     
     // 优先使用 bodyText，如果为空则使用 rawMetrics
     const metrics = bodyText 
@@ -176,7 +177,7 @@ function parseMiniProgramData(mp: any): any {
     
     result[tabName] = {
       metrics,
-      tables: parseTables(data.tables || []),
+      tables: parseTables((data.tables as string[][][]) || []),
       rawMetrics
     };
   }
@@ -188,94 +189,125 @@ function parseMiniProgramData(mp: any): any {
   };
 }
 
-export async function GET() {
-  try {
-    // 查找最新的 JSON 文件
-    const outputDir = path.join(process.cwd(), 'src/exporters/output');
-    const files = existsSync(outputDir) 
-      ? readdirSync(outputDir).filter(f => f.startsWith('alipay_full_'))
-      : [];
-    
-    if (files.length === 0) {
-      return NextResponse.json({ error: '未找到支付宝数据文件' }, { status: 404 });
-    }
-    
-    // 读取最新的文件
-    const latestFile = files.sort().pop()!;
-    const filePath = path.join(outputDir, latestFile);
-    const rawData = JSON.parse(readFileSync(filePath, 'utf-8'));
-    
-    // 解析各模块数据
-    const overview = rawData.pages?.overview || {};
-    const traffic = rawData.pages?.traffic || {};
-    const miniProgram = rawData.pages?.miniProgram || {};
-    const lifeAccount = rawData.pages?.lifeAccount || {};
-    const fanGroup = rawData.pages?.fanGroup || {};
-    
-    // 从 bodyText 提取结构化数据
-    const overviewData = extractFromBodyText(overview.bodyText || '');
-    
-    // 解析流量数据
-    const trafficTabs = traffic.tabs || {};
-    const trafficOverview = trafficTabs['流量概览'] || {};
-    const miniProgramTraffic = trafficTabs['小程序流量'] || {};
-    const lifeAccountTraffic = trafficTabs['生活号+流量'] || {};
-    const fanGroupTraffic = trafficTabs['商家粉丝群流量'] || {};
-    
-    // 解析小程序数据
-    const miniPrograms = (miniProgram.programs || []).map(parseMiniProgramData);
-    
-    // 解析生活号数据
-    const lifeAccountMetrics: Record<string, { value: string; change?: string }> = {};
-    const lifeAccountBodyText = lifeAccount.bodyText || '';
-    const lifeAccountMatch = lifeAccountBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
-    if (lifeAccountMatch) {
-      lifeAccountMetrics['访问人数'] = { value: lifeAccountMatch[1], change: lifeAccountMatch[2] };
-    }
-    const lifeAccountVisitMatch = lifeAccountBodyText.match(/访问次数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
-    if (lifeAccountVisitMatch) {
-      lifeAccountMetrics['访问次数'] = { value: lifeAccountVisitMatch[1], change: lifeAccountVisitMatch[2] };
-    }
-    
-    // 解析粉丝群数据
-    const fanGroupMetrics: Record<string, { value: string; change?: string }> = {};
-    const fanGroupBodyText = fanGroup.bodyText || '';
-    const fanGroupMatch = fanGroupBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
-    if (fanGroupMatch) {
-      fanGroupMetrics['访问人数'] = { value: fanGroupMatch[1], change: fanGroupMatch[2] };
-    }
-    
-    return NextResponse.json({
-      date: rawData.date,
-      overview: overviewData,
-      traffic: {
-        overview: {
-          metrics: extractFromBodyText(trafficOverview.bodyText || ''),
-          tables: parseTables(trafficOverview.tables || [])
-        },
-        miniProgramTraffic: {
-          metrics: extractFromBodyText(miniProgramTraffic.bodyText || ''),
-          tables: parseTables(miniProgramTraffic.tables || [])
-        },
-        lifeAccountTraffic: {
-          metrics: extractFromBodyText(lifeAccountTraffic.bodyText || ''),
-          tables: parseTables(lifeAccountTraffic.tables || [])
-        },
-        fanGroupTraffic: {
-          metrics: extractFromBodyText(fanGroupTraffic.bodyText || ''),
-          tables: parseTables(fanGroupTraffic.tables || [])
-        }
+/**
+ * 将抓取器产出的原始 JSON 解析为看板需要的结构化数据。
+ * 同时被「数据库读取」和「本地文件兜底读取」两条路径复用。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseAlipayRaw(rawData: any, date?: string) {
+  // 解析各模块数据
+  const overview = rawData.pages?.overview || {};
+  const traffic = rawData.pages?.traffic || {};
+  const miniProgram = rawData.pages?.miniProgram || {};
+  const lifeAccount = rawData.pages?.lifeAccount || {};
+  const fanGroup = rawData.pages?.fanGroup || {};
+  
+  // 从 bodyText 提取结构化数据
+  const overviewData = extractFromBodyText(overview.bodyText || '');
+  
+  // 解析流量数据
+  const trafficTabs = traffic.tabs || {};
+  const trafficOverview = trafficTabs['流量概览'] || {};
+  const miniProgramTraffic = trafficTabs['小程序流量'] || {};
+  const lifeAccountTraffic = trafficTabs['生活号+流量'] || {};
+  const fanGroupTraffic = trafficTabs['商家粉丝群流量'] || {};
+  
+  // 解析小程序数据
+  const miniPrograms = (miniProgram.programs || []).map(parseMiniProgramData);
+  
+  // 解析生活号数据
+  const lifeAccountMetrics: Record<string, { value: string; change?: string }> = {};
+  const lifeAccountBodyText = lifeAccount.bodyText || '';
+  const lifeAccountMatch = lifeAccountBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+  if (lifeAccountMatch) {
+    lifeAccountMetrics['访问人数'] = { value: lifeAccountMatch[1], change: lifeAccountMatch[2] };
+  }
+  const lifeAccountVisitMatch = lifeAccountBodyText.match(/访问次数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+  if (lifeAccountVisitMatch) {
+    lifeAccountMetrics['访问次数'] = { value: lifeAccountVisitMatch[1], change: lifeAccountVisitMatch[2] };
+  }
+  
+  // 解析粉丝群数据
+  const fanGroupMetrics: Record<string, { value: string; change?: string }> = {};
+  const fanGroupBodyText = fanGroup.bodyText || '';
+  const fanGroupMatch = fanGroupBodyText.match(/访问人数\s*([\d,.]+)\s*较前日\s*([+\-\d.]+%?)/);
+  if (fanGroupMatch) {
+    fanGroupMetrics['访问人数'] = { value: fanGroupMatch[1], change: fanGroupMatch[2] };
+  }
+  
+  return {
+    date: date ?? rawData.date,
+    overview: overviewData,
+    traffic: {
+      overview: {
+        metrics: extractFromBodyText(trafficOverview.bodyText || ''),
+        tables: parseTables(trafficOverview.tables || [])
       },
-      miniPrograms,
+      miniProgramTraffic: {
+        metrics: extractFromBodyText(miniProgramTraffic.bodyText || ''),
+        tables: parseTables(miniProgramTraffic.tables || [])
+      },
       lifeAccountTraffic: {
-        metrics: lifeAccountMetrics,
-        tables: parseTables(lifeAccount.tables || [])
+        metrics: extractFromBodyText(lifeAccountTraffic.bodyText || ''),
+        tables: parseTables(lifeAccountTraffic.tables || [])
       },
       fanGroupTraffic: {
-        metrics: fanGroupMetrics,
-        tables: parseTables(fanGroup.tables || [])
+        metrics: extractFromBodyText(fanGroupTraffic.bodyText || ''),
+        tables: parseTables(fanGroupTraffic.tables || [])
       }
-    });
+    },
+    miniPrograms,
+    lifeAccountTraffic: {
+      metrics: lifeAccountMetrics,
+      tables: parseTables(lifeAccount.tables || [])
+    },
+    fanGroupTraffic: {
+      metrics: fanGroupMetrics,
+      tables: parseTables(fanGroup.tables || [])
+    }
+  };
+}
+
+// 兜底：从本地 output 目录读最新文件（数据库无数据时使用）
+import { readFileSync, existsSync, readdirSync } from 'fs';
+import path from 'path';
+
+function readLatestFromFile() {
+  const outputDir = path.join(process.cwd(), 'src/exporters/output');
+  const files = existsSync(outputDir)
+    ? readdirSync(outputDir).filter((f) => f.startsWith('alipay_full_'))
+    : [];
+
+  if (files.length === 0) return null;
+
+  const latestFile = files.sort().pop()!;
+  const filePath = path.join(outputDir, latestFile);
+  const rawData = JSON.parse(readFileSync(filePath, 'utf-8'));
+  return parseAlipayRaw(rawData);
+}
+
+export async function GET(): Promise<NextResponse> {
+  // 1. 优先从云端数据库读取
+  try {
+    const snapshot = await getLatestSnapshot('alipay');
+    if (snapshot) {
+      return NextResponse.json({
+        ...parseAlipayRaw(snapshot.raw_data, snapshot.data_date),
+        source: snapshot.source ?? 'cloud',
+        fetched_at: snapshot.fetched_at,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('从数据库读取支付宝快照失败，尝试本地文件兜底:', message);
+  }
+
+  // 2. 兜底：本地文件
+  try {
+    const fromFile = readLatestFromFile();
+    if (fromFile) {
+      return NextResponse.json({ ...fromFile, source: 'local-file' });
+    }
   } catch (error) {
     console.error('读取支付宝数据失败:', error);
     return NextResponse.json(
@@ -283,4 +315,9 @@ export async function GET() {
       { status: 500 }
     );
   }
+
+  return NextResponse.json(
+    { error: '暂无支付宝数据，请先运行抓取并上传' },
+    { status: 404 }
+  );
 }
