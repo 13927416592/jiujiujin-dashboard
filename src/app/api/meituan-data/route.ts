@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getLatestSnapshot } from '@/storage/database/snapshot-repo';
+import { getLatestSnapshots } from '@/storage/database/snapshot-repo';
 
-// 美团 Excel 列名 → 业务含义（与前端展示、docs/meituan-report-config.md 对齐）
+// 美团 Excel 语义化列名 → 业务含义（由 meituan-parser 双行表头生成）
 const COL = {
   date: '日期',
-  province: '省份',
-  city: '城市',
-  storeId: '点评门店ID',
-  storeName: '门店名称',
-  exposure: '客流分析', // 曝光人数(人)
-  visits: '客流分析_4', // 访问人数(人)
-  orders: '客流分析_10', // 下单人数(人)
-  redeemAmount: '交易分析', // 核销售价金额(元)
-  redeemCoupons: '交易分析_4', // 核销券数(张)
-  reviews: '评价分析', // 新增评价数(条)
+  l1: '1级组织名',
+  l2: '2级组织名',
+  exposure: '曝光人数(人)',
+  visits: '访问人数(人)',
+  orders: '下单人数(人)',
+  redeemAmount: '核销售价金额(元)',
+  redeemCoupons: '核销券数(张)',
+  reviews: '新增评价数(条)',
 } as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,46 +19,67 @@ type Row = Record<string, any>;
 
 function toNumber(v: unknown): number {
   if (v === null || v === undefined || v === '') return 0;
-  const n = Number(String(v).replace(/,/g, '').replace(/[元%张人次单条]/g, '').trim());
+  const n = Number(String(v).replace(/,/g, '').replace(/[元%张人次单条()（）]/g, '').trim());
   if (!Number.isFinite(n)) return 0;
-  // 金额类字段统一保留两位小数，避免浮点累加误差（如 249.94000000000003）
   return Math.round(n * 100) / 100;
 }
 
+/** 从一个快照的 raw_data 中提取 rows 数组（兼容包装对象与裸数组） */
+function extractRows(raw: unknown): Row[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object' && Array.isArray((raw as Row).rows)) {
+    return (raw as Row).rows as Row[];
+  }
+  return [];
+}
+
+export const dynamic = 'force-dynamic';
+
 /**
- * 从数据库读取最新美团快照，聚合为看板需要的 summary/trend/stores/raw。
+ * 读取美团最近 30 个日快照，按行聚合为看板 summary/trend/stores/raw。
+ * 数据由本地脚本按日拆分上传（每天一条快照，避免单条 jsonb 过大）。
  */
 export async function GET() {
   try {
-    const snapshot = await getLatestSnapshot('meituan');
+    const snapshots = await getLatestSnapshots('meituan', 30);
 
-    if (!snapshot) {
+    if (snapshots.length === 0) {
       return NextResponse.json(
         { success: false, error: '暂无美团数据，请先在本地运行导出并上传' },
         { status: 404 }
       );
     }
 
-    // 上传时包装结构：{ platform, exportDate, rowCount, rows: [...] }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = snapshot.raw_data as any;
-    const rowsAll: Row[] = Array.isArray(raw?.rows)
-      ? raw.rows
-      : Array.isArray(raw)
-        ? raw
-        : [];
+    // 合并所有快照的行；每行带"日期"列（快照可能含多日，按行内日期聚合）
+    const allRows: Row[] = [];
+    let latestFetchedAt = '';
+    let latestDataDate = '';
+    for (const snap of snapshots) {
+      for (const r of extractRows(snap.raw_data)) {
+        if (r && r[COL.date] && String(r[COL.date]) !== COL.date) allRows.push(r);
+      }
+      if (snap.fetched_at > latestFetchedAt) {
+        latestFetchedAt = snap.fetched_at;
+        latestDataDate = snap.data_date;
+      }
+    }
 
-    // xlsx 解析会把中文表头也作为第一行数据（各字段值等于列名本身），过滤掉
-    const data = rowsAll.filter((r) => r && r[COL.date] && r[COL.date] !== COL.date);
+    if (allRows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: '美团快照存在但未解析到有效数据行' },
+        { status: 404 }
+      );
+    }
 
-    // 门店列表（去重 + 排序）
-    const stores = [...new Set(data.map((r) => r[COL.storeName]).filter(Boolean))].sort((a, b) =>
-      String(a).localeCompare(String(b), 'zh-CN')
+    // 门店列表
+    const storeKey = (r: Row): string =>
+      String(r['门店名称'] ?? r[COL.l2] ?? r[COL.l1] ?? '').trim();
+    const stores = [...new Set(allRows.map(storeKey).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'zh-CN')
     );
 
-    // 汇总
     const sum = (key: string): number =>
-      Math.round(data.reduce((s, r) => s + toNumber(r[key]), 0) * 100) / 100;
+      Math.round(allRows.reduce((s, r) => s + toNumber(r[key]), 0) * 100) / 100;
     const summary = {
       exposure: sum(COL.exposure),
       visits: sum(COL.visits),
@@ -69,25 +88,21 @@ export async function GET() {
       coupons: sum(COL.redeemCoupons),
       reviews: sum(COL.reviews),
       storeCount: stores.length,
-      recordCount: data.length,
+      recordCount: allRows.length,
+      dateRange: {
+        from: snapshots[0].data_date,
+        to: snapshots[snapshots.length - 1].data_date,
+      },
     };
 
-    // 按日期分组趋势
-    const byDate = new Map<
-      string,
-      { exposure: number; visits: number; orders: number; sales: number; coupons: number; reviews: number }
-    >();
-    for (const r of data) {
+    // 按行内日期聚合趋势
+    const byDate = new Map<string, Row>();
+    for (const r of allRows) {
       const date = String(r[COL.date] || '').slice(0, 10);
       if (!date) continue;
-      const cur = byDate.get(date) ?? {
-        exposure: 0,
-        visits: 0,
-        orders: 0,
-        sales: 0,
-        coupons: 0,
-        reviews: 0,
-      };
+      const cur =
+        byDate.get(date) ??
+        { exposure: 0, visits: 0, orders: 0, sales: 0, coupons: 0, reviews: 0 };
       cur.exposure += toNumber(r[COL.exposure]);
       cur.visits += toNumber(r[COL.visits]);
       cur.orders += toNumber(r[COL.orders]);
@@ -108,8 +123,8 @@ export async function GET() {
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // 明细按日期降序（最近在前），再取前 500 条，避免 30 天全量（约 6 万行）payload 过大
-    const sortedRows = [...data].sort((a, b) =>
+    // 明细按日期降序取最近 500 条（30天约6万行，避免 payload 过大）
+    const sortedRows = [...allRows].sort((a, b) =>
       String(b[COL.date] || '').localeCompare(String(a[COL.date] || ''))
     );
 
@@ -121,9 +136,10 @@ export async function GET() {
         stores,
         raw: sortedRows.slice(0, 500),
       },
-      data_date: snapshot.data_date,
-      fetched_at: snapshot.fetched_at,
-      source: snapshot.source,
+      data_date: latestDataDate,
+      data_dates: snapshots.map((s) => s.data_date),
+      fetched_at: latestFetchedAt,
+      source: snapshots[0].source,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

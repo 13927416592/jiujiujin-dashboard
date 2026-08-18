@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { saveSnapshot, type Platform } from '@/storage/database/snapshot-repo';
+import {
+  saveSnapshot,
+  saveSnapshots,
+  type Platform,
+} from '@/storage/database/snapshot-repo';
 import { gunzipSync } from 'node:zlib';
 
 /**
@@ -28,13 +32,41 @@ interface UploadBody {
   source?: string;
   summary?: Record<string, unknown> | null;
   raw_data?: Record<string, unknown>;
-  // 新格式：gzip 压缩后 base64 编码的 raw_data（用于大体积数据，绕过代理请求体限制）
+  // gzip 压缩后 base64 编码的 raw_data（用于大体积数据，绕过代理请求体限制）
+  raw_data_encoded?: string;
+  // 批量按日上传：一次提交多天的快照（如美团近30天）。每项含 data_date + raw_data(_encoded)
+  items?: UploadItem[];
+}
+
+interface UploadItem {
+  data_date?: string;
+  source?: string;
+  raw_data?: Record<string, unknown>;
   raw_data_encoded?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/** 解压单项 raw_data（支持 gzip+base64 或明文对象） */
+function decodeRawData(item: {
+  raw_data?: Record<string, unknown>;
+  raw_data_encoded?: string;
+}): Record<string, unknown> | { error: string } {
+  if (typeof item.raw_data_encoded === 'string' && item.raw_data_encoded.length > 0) {
+    try {
+      const buf = Buffer.from(item.raw_data_encoded, 'base64');
+      return JSON.parse(gunzipSync(buf).toString('utf-8')) as Record<string, unknown>;
+    } catch (err) {
+      return { error: `raw_data_encoded 解压/解析失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+  if (isRecord(item.raw_data)) return item.raw_data;
+  return { error: 'raw_data 缺失或不是对象' };
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(request: Request): Promise<NextResponse> {
   // 1. 鉴权
@@ -60,7 +92,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: '请求体不是合法 JSON' }, { status: 400 });
   }
 
-  // 3. 校验
+  // 3. 校验平台
   const platform = body.platform as Platform;
   if (!ALLOWED_PLATFORMS.includes(platform)) {
     return NextResponse.json(
@@ -69,52 +101,50 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  if (!body.data_date || !/^\d{4}-\d{2}-\d{2}$/.test(body.data_date)) {
-    return NextResponse.json(
-      { error: 'data_date 非法，需为 YYYY-MM-DD' },
-      { status: 400 }
-    );
-  }
+  // 4. 统一成"按日快照"列表：items（批量，新）或 顶层单条（旧格式，兼容）
+  const rawItems: UploadItem[] = Array.isArray(body.items) && body.items.length > 0
+    ? body.items
+    : [{ data_date: body.data_date, source: body.source, raw_data: body.raw_data, raw_data_encoded: body.raw_data_encoded }];
 
-  // 4. 解析 raw_data：支持 gzip+base64 压缩格式（大体积数据）和明文旧格式
-  let rawData: Record<string, unknown>;
-  if (typeof body.raw_data_encoded === 'string' && body.raw_data_encoded.length > 0) {
-    try {
-      const buf = Buffer.from(body.raw_data_encoded, 'base64');
-      const json = gunzipSync(buf).toString('utf-8');
-      rawData = JSON.parse(json) as Record<string, unknown>;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+  const toSave = [];
+  for (const item of rawItems) {
+    if (!item.data_date || !DATE_RE.test(item.data_date)) {
       return NextResponse.json(
-        { error: `raw_data_encoded 解压/解析失败: ${msg}` },
+        { error: `data_date 非法，需为 YYYY-MM-DD：${item.data_date ?? '(空)'}` },
         { status: 400 }
       );
     }
-  } else if (isRecord(body.raw_data)) {
-    rawData = body.raw_data;
-  } else {
-    return NextResponse.json(
-      { error: 'raw_data 缺失或不是对象（也未提供 raw_data_encoded）' },
-      { status: 400 }
-    );
+    const decoded = decodeRawData(item);
+    if ('error' in decoded) {
+      return NextResponse.json({ error: decoded.error }, { status: 400 });
+    }
+    toSave.push({
+      platform,
+      data_date: item.data_date,
+      source: item.source || body.source || 'unknown',
+      raw_data: decoded,
+    });
   }
 
-  // 5. 写入数据库（同平台同日 upsert 覆盖）
+  // 5. 写入数据库（按 platform+data_date upsert；批量用一次请求）
   try {
-    const saved = await saveSnapshot({
-      platform,
-      data_date: body.data_date,
-      fetched_at: new Date().toISOString(),
-      source: body.source || 'unknown',
-      summary: isRecord(body.summary) ? body.summary : null,
-      raw_data: rawData,
-    });
+    if (toSave.length === 1) {
+      const saved = await saveSnapshot(toSave[0]);
+      return NextResponse.json({
+        success: true,
+        id: saved.id,
+        platform: saved.platform,
+        data_date: saved.data_date,
+        count: 1,
+      });
+    }
 
+    const count = await saveSnapshots(toSave);
     return NextResponse.json({
       success: true,
-      id: saved.id,
-      platform: saved.platform,
-      data_date: saved.data_date,
+      platform,
+      count,
+      dates: toSave.map((s) => s.data_date),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,7 +1,7 @@
 import { chromium, BrowserContext, Page, Frame, ElementHandle } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import { parseMeituanWorkbook, type MeituanRow } from './meituan-parser';
 import { ExportResult, ExportConfig, RawData, UnifiedMetrics } from './types';
 
 export interface MeituanExportConfig extends ExportConfig {
@@ -55,10 +55,6 @@ export const DEFAULT_MEITUAN_CONFIG: Required<
   reportCardName: '久久金美团经营数据',
   daysToDownload: 1,
 };
-
-interface MeituanReportRow {
-  [key: string]: string | number;
-}
 
 /** 判断某个 Cookie 域名是否属于美团/点评系 */
 function isMeituanDomain(domain: string): boolean {
@@ -1208,15 +1204,9 @@ export class MeituanExporter {
     }
   }
 
-  private parseExcel(filePath: string): MeituanReportRow[] {
-    const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) {
-      throw new Error(`Excel 文件中未找到工作表：${sheetName}`);
-    }
-    const data = XLSX.utils.sheet_to_json<MeituanReportRow>(worksheet);
-    return data;
+  private parseExcel(filePath: string): MeituanRow[] {
+    // 双行表头语义化解析：维度列 + 指标(单位) + <指标>__环比，全量保留
+    return parseMeituanWorkbook(filePath);
   }
 
   /**

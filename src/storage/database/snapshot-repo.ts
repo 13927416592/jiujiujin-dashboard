@@ -115,3 +115,59 @@ export async function getRecentSnapshots(
 
   return (data as PlatformSnapshot[] | null) ?? [];
 }
+
+/**
+ * 获取某平台最近 N 天的快照（含 raw_data，用于看板聚合），按日期升序。
+ */
+export async function getLatestSnapshots(
+  platform: Platform,
+  limit = 30
+): Promise<PlatformSnapshot[]> {
+  const client = getSupabaseClient();
+
+  const { data, error } = await client
+    .from('platform_snapshots')
+    .select('*')
+    .eq('platform', platform)
+    .order('data_date', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`读取平台快照列表失败: ${error.message}`);
+  }
+
+  const list = (data as PlatformSnapshot[] | null) ?? [];
+  return list.sort((a, b) => a.data_date.localeCompare(b.data_date));
+}
+
+/**
+ * 批量写入快照：一次性 upsert 多个 (platform, data_date) 记录。
+ * 用于美团等"一次导出含多日明细"的场景，按日拆分存储，避免单条 jsonb 过大。
+ * 返回成功写入的条数。
+ */
+export async function saveSnapshots(
+  inputs: SaveSnapshotInput[]
+): Promise<number> {
+  if (inputs.length === 0) return 0;
+  const client = getSupabaseClient();
+  const now = new Date().toISOString();
+  const payload = inputs.map((input) => ({
+    platform: input.platform,
+    data_date: input.data_date,
+    fetched_at: input.fetched_at ?? now,
+    source: input.source ?? 'unknown',
+    summary: input.summary ?? null,
+    raw_data: input.raw_data,
+    updated_at: now,
+  }));
+
+  const { error } = await client
+    .from('platform_snapshots')
+    .upsert(payload, { onConflict: 'platform,data_date' });
+
+  if (error) {
+    throw new Error(`批量保存平台快照失败: ${error.message}`);
+  }
+
+  return payload.length;
+}

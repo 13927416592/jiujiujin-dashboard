@@ -7,11 +7,10 @@ import { TrendingUp, TrendingDown, Minus, Store, Users, ShoppingCart, DollarSign
 
 interface MeituanData {
   日期: string;
-  省份: string;
-  城市: string;
-  点评门店ID: string;
-  门店名称: string;
-  [key: string]: string | number;
+  '1级组织名'?: string;
+  '2级组织名'?: string;
+  门店名称?: string;
+  [key: string]: string | number | undefined;
 }
 
 interface MeituanSummary {
@@ -73,25 +72,27 @@ export default function MeituanPage() {
     }
   };
 
-  // 获取筛选选项
-  const stores = [...new Set(data.map(item => item.门店名称))];
-  const dates = [...new Set(data.map(item => item.日期))].sort();
+  // 获取筛选选项：门店维度兼容 门店名称 / 2级组织名 / 1级组织名
+  const storeName = (item: MeituanData): string =>
+    item.门店名称 || item['2级组织名'] || item['1级组织名'] || '';
+  const stores = [...new Set(data.map(storeName).filter(Boolean))];
+  const dates = [...new Set(data.map(item => item.日期).filter(Boolean))].sort();
 
   // 筛选数据
   const filteredData = data.filter(item => {
-    if (selectedStore !== 'all' && item.门店名称 !== selectedStore) return false;
+    if (selectedStore !== 'all' && storeName(item) !== selectedStore) return false;
     if (selectedDate !== 'all' && item.日期 !== selectedDate) return false;
     return true;
   });
 
   // 筛选后按明细重算汇总（接口 summary 为全量，这里反映筛选结果）
   const filteredSummary = {
-    totalExposure: filteredData.reduce((sum, item) => sum + (Number(item['客流分析']) || 0), 0),
-    totalVisitors: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_4']) || 0), 0),
-    totalOrders: filteredData.reduce((sum, item) => sum + (Number(item['客流分析_10']) || 0), 0),
-    totalRedeemAmount: filteredData.reduce((sum, item) => sum + (Number(item['交易分析']) || 0), 0),
-    totalRedeemCount: filteredData.reduce((sum, item) => sum + (Number(item['交易分析_4']) || 0), 0),
-    newReviews: filteredData.reduce((sum, item) => sum + (Number(item['评价分析']) || 0), 0),
+    totalExposure: filteredData.reduce((sum, item) => sum + (Number(item['曝光人数(人)']) || 0), 0),
+    totalVisitors: filteredData.reduce((sum, item) => sum + (Number(item['访问人数(人)']) || 0), 0),
+    totalOrders: filteredData.reduce((sum, item) => sum + (Number(item['下单人数(人)']) || 0), 0),
+    totalRedeemAmount: filteredData.reduce((sum, item) => sum + (Number(item['核销售价金额(元)']) || 0), 0),
+    totalRedeemCount: filteredData.reduce((sum, item) => sum + (Number(item['核销券数(张)']) || 0), 0),
+    newReviews: filteredData.reduce((sum, item) => sum + (Number(item['新增评价数(条)']) || 0), 0),
   };
 
   if (loading) {
@@ -267,13 +268,13 @@ export default function MeituanPage() {
                   {filteredData.map((item, index) => (
                     <TableRow key={index} className="border-gray-700 hover:bg-gray-700/50">
                       <TableCell className="text-gray-300">{item.日期}</TableCell>
-                      <TableCell className="text-gray-300">{item.门店名称}</TableCell>
-                      <TableCell className="text-gray-300">{item['客流分析'] || 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['客流分析_4'] || 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['客流分析_10'] || 0}</TableCell>
-                      <TableCell className="text-gray-300">¥{item['交易分析'] || 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['交易分析_4'] || 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['评价分析'] || 0}</TableCell>
+                      <TableCell className="text-gray-300">{storeName(item)}</TableCell>
+                      <TableCell className="text-gray-300">{item['曝光人数(人)'] ?? 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['访问人数(人)'] ?? 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['下单人数(人)'] ?? 0}</TableCell>
+                      <TableCell className="text-gray-300">¥{item['核销售价金额(元)'] ?? 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['核销券数(张)'] ?? 0}</TableCell>
+                      <TableCell className="text-gray-300">{item['新增评价数(条)'] ?? 0}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -290,10 +291,10 @@ export default function MeituanPage() {
         {/* 数据说明 */}
         <div className="mt-6 text-center text-gray-400 text-sm">
           <p>
-            数据日期：{dataDate || '—'}
+            数据日期范围：{dataDate || '—'}
             {fetchedAt && ` · 入库时间：${new Date(fetchedAt).toLocaleString('zh-CN')}`}
           </p>
-          <p className="mt-1">共 {filteredData.length} 条记录 | 门店数：{stores.length}</p>
+          <p className="mt-1">共 {filteredData.length} 条记录 | 组织/门店数：{stores.length}</p>
         </div>
       </div>
     </div>

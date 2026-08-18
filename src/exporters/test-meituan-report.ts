@@ -13,8 +13,7 @@
  */
 
 import { MeituanExporter, DEFAULT_MEITUAN_CONFIG } from './meituan';
-import { uploadSnapshot } from './upload-to-cloud';
-import { pruneMeituanPayload } from './meituan-columns';
+import { uploadSnapshotItems } from './upload-to-cloud';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -68,36 +67,51 @@ async function main(): Promise<void> {
   console.log('平台:', result.platform);
   console.log('时间:', result.timestamp);
 
-  // result.filePath 在新实现里指向解析后的 JSON 路径
+  // result.filePath 在新实现里指向解析后的 JSON 路径（已语义化列名、全量保留）
   const rows = ((result.data as unknown[]) || []) as Array<Record<string, unknown>>;
   console.log('数据条数:', rows.length);
 
-  // 包装成带元信息的 raw_data，写一份 full JSON 供上传
+  // 写一份 full JSON 留本地备份
   const dataDate = yesterdayShanghai();
   const fullJsonPath = path.join(outputDir, `meituan_full_${dataDate}.json`);
-
-  // 裁剪到看板实际使用的 11 列（报表有 30+ 指标列），避免近 30 天 6 万行 jsonb 超过数据库写入上限
-  const prunedRows = pruneMeituanPayload(rows);
   const payload = {
     platform: 'meituan',
     exportDate: dataDate,
     exportedAt: result.timestamp,
     accountId: result.accountId,
-    rowCount: prunedRows.length,
-    rows: prunedRows,
+    rowCount: rows.length,
+    rows,
   };
   fs.writeFileSync(fullJsonPath, JSON.stringify(payload, null, 2), 'utf-8');
   console.log('数据文件:', fullJsonPath);
 
-  // 自动上传到云端看板
+  // 自动上传：按行内"日期"拆分，每天一条快照入库（全量列保留，含环比）
+  // 单日定时任务只含1天；首次/补数含多天时会拆成多条，避免单条 jsonb 过大
   try {
     console.log('\n☁️  正在上传到云端看板...');
-    const upload = await uploadSnapshot({
-      platform: 'meituan',
-      dataDate,
-      rawFile: fullJsonPath,
-      source: 'local-mac',
-    });
+    const byDate = new Map<string, Array<Record<string, unknown>>>();
+    for (const r of rows) {
+      const d = String(r['日期'] ?? '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      const arr = byDate.get(d) ?? [];
+      arr.push(r);
+      byDate.set(d, arr);
+    }
+    const items = [...byDate.entries()].map(([date, dateRows]) => ({
+      dataDate: date,
+      rawData: {
+        platform: 'meituan',
+        exportDate: date,
+        exportedAt: result.timestamp,
+        accountId: result.accountId,
+        rowCount: dateRows.length,
+        rows: dateRows,
+      },
+    }));
+    if (items.length === 0) {
+      throw new Error('数据中未识别到有效日期');
+    }
+    const upload = await uploadSnapshotItems('meituan', items);
     console.log('✅ 已上传到云端看板:', upload.body);
   } catch (uploadErr) {
     const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
