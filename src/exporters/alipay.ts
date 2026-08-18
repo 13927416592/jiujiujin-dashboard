@@ -366,20 +366,22 @@ export class AlipayExporter {
       });
     });
 
-    // 关键：用上次成功运行保存的完整 Cookie 全集"强制覆盖"持久化目录里的支付宝 Cookie。
+    // 关键：用上次成功运行保存的 Cookie 全集"覆盖写入"支付宝域 Cookie。
     //
-    // 为什么不能只补缺失的：会话运行中支付宝会轮换关键登录态 Cookie（如 ALIPAYJSESSIONID/
-    // ctoken/auth_jwt）。持久化目录里可能残留"轮换前的旧值"，且因为同名而让"只补缺失"
-    // 逻辑跳过，导致带着失效会话访问数据页、被踢回 auth 登录页。因此先清掉所有 alipay
-    // 域 Cookie，再用文件里最近一次成功保存的最新全集写入，保证每次启动都是新鲜登录态。
+    // 背景：会话运行中支付宝会轮换关键登录态 Cookie（ALIPAYJSESSIONID/ctoken/auth_jwt 等），
+    // 持久化目录里可能残留"轮换前的旧值"。Playwright 的 addCookies 对"同名+同域+同路径
+    // +同 partitionKey"的 Cookie 会直接覆盖，因此把文件里最新的全集 addCookies 一遍，
+    // 就能顶掉旧值。
+    //
+    // 注意：不要用 clearCookies() 清空全部！那会把支付宝之外的设备连续性/风控指纹 Cookie
+    // （_uab_collina、_umdata 等）也清掉，支付宝反而把启动判定为"新设备"而要求重新登录。
+    // 只 addCookies 我们保存的集合，其它域 Cookie 原样保留。
     const savedCookies = this.loadSessionCookies();
     if (savedCookies.length > 0) {
-      // 清除持久化目录中现有的全部支付宝域 Cookie（含旧会话/旧值）
-      await this.context.clearCookies({});
       await this.context.addCookies(savedCookies);
       const after = await this.context.cookies();
       const afterAlipay = after.filter((c) => c.domain.includes('alipay.com'));
-      console.log(`🍪 已用最近保存的登录态覆盖写入 ${savedCookies.length} 个 Cookie（其中支付宝 ${afterAlipay.length} 个）`);
+      console.log(`🍪 已用最近保存的登录态覆盖写入 ${savedCookies.length} 个 Cookie（当前支付宝域共 ${afterAlipay.length} 个）`);
     } else {
       // 兜底：没有会话存档时，若持久化目录本身已保留 Cookie 就沿用；否则迁移旧 cookie 文件
       const existingCookies = await this.context.cookies();
