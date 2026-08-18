@@ -13,9 +13,11 @@ FEISHU_SCRIPT="$PROJECT_DIR/scripts/feishu-alert.sh"
 # launchd 环境下 PATH 可能缺失，显式补上
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-# 自动化以无头模式运行：Cookie 有效时全程无弹窗；
-# Cookie 过期时抓取器会立即失败退出（非交互环境不等待回车），触发下面的飞书告警
-export HEADLESS=1
+# 注意：经实测，支付宝经营数据页在无头(headless)模式下会被风控重定向到登录页，
+# 即使 Cookie 有效也无法访问。因此定时任务使用「有头模式」运行真实 Chrome，
+# 抓取期间窗口会短暂出现在桌面，结束后自动关闭（约 1 分钟），与手动运行一致、最稳定。
+# 如需强制无头试验，可在此处 export HEADLESS=1（不保证可用）。
+unset HEADLESS
 
 # Node 可执行文件（优先用 nvm/系统中的 node）
 NODE_BIN="$(command -v node || echo /usr/local/bin/node)"
