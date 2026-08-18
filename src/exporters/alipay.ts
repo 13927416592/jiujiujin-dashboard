@@ -359,8 +359,11 @@ export class AlipayExporter {
       });
     });
 
-    // 兼容：首次从旧版 cookie.json 迁移一次（之后持久化目录会自动保留，无需再加）
-    if (!this.hasPersistedCookies() && fs.existsSync(this.config.cookiePath)) {
+    // 兼容：持久化目录里还没有任何支付宝 Cookie 时，从旧版 cookie.json 迁移一次。
+    // 注意：不能用"Default/Cookies 文件是否存在"判断——全新 profile 也会生成空的 Cookies 文件。
+    const existingCookies = await this.context.cookies();
+    const hasAlipayCookie = existingCookies.some((c) => c.domain.includes('alipay.com'));
+    if (!hasAlipayCookie && fs.existsSync(this.config.cookiePath)) {
       try {
         const cookies = JSON.parse(fs.readFileSync(this.config.cookiePath, 'utf-8'));
         const validCookies = this.normalizeCookies(cookies);
@@ -372,17 +375,6 @@ export class AlipayExporter {
     }
 
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
-  }
-
-  /** 判断持久化目录中是否已有 Cookie（避免每次重复导入旧 cookie 文件） */
-  private hasPersistedCookies(): boolean {
-    if (!this.context) return false;
-    try {
-      // 只要目录里存在 Cookies 物理文件即认为已持久化（Chromium/Chrome 均生成该文件）
-      return fs.existsSync(path.join(this.config.userDataDir, 'Default', 'Cookies'));
-    } catch {
-      return false;
-    }
   }
 
   /** 确保已登录，未登录则等待用户手动登录 */
