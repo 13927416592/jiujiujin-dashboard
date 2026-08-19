@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Store,
   Users,
@@ -37,6 +37,8 @@ const RANGE_PRESETS = [
   { key: '30', label: '近30天' },
   { key: 'all', label: '全部' },
 ] as const;
+
+const DEFAULT_PAGE_SIZE = 20;
 
 type RangeKey = (typeof RANGE_PRESETS)[number]['key'];
 
@@ -85,6 +87,9 @@ export default function MeituanPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [loadingRows, setLoadingRows] = useState(false);
+
+  // 初始挂载标志：首次无参请求由接口默认给近30天，返回后再回填日期范围，避免"要日期才请求、要请求才有日期"的死锁
+  const initialized = useRef(false);
 
   // 已知的省/市（来自数据）
   const provinces = agg?.meta.provinces ?? [];
@@ -144,23 +149,59 @@ export default function MeituanPage() {
     }
   }, [buildQuery, page, pageSize]);
 
-  // 首次加载：拿到 latestDate 后设定默认范围（近30天）
+  // 首次挂载：直接无参请求，接口默认返回近30天；拿到后回填日期范围，避免死锁
   useEffect(() => {
-    if (latestDate && filters.range === '30' && !filters.from && !filters.to) {
-      setFilters((f) => ({ ...f, to: latestDate, from: shiftDate(latestDate, -29) }));
-    }
+    if (initialized.current) return;
+    initialized.current = true;
+    setLoadingAgg(true);
+    (async () => {
+      try {
+        const [aggRes, rowsRes] = await Promise.all([
+          fetch('/api/meituan-data').then((r) => r.json() as Promise<MeituanDataResponse>),
+          fetch(
+            `/api/meituan-rows?page=1&pageSize=${DEFAULT_PAGE_SIZE}&sort=date&order=desc`
+          ).then((r) => r.json() as Promise<MeituanRowsResponse>),
+        ]);
+        if (aggRes.success && aggRes.data) {
+          setAgg(aggRes.data);
+          const latest = aggRes.latest_date ?? aggRes.data.meta.dateRange.to;
+          setLatestDate(latest);
+          // 用接口实际采用的范围回填筛选器
+          setFilters((f) => ({
+            ...f,
+            range: '30',
+            from: aggRes.data!.meta.dateRange.from,
+            to: aggRes.data!.meta.dateRange.to,
+          }));
+        } else {
+          setError(aggRes.error || '数据加载失败');
+        }
+        if (rowsRes.success) {
+          setRows(rowsRes.rows);
+          setTotalRows(rowsRes.total);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoadingAgg(false);
+        setLoadingRows(false);
+      }
+    })();
+  }, []);
+
+  // 筛选变化重新加载聚合（首次由挂载 effect 处理，跳过一次避免重复请求）
+  useEffect(() => {
+    if (!initialized.current || !filters.from || !filters.to) return;
+    loadAgg();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestDate]);
+  }, [filters.from, filters.to, filters.province, filters.city, filters.store]);
 
-  // 筛选变化加载聚合
+  // 筛选/分页变化重新加载明细
   useEffect(() => {
-    if (filters.from && filters.to) loadAgg();
-  }, [loadAgg, filters.from, filters.to]);
-
-  // 筛选/分页变化加载明细
-  useEffect(() => {
-    if (filters.from && filters.to) loadRows();
-  }, [loadRows, filters.from, filters.to]);
+    if (!initialized.current || !filters.from || !filters.to) return;
+    loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.from, filters.to, filters.province, filters.city, filters.store, page]);
 
   const applyRange = (range: RangeKey) => {
     if (!latestDate) return;
