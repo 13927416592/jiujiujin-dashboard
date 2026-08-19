@@ -13,6 +13,39 @@ import { getSupabaseClient } from './supabase-client';
 
 export type Platform = 'alipay' | 'meituan' | 'douyin';
 
+/**
+ * 对一个异步写操作做有限次重试。
+ * 仅对"瞬时错误"重试：网络错误、Supabase 网关 502/503/504、超时等。
+ * 这类错误通常 10 秒内返回，重试能扛过短暂网关抖动。
+ */
+async function withWriteRetry<T>(
+  fn: () => Promise<T> | PromiseLike<T>,
+  retries = 4,
+  baseDelayMs = 800
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient =
+        /invalid response from the upstream|timeout|aborted|network|fetch failed|502|503|504|ECONNRESET|ETIMEDOUT/i.test(
+          msg
+        );
+      if (!transient || attempt === retries) break;
+      const delay = baseDelayMs * Math.pow(2, attempt); // 800ms,1.6s,3.2s,6.4s
+      console.warn(
+        `[snapshot-repo] 写入遇到瞬时错误，${delay}ms 后重试(${attempt + 1}/${retries}):`,
+        msg
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 export interface PlatformSnapshot {
   id: number;
   platform: Platform;
@@ -53,15 +86,16 @@ export async function saveSnapshot(
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await client
-    .from('platform_snapshots')
-    .upsert(payload, { onConflict: 'platform,data_date' })
-    .select()
-    .single();
+  const { data } = await withWriteRetry<{ data: unknown }>(async () => {
+    const { data, error } = await client
+      .from('platform_snapshots')
+      .upsert(payload, { onConflict: 'platform,data_date' })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return { data };
+  });
 
-  if (error) {
-    throw new Error(`保存平台快照失败: ${error.message}`);
-  }
   if (!data) {
     throw new Error('保存平台快照失败: 未返回写入记录');
   }
@@ -161,13 +195,12 @@ export async function saveSnapshots(
     updated_at: now,
   }));
 
-  const { error } = await client
-    .from('platform_snapshots')
-    .upsert(payload, { onConflict: 'platform,data_date' });
-
-  if (error) {
-    throw new Error(`批量保存平台快照失败: ${error.message}`);
-  }
+  await withWriteRetry(async () => {
+    const { error } = await client
+      .from('platform_snapshots')
+      .upsert(payload, { onConflict: 'platform,data_date' });
+    if (error) throw new Error(error.message);
+  });
 
   return payload.length;
 }

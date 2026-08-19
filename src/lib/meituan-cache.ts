@@ -23,10 +23,10 @@ interface CacheEntry {
 }
 
 let cache: CacheEntry | null = null;
-let inflight: Promise<PlatformSnapshot[]> | null = null;
+let inflight: Promise<{ snapshots: PlatformSnapshot[]; stale: boolean }> | null = null;
 
 /** 对一个异步操作做有限次重试（仅对网络类瞬时错误重试） */
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 400): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T> | PromiseLike<T>, retries = 2, delayMs = 400): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -56,7 +56,7 @@ async function loadFresh(): Promise<PlatformSnapshot[]> {
  * 获取美团原始快照（优先走缓存）。
  * 调用方拿到后自行提取行、筛选、聚合。
  *
- * 第二返回值 stale=true 表示上游不可用、返回的是旧缓存（数据可能不是最新）。
+ * stale=true 表示上游不可用、返回的是旧缓存（数据可能不是最新）。
  */
 export async function getMeituanSnapshots(): Promise<{
   snapshots: PlatformSnapshot[];
@@ -71,8 +71,7 @@ export async function getMeituanSnapshots(): Promise<{
 
   // 2. 并发去重
   if (inflight) {
-    const snapshots = await inflight;
-    return { snapshots, stale: false };
+    return inflight;
   }
 
   inflight = (async () => {
@@ -82,11 +81,11 @@ export async function getMeituanSnapshots(): Promise<{
       const fingerprint = await computeFingerprint();
       if (cache && cache.fingerprint === fingerprint) {
         cache.savedAt = now;
-        return cache.snapshots;
+        return { snapshots: cache.snapshots, stale: false };
       }
       const snapshots = await loadFresh();
       cache = { snapshots, fingerprint, savedAt: now };
-      return snapshots;
+      return { snapshots, stale: false };
     } catch (err) {
       if (cache) {
         // 上游挂了但本地还有旧数据：续用旧快照（不更新 savedAt，让下次请求再试一次刷新）
@@ -94,7 +93,7 @@ export async function getMeituanSnapshots(): Promise<{
           '[meituan-cache] 刷新快照失败，降级使用旧缓存:',
           err instanceof Error ? err.message : String(err)
         );
-        return cache.snapshots;
+        return { snapshots: cache.snapshots, stale: true };
       }
       // 首次加载且无旧缓存可兜底，只能抛出
       throw err;
@@ -103,8 +102,7 @@ export async function getMeituanSnapshots(): Promise<{
     }
   })();
 
-  const snapshots = await inflight;
-  return { snapshots, stale: false };
+  return inflight;
 }
 
 /** 数据写入后可主动失效缓存（上传接口调用），下次请求立即拉新 */

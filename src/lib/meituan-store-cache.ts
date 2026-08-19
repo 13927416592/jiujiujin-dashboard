@@ -96,12 +96,13 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
       // 过期后简单指纹校验：数量一致就认为没变（台账全量导入，数量变化是可靠信号）
       if (cache) {
         const client = getSupabaseClient();
-        const countResult = await withRetry<{ count: number | null }>(() =>
-          client
+        const countResult = await withRetry<{ count: number | null }>(async () => {
+          const { count, error } = await client
             .from('meituan_stores')
-            .select('*', { count: 'exact', head: true })
-            .then((res) => ({ count: res.count }))
-        );
+            .select('*', { count: 'exact', head: true });
+          if (error) throw new Error(error.message);
+          return { count };
+        });
         const fingerprint = `count:${countResult.count ?? 0}`;
         if (fingerprint === cache.fingerprint) {
           cache.savedAt = now;
