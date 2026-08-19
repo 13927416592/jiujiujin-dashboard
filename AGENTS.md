@@ -93,6 +93,18 @@
 - 详细架构设计：`docs/architecture.md`
 - 新增平台步骤：types.ts 添加类型 → 创建导出器 → index.ts 注册 → transform.ts 添加映射
 
+## 美团看板与数据聚合
+
+- 聚合引擎：`src/lib/meituan-agg.ts`（COL 列名、筛选、KPI/漏斗/趋势/ROI/排行/城市/服务质量/门店状态分布，全部服务端算好）
+- 纯类型：`src/lib/meituan-agg-types.ts`（可被 'use client' 组件导入）
+- 接口：`GET /api/meituan-data`（聚合）、`GET /api/meituan-rows`（分页明细），均支持 from/to/province/city/store/business_status
+- 快照缓存：`src/lib/meituan-cache.ts`（TTL 60s + 指纹 + in-flight 去重）；新数据上传后 `invalidateMeituanCache()`
+- 门店台账：表 `meituan_stores`（schema 见 `src/storage/database/shared/schema.ts`），按点评门店ID关联经营数据，提供营业状态
+  - 台账缓存：`src/lib/meituan-store-cache.ts`（TTL 5min，**必须分页**拉取，Supabase 单次最多 1000 行）
+  - 导入脚本：`npx tsx scripts/import-meituan-stores.ts <xlsx路径>`（该 xlsx 的 dimension 标记错误，脚本会扫描单元格地址重算 !ref）
+  - 营业状态分布在 `aggregate().storeStatus`；明细行带 `status`；前端可按状态筛选
+- 转化漏斗同口径：曝光→访问→下单（核销含跨期核销，不放入漏斗末级）
+
 ## 项目交接
 
 - 交接文档：`docs/handover.md`（完整进度、文件说明、使用说明、后续建议）

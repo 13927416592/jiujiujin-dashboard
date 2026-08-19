@@ -48,6 +48,7 @@ interface Filters {
   province: string;
   city: string;
   store: string;
+  businessStatus: string;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -78,6 +79,7 @@ export default function MeituanPage() {
     province: '',
     city: '',
     store: '',
+    businessStatus: '',
   });
 
   // 明细表格状态
@@ -98,6 +100,7 @@ export default function MeituanPage() {
       if (filters.province) params.set('province', filters.province);
       if (filters.city) params.set('city', filters.city);
       if (filters.store) params.set('store', filters.store);
+      if (filters.businessStatus) params.set('business_status', filters.businessStatus);
       if (extra) {
         for (const [k, v] of Object.entries(extra)) params.set(k, v);
       }
@@ -189,14 +192,29 @@ export default function MeituanPage() {
     if (!initialized.current || !filters.from || !filters.to) return;
     loadAgg();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.from, filters.to, filters.province, filters.city, filters.store]);
+  }, [
+    filters.from,
+    filters.to,
+    filters.province,
+    filters.city,
+    filters.store,
+    filters.businessStatus,
+  ]);
 
   // 筛选/分页变化重新加载明细
   useEffect(() => {
     if (!initialized.current || !filters.from || !filters.to) return;
     loadRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.from, filters.to, filters.province, filters.city, filters.store, page]);
+  }, [
+    filters.from,
+    filters.to,
+    filters.province,
+    filters.city,
+    filters.store,
+    filters.businessStatus,
+    page,
+  ]);
 
   const applyRange = (range: RangeKey) => {
     if (!latestDate) return;
@@ -219,6 +237,7 @@ export default function MeituanPage() {
       province: '',
       city: '',
       store: '',
+      businessStatus: '',
     });
     setPage(1);
   };
@@ -353,6 +372,22 @@ export default function MeituanPage() {
                 ))}
               </select>
 
+              <select
+                value={filters.businessStatus}
+                onChange={(e) => {
+                  setFilters((f) => ({ ...f, businessStatus: e.target.value }));
+                  setPage(1);
+                }}
+                className={selectClass}
+              >
+                <option value="">全部营业状态</option>
+                {(agg?.storeStatus ?? []).map((s) => (
+                  <option key={s.status} value={s.status} className="bg-[#0e1326]">
+                    {s.status}（{s.stores}）
+                  </option>
+                ))}
+              </select>
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -413,9 +448,13 @@ export default function MeituanPage() {
               </Card>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-4">
               <RoiCard agg={agg} />
               <ServiceCard agg={agg} />
+              <StatusCard agg={agg} onSelect={(s) => {
+                setFilters((f) => ({ ...f, businessStatus: f.businessStatus === s ? '' : s }));
+                setPage(1);
+              }} selected={filters.businessStatus} />
               <CityCard agg={agg} />
             </div>
 
@@ -443,6 +482,7 @@ export default function MeituanPage() {
                         <TableHead className="text-[#9AA7C7]">日期</TableHead>
                         <TableHead className="text-[#9AA7C7]">门店</TableHead>
                         <TableHead className="text-[#9AA7C7]">城市</TableHead>
+                        <TableHead className="text-[#9AA7C7]">营业状态</TableHead>
                         <TableHead className="text-right text-[#9AA7C7]">曝光</TableHead>
                         <TableHead className="text-right text-[#9AA7C7]">访问</TableHead>
                         <TableHead className="text-right text-[#9AA7C7]">下单</TableHead>
@@ -454,13 +494,13 @@ export default function MeituanPage() {
                     <TableBody>
                       {loadingRows ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="py-10 text-center text-[#9AA7C7]">
+                          <TableCell colSpan={10} className="py-10 text-center text-[#9AA7C7]">
                             <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                           </TableCell>
                         </TableRow>
                       ) : rows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="py-10 text-center text-[#9AA7C7]">
+                          <TableCell colSpan={10} className="py-10 text-center text-[#9AA7C7]">
                             暂无数据
                           </TableCell>
                         </TableRow>
@@ -470,6 +510,9 @@ export default function MeituanPage() {
                             <TableCell className="text-sm text-[#9AA7C7]">{r.date}</TableCell>
                             <TableCell className="max-w-[200px] truncate text-sm text-white">{r.store}</TableCell>
                             <TableCell className="text-sm text-[#9AA7C7]">{r.city}</TableCell>
+                            <TableCell className="text-sm">
+                              <StatusBadge status={r.status} />
+                            </TableCell>
                             <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.exposure)}</TableCell>
                             <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.visits)}</TableCell>
                             <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.orders)}</TableCell>
@@ -624,6 +667,79 @@ function ServiceCard({ agg }: { agg: MeituanAggregate }) {
   );
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  正常营业: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  暂停营业: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  永久关闭: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  未匹配台账: 'bg-white/10 text-[#9AA7C7] border-white/20',
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const cls = STATUS_COLORS[status] ?? STATUS_COLORS['未匹配台账'];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs whitespace-nowrap ${cls}`}>
+      {status || '未知'}
+    </span>
+  );
+}
+
+function StatusCard({
+  agg,
+  selected,
+  onSelect,
+}: {
+  agg: MeituanAggregate;
+  selected: string;
+  onSelect: (status: string) => void;
+}) {
+  const stats = agg.storeStatus;
+  const totalStores = stats.reduce((s, x) => s + x.stores, 0);
+  const totalSales = stats.reduce((s, x) => s + x.sales, 0);
+  return (
+    <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
+          <Store className="h-4 w-4 text-[#b8a8ff]" />
+          门店营业状态
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-3 flex items-baseline gap-2">
+          <span className="text-2xl font-bold text-white tabular-nums">{num(totalStores)}</span>
+          <span className="text-xs text-[#9AA7C7]">家有数据门店 · 核销 {money(totalSales)}</span>
+        </div>
+        <div className="space-y-2">
+          {stats.map((s) => {
+            const ratio = totalStores ? (s.stores / totalStores) * 100 : 0;
+            const isActive = selected === s.status;
+            return (
+              <button
+                key={s.status}
+                type="button"
+                onClick={() => onSelect(s.status)}
+                className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                  isActive
+                    ? 'border-[#7C5CFF]/60 bg-[#7C5CFF]/15'
+                    : 'border-transparent hover:bg-white/5'
+                }`}
+              >
+                <StatusBadge status={s.status} />
+                <span className="ml-auto text-sm tabular-nums text-white">{s.stores}</span>
+                <span className="w-10 text-right text-xs tabular-nums text-[#9AA7C7]">
+                  {ratio.toFixed(0)}%
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {selected && (
+          <p className="mt-2 text-xs text-[#9AA7C7]">已筛选「{selected}」，点击再次取消</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CityCard({ agg }: { agg: MeituanAggregate }) {
   return (
     <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
@@ -685,7 +801,10 @@ function RankCard({
             >
               <span className="w-5 shrink-0 text-xs tabular-nums text-[#9AA7C7]">{i + 1}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-white">{s.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm text-white">{s.name}</p>
+                  {s.status && s.status !== '正常营业' && <StatusBadge status={s.status} />}
+                </div>
                 <p className="text-xs text-[#9AA7C7]">
                   {s.city || '—'} · 订单 {num(s.orders)} · 曝光 {num(s.exposure)}
                 </p>

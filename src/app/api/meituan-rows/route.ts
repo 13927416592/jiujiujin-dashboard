@@ -9,6 +9,7 @@ import {
   type MeituanRow,
 } from '@/lib/meituan-agg';
 import { getMeituanSnapshots } from '@/lib/meituan-cache';
+import { getMeituanStoreMap } from '@/lib/meituan-store-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ const DEFAULT_PAGE_SIZE = 20;
  *
  * 查询参数：
  *   from/to/province/city/store  同主聚合接口（store 为门店名关键字）
+ *   business_status  营业状态筛选
  *   page        页码，从 1 开始（默认 1）
  *   pageSize    每页条数（默认 20，最大 100）
  *   sort        排序字段，见 SORTABLE（默认 date）
@@ -50,6 +52,7 @@ export async function GET(request: Request) {
     const province = searchParams.get('province') || '';
     const city = searchParams.get('city') || '';
     const store = searchParams.get('store') || '';
+    const businessStatus = searchParams.get('business_status') || '';
 
     const page = Math.max(1, Number(searchParams.get('page')) || 1);
     const pageSize = Math.min(
@@ -64,6 +67,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: '暂无美团数据' }, { status: 404 });
     }
 
+    const storeMap = await getMeituanStoreMap();
     const allRows = collectAllRows(snapshots);
     const filter: MeituanFilter = {
       from: from || undefined,
@@ -71,8 +75,9 @@ export async function GET(request: Request) {
       province: province || undefined,
       city: city || undefined,
       store: store || undefined,
+      businessStatus: businessStatus || undefined,
     };
-    let filtered = allRows.filter((r) => matchFilter(r, filter));
+    let filtered = allRows.filter((r) => matchFilter(r, filter, storeMap));
 
     // 数值列按数字排序，其余（日期/省/市/门店名）按字符串排序
     const NUMERIC_SORT_COLS = new Set<string>([
@@ -105,22 +110,26 @@ export async function GET(request: Request) {
 
     const total = filtered.length;
     const start = (page - 1) * pageSize;
-    const pageRows = filtered.slice(start, start + pageSize).map((r) => ({
-      date: String(r[COL.date] ?? ''),
-      province: String(r[COL.province] ?? ''),
-      city: String(r[COL.city] ?? ''),
-      store: rowStoreName(r),
-      storeId: String(r[COL.storeId] ?? ''),
-      exposure: toNumber(r[COL.exposurePeople]),
-      visits: toNumber(r[COL.visitPeople]),
-      orders: toNumber(r[COL.orderPeople]),
-      sales: toNumber(r[COL.redeemAmount]),
-      coupons: toNumber(r[COL.redeemCoupons]),
-      reviews: toNumber(r[COL.reviewNew]),
-      adSpend: toNumber(r[COL.adSpend]),
-      redeemOrders: toNumber(r[COL.redeemOrders]),
-      stayDuration: toNumber(r[COL.stayDuration]),
-    }));
+    const pageRows = filtered.slice(start, start + pageSize).map((r) => {
+      const storeId = String(r[COL.storeId] ?? '').trim();
+      return {
+        date: String(r[COL.date] ?? ''),
+        province: String(r[COL.province] ?? ''),
+        city: String(r[COL.city] ?? ''),
+        store: rowStoreName(r),
+        storeId,
+        status: storeMap.get(storeId)?.business_status ?? '未匹配台账',
+        exposure: toNumber(r[COL.exposurePeople]),
+        visits: toNumber(r[COL.visitPeople]),
+        orders: toNumber(r[COL.orderPeople]),
+        sales: toNumber(r[COL.redeemAmount]),
+        coupons: toNumber(r[COL.redeemCoupons]),
+        reviews: toNumber(r[COL.reviewNew]),
+        adSpend: toNumber(r[COL.adSpend]),
+        redeemOrders: toNumber(r[COL.redeemOrders]),
+        stayDuration: toNumber(r[COL.stayDuration]),
+      };
+    });
 
     return NextResponse.json({
       success: true,

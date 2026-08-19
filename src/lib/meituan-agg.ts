@@ -63,12 +63,19 @@ export const COL = {
 
 export type MeituanRow = Record<string, string | number | null | undefined>;
 
+/** 门店台账信息（聚合只需要状态，结构与 meituan-store-cache 对齐） */
+export interface StoreInfoLike {
+  business_status: string | null;
+}
+
 export interface MeituanFilter {
   from?: string; // YYYY-MM-DD
   to?: string;
   province?: string;
   city?: string;
   store?: string; // 门店名称关键字
+  /** 营业状态筛选，如 "正常营业"；门店未匹配台账时视为 "未匹配台账" */
+  businessStatus?: string;
 }
 
 /** 把带逗号、单位(元%张人次单条()（）)的单元格转成数字；空值返回 0 */
@@ -107,6 +114,11 @@ export function rowStoreName(r: MeituanRow): string {
   return String(r[COL.storeName] ?? r[COL.l2] ?? r[COL.l1] ?? '').trim();
 }
 
+/** 点评门店ID，统一转字符串 */
+export function rowStoreId(r: MeituanRow): string {
+  return String(r[COL.storeId] ?? '').trim();
+}
+
 export function isValidDateRow(r: MeituanRow): boolean {
   const d = rowDate(r);
   return /^\d{4}-\d{2}-\d{2}$/.test(d);
@@ -122,14 +134,26 @@ export function extractRows(raw: unknown): MeituanRow[] {
   return [];
 }
 
-/** 判断单行是否满足筛选条件 */
-export function matchFilter(r: MeituanRow, f: MeituanFilter): boolean {
+/**
+ * 判断单行是否满足筛选条件。
+ * storeMap 为门店ID -> 台账信息，用于按营业状态筛选；
+ * 未传或门店未匹配台账时，其状态记为 "未匹配台账"。
+ */
+export function matchFilter(
+  r: MeituanRow,
+  f: MeituanFilter,
+  storeMap?: Map<string, StoreInfoLike>
+): boolean {
   const d = rowDate(r);
   if (f.from && d < f.from) return false;
   if (f.to && d > f.to) return false;
   if (f.province && String(r[COL.province] ?? '') !== f.province) return false;
   if (f.city && String(r[COL.city] ?? '') !== f.city) return false;
   if (f.store && !rowStoreName(r).toLowerCase().includes(f.store.toLowerCase())) return false;
+  if (f.businessStatus) {
+    const status = storeMap?.get(rowStoreId(r))?.business_status ?? '未匹配台账';
+    if (status !== f.businessStatus) return false;
+  }
   return true;
 }
 
@@ -224,6 +248,7 @@ export interface RankItem {
   name: string;
   city?: string;
   province?: string;
+  status?: string | null;
   sales: number;
   orders: number;
   exposure: number;
@@ -247,6 +272,13 @@ export interface ServiceQuality {
   goodRate: number; // 新增好评 / 新增评价
   newBad: number;
   newReviews: number;
+}
+
+/** 门店营业状态分布（基于"有数据的门店"统计） */
+export interface StoreStatusStat {
+  status: string;
+  stores: number;
+  sales: number;
 }
 
 export interface RegionHierarchy {
@@ -276,6 +308,7 @@ export interface MeituanAggregate {
   bottomStores: RankItem[];
   cities: CitySummary[];
   service: ServiceQuality;
+  storeStatus: StoreStatusStat[];
   meta: {
     rowCount: number;
     storeCount: number;
@@ -306,13 +339,15 @@ function kpiDelta(curr: KpiSet, prev: KpiSet, key: keyof KpiSet): KpiWithDelta {
 /**
  * 对一组"已按本期筛选"的行做完整聚合。
  * prevRows 为"上一周期"的行（同样已按上期筛选），用于算环比；可为空。
+ * storeMap 为门店ID -> 台账信息，用于给排行附状态、统计营业状态分布；不传则不做状态相关聚合。
  */
 export function aggregate(
   rows: MeituanRow[],
   prevRows: MeituanRow[],
   range: { from: string; to: string },
   prevRange: { from: string; to: string } | null,
-  regionTree: Record<string, Record<string, string[]>> = {}
+  regionTree: Record<string, Record<string, string[]>> = {},
+  storeMap?: Map<string, StoreInfoLike>
 ): MeituanAggregate {
   const kpi = sumKpi(rows);
   const prevKpi = sumKpi(prevRows);
@@ -383,6 +418,7 @@ export function aggregate(
         name,
         city: String(r[COL.city] ?? ''),
         province: String(r[COL.province] ?? ''),
+        status: storeMap?.get(rowStoreId(r))?.business_status ?? null,
         sales: 0,
         orders: 0,
         exposure: 0,
@@ -478,6 +514,36 @@ export function aggregate(
     newReviews,
   };
 
+  // 门店营业状态分布：按"有数据的去重门店"统计门店数与核销金额。
+  // 一个门店可能多行（多天/多记录），以门店名为 key 聚合，状态取台账；未匹配记为"未匹配台账"。
+  const statusMap = new Map<string, { stores: Set<string>; sales: number }>();
+  if (storeMap) {
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const name = rowStoreName(r);
+      if (!name) continue;
+      const status = storeMap.get(rowStoreId(r))?.business_status ?? '未匹配台账';
+      const sales = toNumber(r[COL.redeemAmount]);
+      const cur = statusMap.get(status) ?? { stores: new Set<string>(), sales: 0 };
+      cur.sales += sales;
+      cur.stores.add(name);
+      statusMap.set(status, cur);
+      seen.add(name);
+    }
+  }
+  const STATUS_ORDER = ['正常营业', '暂停营业', '永久关闭', '未匹配台账'];
+  const storeStatus: StoreStatusStat[] = [...statusMap.entries()]
+    .map(([status, v]) => ({
+      status,
+      stores: v.stores.size,
+      sales: Math.round(v.sales * 100) / 100,
+    }))
+    .sort((a, b) => {
+      const ia = STATUS_ORDER.indexOf(a.status);
+      const ib = STATUS_ORDER.indexOf(b.status);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+
   // 元信息
   const storeSet = new Set<string>();
   const provSet = new Set<string>();
@@ -507,6 +573,7 @@ export function aggregate(
     bottomStores,
     cities,
     service,
+    storeStatus,
     meta: {
       rowCount: rows.length,
       storeCount: storeSet.size,

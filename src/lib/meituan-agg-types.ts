@@ -32,6 +32,7 @@ export interface RankItem {
   name: string;
   city?: string;
   province?: string;
+  status?: string | null;
   sales: number;
   orders: number;
   exposure: number;
@@ -57,6 +58,16 @@ export interface ServiceQuality {
   newReviews: number;
 }
 
+/** 门店营业状态分布（基于台账中"有数据的门店"统计） */
+export interface StoreStatusStat {
+  /** 营业状态文案，如 "正常营业" / "永久关闭" / "暂停营业" / "未匹配台账" */
+  status: string;
+  /** 该状态下有经营数据的门店数 */
+  stores: number;
+  /** 该状态门店的核销金额 */
+  sales: number;
+}
+
 export interface MeituanAggregate {
   kpi: {
     sales: KpiWithDelta;
@@ -79,6 +90,8 @@ export interface MeituanAggregate {
   bottomStores: RankItem[];
   cities: CitySummary[];
   service: ServiceQuality;
+  /** 按门店营业状态的分布统计 */
+  storeStatus: StoreStatusStat[];
   meta: {
     rowCount: number;
     storeCount: number;
@@ -104,6 +117,7 @@ export interface MeituanRowLite {
   city: string;
   store: string;
   storeId: string;
+  status: string;
   exposure: number;
   visits: number;
   orders: number;

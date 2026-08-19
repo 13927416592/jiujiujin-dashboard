@@ -8,6 +8,7 @@ import {
   type MeituanFilter,
 } from '@/lib/meituan-agg';
 import { getMeituanSnapshots } from '@/lib/meituan-cache';
+import { getMeituanStoreMap } from '@/lib/meituan-store-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,12 +16,13 @@ export const dynamic = 'force-dynamic';
  * 美团看板聚合接口（服务端聚合，前端不再对截断明细做求和）。
  *
  * 查询参数（均可选）：
- *   from / to   日期范围 YYYY-MM-DD（默认最近30天，按库里最新日期回看）
- *   province    省份
- *   city        城市
- *   store       门店名称关键字
+ *   from / to        日期范围 YYYY-MM-DD（默认最近30天，按库里最新日期回看）
+ *   province         省份
+ *   city             城市
+ *   store            门店名称关键字
+ *   business_status  营业状态（正常营业/暂停营业/永久关闭/未匹配台账）
  *
- * 返回 KPI（含环比）、漏斗、趋势、ROI、门店排行、城市汇总、服务质量与筛选元信息。
+ * 返回 KPI（含环比）、漏斗、趋势、ROI、门店排行、城市汇总、服务质量、门店状态分布与筛选元信息。
  * 明细走分页接口 /api/meituan-rows。
  */
 export async function GET(request: Request) {
@@ -31,6 +33,7 @@ export async function GET(request: Request) {
     const province = searchParams.get('province') || '';
     const city = searchParams.get('city') || '';
     const store = searchParams.get('store') || '';
+    const businessStatus = searchParams.get('business_status') || '';
 
     // 取最近 90 天快照（覆盖 30 天本期 + 30 天环比期），带内存缓存
     const snapshots = await getMeituanSnapshots();
@@ -40,6 +43,9 @@ export async function GET(request: Request) {
         { status: 404 }
       );
     }
+
+    // 门店台账（ID -> 信息），用于营业状态筛选与状态分布；带缓存
+    const storeMap = await getMeituanStoreMap();
 
     const allDates = snapshots.map((s) => s.data_date).sort();
     const maxDate = allDates[allDates.length - 1];
@@ -59,10 +65,10 @@ export async function GET(request: Request) {
     // 行政区划树基于全量数据构建（不受省/市筛选影响），供前端三级联动下拉
     const regionTree = buildRegionTree(allRows);
 
-    const curFilter: MeituanFilter = { from, to, province, city, store };
-    const curRows = allRows.filter((r) => matchFilter(r, curFilter));
+    const curFilter: MeituanFilter = { from, to, province, city, store, businessStatus };
+    const curRows = allRows.filter((r) => matchFilter(r, curFilter, storeMap));
 
-    // 上一周期：与本期等长、紧邻本期之前
+    // 上一周期：与本期等长、紧邻本期之前（环比口径与本期相同，含营业状态筛选）
     const prevRange = computePrevRange(from, to);
     const prevFilter: MeituanFilter = {
       from: prevRange.from,
@@ -70,8 +76,9 @@ export async function GET(request: Request) {
       province,
       city,
       store,
+      businessStatus,
     };
-    const prevRows = allRows.filter((r) => matchFilter(r, prevFilter));
+    const prevRows = allRows.filter((r) => matchFilter(r, prevFilter, storeMap));
 
     // 如果上期没有任何数据（首次导入只有30天且选择全部），不强行算环比
     const hasPrev = prevRows.length > 0;
@@ -80,7 +87,8 @@ export async function GET(request: Request) {
       hasPrev ? prevRows : [],
       { from, to },
       hasPrev ? prevRange : null,
-      regionTree
+      regionTree,
+      storeMap
     );
 
     return NextResponse.json({
