@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     const sortKey = SORTABLE[searchParams.get('sort') || 'date'] ?? COL.date;
     const order = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
-    const snapshots = await getMeituanSnapshots();
+    const { snapshots } = await getMeituanSnapshots();
     if (snapshots.length === 0) {
       return NextResponse.json({ success: false, error: '暂无美团数据' }, { status: 404 });
     }

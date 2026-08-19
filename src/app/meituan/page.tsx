@@ -70,6 +70,7 @@ export default function MeituanPage() {
   const [agg, setAgg] = useState<MeituanAggregate | null>(null);
   const [latestDate, setLatestDate] = useState('');
   const [loadingAgg, setLoadingAgg] = useState(true);
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState('');
 
   const [filters, setFilters] = useState<Filters>({
@@ -119,6 +120,7 @@ export default function MeituanPage() {
       if (result.success && result.data) {
         setAgg(result.data);
         setLatestDate(result.latest_date ?? '');
+        setStale(!!result.stale);
       } else {
         setError(result.error || '数据加载失败');
       }
@@ -162,6 +164,7 @@ export default function MeituanPage() {
         ]);
         if (aggRes.success && aggRes.data) {
           setAgg(aggRes.data);
+          setStale(!!aggRes.stale);
           const latest = aggRes.latest_date ?? aggRes.data.meta.dateRange.to;
           setLatestDate(latest);
           // 用接口实际采用的范围回填筛选器
@@ -404,6 +407,12 @@ export default function MeituanPage() {
         {error && (
           <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300">
             加载失败：{error}
+          </div>
+        )}
+
+        {stale && !error && (
+          <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            数据服务暂时不可用，当前展示的是最近一次成功加载的缓存数据，可能不是最新。系统会在后台自动重试。
           </div>
         )}
 

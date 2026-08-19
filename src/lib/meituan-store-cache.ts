@@ -30,7 +30,25 @@ interface StoreCache {
 }
 
 let cache: StoreCache | null = null;
-let inflight: Promise<StoreCache> | null = null;
+let inflight: Promise<Map<string, MeituanStoreInfo>> | null = null;
+
+/** 有限次重试，抵御 Supabase 网关瞬时抖动 */
+async function withRetry<T>(
+  fn: () => Promise<T> | PromiseLike<T>,
+  retries = 2,
+  delayMs = 400
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
 
 async function fetchStores(): Promise<StoreCache> {
   const client = getSupabaseClient();
@@ -71,31 +89,44 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
     return cache.byId;
   }
 
-  if (inflight) return (await inflight).byId;
+  if (inflight) return inflight;
 
   inflight = (async () => {
     try {
       // 过期后简单指纹校验：数量一致就认为没变（台账全量导入，数量变化是可靠信号）
       if (cache) {
         const client = getSupabaseClient();
-        const { count } = await client
-          .from('meituan_stores')
-          .select('*', { count: 'exact', head: true });
-        const fingerprint = `count:${count ?? 0}`;
+        const countResult = await withRetry<{ count: number | null }>(() =>
+          client
+            .from('meituan_stores')
+            .select('*', { count: 'exact', head: true })
+            .then((res) => ({ count: res.count }))
+        );
+        const fingerprint = `count:${countResult.count ?? 0}`;
         if (fingerprint === cache.fingerprint) {
           cache.savedAt = now;
-          return cache;
+          return cache.byId;
         }
       }
-      const fresh = await fetchStores();
+      const fresh = await withRetry(fetchStores);
       cache = fresh;
-      return fresh;
+      return fresh.byId;
+    } catch (err) {
+      // 上游瞬时不可用：有旧台账就降级继续用，避免整个看板 500
+      if (cache) {
+        console.warn(
+          '[meituan-store-cache] 刷新门店台账失败，降级使用旧缓存:',
+          err instanceof Error ? err.message : String(err)
+        );
+        return cache.byId;
+      }
+      throw err;
     } finally {
       inflight = null;
     }
   })();
 
-  return (await inflight).byId;
+  return inflight;
 }
 
 /** 台账导入后主动失效 */

@@ -108,6 +108,8 @@ export interface MeituanDataResponse {
   data?: MeituanAggregate;
   latest_date?: string;
   available_dates?: string[];
+  /** true 表示上游不可用，返回的是旧缓存数据（可能不是最新） */
+  stale?: boolean;
   error?: string;
 }
 

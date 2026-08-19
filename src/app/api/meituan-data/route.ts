@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const businessStatus = searchParams.get('business_status') || '';
 
     // 取最近 90 天快照（覆盖 30 天本期 + 30 天环比期），带内存缓存
-    const snapshots = await getMeituanSnapshots();
+    const { snapshots, stale } = await getMeituanSnapshots();
     if (snapshots.length === 0) {
       return NextResponse.json(
         { success: false, error: '暂无美团数据，请先在本地运行导出并上传' },
@@ -96,6 +96,8 @@ export async function GET(request: Request) {
       data: result,
       latest_date: maxDate,
       available_dates: allDates,
+      // 上游不可用时降级返回旧缓存，提示前端数据可能不是最新
+      stale,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
