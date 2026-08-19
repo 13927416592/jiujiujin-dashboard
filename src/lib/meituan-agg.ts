@@ -249,6 +249,11 @@ export interface ServiceQuality {
   newReviews: number;
 }
 
+export interface RegionHierarchy {
+  /** 省份 -> 城市 -> 门店名列表 */
+  tree: Record<string, Record<string, string[]>>;
+}
+
 export interface MeituanAggregate {
   kpi: {
     sales: KpiWithDelta;
@@ -278,6 +283,8 @@ export interface MeituanAggregate {
     prevRange: { from: string; to: string } | null;
     provinces: string[];
     cities: string[];
+    /** 省->市->门店名 三级层级，用于前端级联下拉 */
+    regionTree: Record<string, Record<string, string[]>>;
   };
 }
 
@@ -304,7 +311,8 @@ export function aggregate(
   rows: MeituanRow[],
   prevRows: MeituanRow[],
   range: { from: string; to: string },
-  prevRange: { from: string; to: string } | null
+  prevRange: { from: string; to: string } | null,
+  regionTree: Record<string, Record<string, string[]>> = {}
 ): MeituanAggregate {
   const kpi = sumKpi(rows);
   const prevKpi = sumKpi(prevRows);
@@ -506,8 +514,35 @@ export function aggregate(
       prevRange,
       provinces: [...provSet].sort((a, b) => a.localeCompare(b, 'zh-CN')),
       cities: [...citySet].sort((a, b) => a.localeCompare(b, 'zh-CN')),
+      regionTree,
     },
   };
+}
+
+/**
+ * 构建 省 -> 市 -> 门店名列表 的行政区划层级，用于前端三级联动下拉。
+ * 应基于"未按省/市/门店筛选"的全量行调用，保证下拉选项完整。
+ */
+export function buildRegionTree(rows: MeituanRow[]): Record<string, Record<string, string[]>> {
+  const tree: Record<string, Record<string, Set<string>>> = {};
+  for (const r of rows) {
+    const p = String(r[COL.province] ?? '').trim();
+    const c = String(r[COL.city] ?? '').trim();
+    const s = rowStoreName(r);
+    if (!p || !c || !s) continue;
+    if (!tree[p]) tree[p] = {};
+    if (!tree[p][c]) tree[p][c] = new Set<string>();
+    tree[p][c].add(s);
+  }
+  // Set -> sorted array
+  const result: Record<string, Record<string, string[]>> = {};
+  for (const p of Object.keys(tree).sort((a, b) => a.localeCompare(b, 'zh-CN'))) {
+    result[p] = {};
+    for (const c of Object.keys(tree[p]).sort((a, b) => a.localeCompare(b, 'zh-CN'))) {
+      result[p][c] = [...tree[p][c]].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    }
+  }
+  return result;
 }
 
 /**

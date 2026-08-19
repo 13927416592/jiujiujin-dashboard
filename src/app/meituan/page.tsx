@@ -8,7 +8,6 @@ import {
   DollarSign,
   Star,
   Eye,
-  Search,
   FilterX,
   ChevronLeft,
   ChevronRight,
@@ -90,10 +89,6 @@ export default function MeituanPage() {
 
   // 初始挂载标志：首次无参请求由接口默认给近30天，返回后再回填日期范围，避免"要日期才请求、要请求才有日期"的死锁
   const initialized = useRef(false);
-
-  // 已知的省/市（来自数据）
-  const provinces = agg?.meta.provinces ?? [];
-  const knownCities = agg?.meta.cities ?? [];
 
   const buildQuery = useCallback(
     (extra?: Record<string, string>): string => {
@@ -230,6 +225,26 @@ export default function MeituanPage() {
 
   const totalPages = Math.ceil(totalRows / pageSize);
 
+  // 三级级联：省 -> 市 -> 门店，选项来自全量 regionTree（不受筛选影响）
+  const regionTree = agg?.meta.regionTree ?? {};
+  const provinceOptions = useMemo(
+    () => Object.keys(regionTree).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [regionTree]
+  );
+  const cityOptions = useMemo(() => {
+    if (!filters.province) return [];
+    return Object.keys(regionTree[filters.province] ?? {}).sort((a, b) =>
+      a.localeCompare(b, 'zh-CN')
+    );
+  }, [regionTree, filters.province]);
+  const storeOptions = useMemo(() => {
+    if (!filters.province || !filters.city) return [];
+    return regionTree[filters.province]?.[filters.city] ?? [];
+  }, [regionTree, filters.province, filters.city]);
+
+  const selectClass =
+    'h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#7C5CFF] max-w-[180px]';
+
   const rangeLabel = useMemo(() => {
     if (!agg) return '';
     return `${agg.meta.dateRange.from} ~ ${agg.meta.dateRange.to}`;
@@ -291,13 +306,13 @@ export default function MeituanPage() {
               <select
                 value={filters.province}
                 onChange={(e) => {
-                  setFilters((f) => ({ ...f, province: e.target.value, city: '' }));
+                  setFilters((f) => ({ ...f, province: e.target.value, city: '', store: '' }));
                   setPage(1);
                 }}
-                className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#7C5CFF]"
+                className={selectClass}
               >
                 <option value="">全部省份</option>
-                {provinces.map((p) => (
+                {provinceOptions.map((p) => (
                   <option key={p} value={p} className="bg-[#0e1326]">
                     {p}
                   </option>
@@ -307,33 +322,36 @@ export default function MeituanPage() {
               <select
                 value={filters.city}
                 onChange={(e) => {
-                  setFilters((f) => ({ ...f, city: e.target.value }));
+                  setFilters((f) => ({ ...f, city: e.target.value, store: '' }));
                   setPage(1);
                 }}
-                className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#7C5CFF]"
+                disabled={!filters.province}
+                className={`${selectClass} disabled:cursor-not-allowed disabled:opacity-40`}
               >
-                <option value="">全部城市</option>
-                {knownCities
-                  .filter((c) => !filters.province || true)
-                  .map((c) => (
-                    <option key={c} value={c} className="bg-[#0e1326]">
-                      {c}
-                    </option>
-                  ))}
+                <option value="">{filters.province ? '全部城市' : '请先选省份'}</option>
+                {cityOptions.map((c) => (
+                  <option key={c} value={c} className="bg-[#0e1326]">
+                    {c}
+                  </option>
+                ))}
               </select>
 
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9AA7C7]" />
-                <Input
-                  value={filters.store}
-                  onChange={(e) => {
-                    setFilters((f) => ({ ...f, store: e.target.value }));
-                    setPage(1);
-                  }}
-                  placeholder="搜索门店名称"
-                  className="h-9 w-48 border-white/10 bg-white/5 pl-8 text-sm text-white placeholder:text-[#9AA7C7]"
-                />
-              </div>
+              <select
+                value={filters.store}
+                onChange={(e) => {
+                  setFilters((f) => ({ ...f, store: e.target.value }));
+                  setPage(1);
+                }}
+                disabled={!filters.city}
+                className={`${selectClass} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                <option value="">{filters.city ? '全部门店' : '请先选城市'}</option>
+                {storeOptions.map((s) => (
+                  <option key={s} value={s} className="bg-[#0e1326]">
+                    {s}
+                  </option>
+                ))}
+              </select>
 
               <Button
                 variant="ghost"

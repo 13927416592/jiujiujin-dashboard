@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   aggregate,
+  buildRegionTree,
   collectAllRows,
   computePrevRange,
   matchFilter,
@@ -55,6 +56,8 @@ export async function GET(request: Request) {
     }
 
     const allRows = collectAllRows(snapshots);
+    // 行政区划树基于全量数据构建（不受省/市筛选影响），供前端三级联动下拉
+    const regionTree = buildRegionTree(allRows);
 
     const curFilter: MeituanFilter = { from, to, province, city, store };
     const curRows = allRows.filter((r) => matchFilter(r, curFilter));
@@ -76,7 +79,8 @@ export async function GET(request: Request) {
       curRows,
       hasPrev ? prevRows : [],
       { from, to },
-      hasPrev ? prevRange : null
+      hasPrev ? prevRange : null,
+      regionTree
     );
 
     return NextResponse.json({

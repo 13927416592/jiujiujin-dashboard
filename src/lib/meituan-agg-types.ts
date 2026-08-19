@@ -86,6 +86,7 @@ export interface MeituanAggregate {
     prevRange: { from: string; to: string } | null;
     provinces: string[];
     cities: string[];
+    regionTree: Record<string, Record<string, string[]>>;
   };
 }
 
