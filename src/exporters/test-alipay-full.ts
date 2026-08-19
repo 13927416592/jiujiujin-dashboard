@@ -68,8 +68,10 @@ async function main(): Promise<void> {
   }
 
   // 显式退出：Playwright/网络/stdin 可能残留句柄导致事件循环不退出
-  // （尤其 launchd 定时任务，必须保证进程结束）。给 stdout 一点时间 flush。
-  setTimeout(() => process.exit(0), 300);
+  // （尤其 launchd 定时任务，必须保证进程结束）。
+  // 延迟 1500ms：给 Chrome 持久化 profile 的 Cookie 磁盘 flush 留出时间，
+  // 避免刚保存的登录态还没落盘就被强杀。
+  setTimeout(() => process.exit(0), 1500);
 }
 
 main().catch((err: unknown) => {

@@ -492,8 +492,9 @@ export class MeituanExporter {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      // 失败也尝试保存一次 Cookie（可能是半登录态，便于排查）
-      await this.saveCookies().catch(() => undefined);
+      // 失败时【仅当仍处于商家后台登录态】才刷新 Cookie 存档，
+      // 避免被重定向到登录页后把失效 Cookie 存盘、污染下次免登录。
+      await this.saveCookiesIfLoggedIn().catch(() => undefined);
       return {
         success: false,
         platform: 'meituan',
@@ -1241,6 +1242,26 @@ export class MeituanExporter {
     console.log(
       `🍪 Cookie 已保存（${cookies.length} 个，其中美团/点评 ${mtNames.length} 个已设为持久化并回写浏览器）`
     );
+  }
+
+  /**
+   * 判断当前是否仍在美团/点评商家后台（登录态）。
+   * 用于失败时决定是否刷新 Cookie 存档，避免把登录页的失效 Cookie 写盘。
+   */
+  private async isLoggedInContext(): Promise<boolean> {
+    if (!this.page) return false;
+    const url = this.page.url();
+    if (!/(dianping\.com|meituan\.com|maoyan\.com|meituan\.net)/i.test(url)) return false;
+    if (/(login|passport|sign[-_]?in|account\/login)/i.test(url)) return false;
+    return true;
+  }
+
+  private async saveCookiesIfLoggedIn(): Promise<void> {
+    if (await this.isLoggedInContext()) {
+      await this.saveCookies();
+    } else {
+      console.warn('⚠️  当前处于非登录态页面，跳过 Cookie 存档以保护既有登录态');
+    }
   }
 
   private toPersistedCookie(
