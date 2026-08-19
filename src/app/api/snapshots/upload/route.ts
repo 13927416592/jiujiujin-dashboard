@@ -5,6 +5,7 @@ import {
   type Platform,
 } from '@/storage/database/snapshot-repo';
 import { gunzipSync } from 'node:zlib';
+import { invalidateMeituanCache } from '@/lib/meituan-cache';
 
 /**
  * 平台数据上传接口
@@ -128,22 +129,33 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // 5. 写入数据库（按 platform+data_date upsert；批量用一次请求）
   try {
+    let result: unknown;
     if (toSave.length === 1) {
-      const saved = await saveSnapshot(toSave[0]);
+      result = await saveSnapshot(toSave[0]);
+    } else {
+      const count = await saveSnapshots(toSave);
+      result = { count };
+    }
+
+    // 写入成功后失效对应平台的看板缓存，下次读取立即拉新
+    if (platform === 'meituan') invalidateMeituanCache();
+
+    if (toSave.length === 1) {
+      const saved = result as { id: number; data_date: string };
       return NextResponse.json({
         success: true,
         id: saved.id,
-        platform: saved.platform,
+        platform,
         data_date: saved.data_date,
         count: 1,
       });
     }
 
-    const count = await saveSnapshots(toSave);
+    const c = result as { count: number };
     return NextResponse.json({
       success: true,
       platform,
-      count,
+      count: c.count,
       dates: toSave.map((s) => s.data_date),
     });
   } catch (err) {

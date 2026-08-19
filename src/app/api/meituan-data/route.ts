@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getLatestSnapshots } from '@/storage/database/snapshot-repo';
 import {
   aggregate,
   collectAllRows,
@@ -7,6 +6,7 @@ import {
   matchFilter,
   type MeituanFilter,
 } from '@/lib/meituan-agg';
+import { getMeituanSnapshots } from '@/lib/meituan-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,8 +31,8 @@ export async function GET(request: Request) {
     const city = searchParams.get('city') || '';
     const store = searchParams.get('store') || '';
 
-    // 取最近 90 天快照（覆盖 30 天本期 + 30 天环比期；后续历史更长可调大）
-    const snapshots = await getLatestSnapshots('meituan', 90);
+    // 取最近 90 天快照（覆盖 30 天本期 + 30 天环比期），带内存缓存
+    const snapshots = await getMeituanSnapshots();
     if (snapshots.length === 0) {
       return NextResponse.json(
         { success: false, error: '暂无美团数据，请先在本地运行导出并上传' },

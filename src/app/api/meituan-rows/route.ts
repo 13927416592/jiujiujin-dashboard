@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getLatestSnapshots } from '@/storage/database/snapshot-repo';
 import {
   COL,
   collectAllRows,
@@ -9,6 +8,7 @@ import {
   type MeituanFilter,
   type MeituanRow,
 } from '@/lib/meituan-agg';
+import { getMeituanSnapshots } from '@/lib/meituan-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     const sortKey = SORTABLE[searchParams.get('sort') || 'date'] ?? COL.date;
     const order = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
-    const snapshots = await getLatestSnapshots('meituan', 90);
+    const snapshots = await getMeituanSnapshots();
     if (snapshots.length === 0) {
       return NextResponse.json({ success: false, error: '暂无美团数据' }, { status: 404 });
     }
