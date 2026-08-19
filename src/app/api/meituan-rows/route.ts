@@ -67,7 +67,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: '暂无美团数据' }, { status: 404 });
     }
 
-    const storeMap = await getMeituanStoreMap();
+    // 门店台账仅用于状态列展示；台账接口故障时不应拖垮明细查询，降级为空映射
+    let storeMap = new Map<string, { business_status: string | null }>();
+    try {
+      storeMap = await getMeituanStoreMap();
+    } catch (err) {
+      console.warn(
+        '[meituan-rows] 门店台账加载失败，降级不展示状态列:',
+        err instanceof Error ? err.message : String(err)
+      );
+    }
     const allRows = collectAllRows(snapshots);
     const filter: MeituanFilter = {
       from: from || undefined,

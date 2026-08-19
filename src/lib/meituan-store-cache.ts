@@ -113,7 +113,9 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
       cache = fresh;
       return fresh.byId;
     } catch (err) {
-      // 上游瞬时不可用：有旧台账就降级继续用，避免整个看板 500
+      // 台账属于「锦上添花」（营业状态展示/筛选），绝不能拖垮核心看板：
+      // - 有旧台账就降级继续用；
+      // - 首次加载且上游不可用，返回空映射（状态列显示"未匹配台账"），而不是抛错让整个页面 500。
       if (cache) {
         console.warn(
           '[meituan-store-cache] 刷新门店台账失败，降级使用旧缓存:',
@@ -121,7 +123,11 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
         );
         return cache.byId;
       }
-      throw err;
+      console.warn(
+        '[meituan-store-cache] 门店台账不可用，降级为空映射:',
+        err instanceof Error ? err.message : String(err)
+      );
+      return new Map<string, MeituanStoreInfo>();
     } finally {
       inflight = null;
     }

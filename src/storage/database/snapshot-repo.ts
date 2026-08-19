@@ -46,6 +46,40 @@ async function withWriteRetry<T>(
   throw lastErr;
 }
 
+/**
+ * 读操作重试：Supabase 网关 502/503/超时等瞬时错误既可能表现为 reject，
+ * 也可能表现为 { error } 返回值，这里统一转成 throw 后再做有限次重试。
+ */
+async function withReadRetry<T>(
+  fn: () => PromiseLike<{ data: T; error: { message: string } | null }>,
+  retries = 2,
+  baseDelayMs = 500
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { data, error } = await fn();
+      if (error) throw new Error(error.message);
+      return data;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient =
+        /invalid response from the upstream|timeout|aborted|network|fetch failed|502|503|504|ECONNRESET|ETIMEDOUT/i.test(
+          msg
+        );
+      if (!transient || attempt === retries) break;
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.warn(
+        `[snapshot-repo] 读取遇到瞬时错误，${delay}ms 后重试(${attempt + 1}/${retries}):`,
+        msg
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 export interface PlatformSnapshot {
   id: number;
   platform: Platform;
@@ -110,21 +144,18 @@ export async function saveSnapshot(
 export async function getLatestSnapshot(
   platform: Platform
 ): Promise<PlatformSnapshot | null> {
-  const client = getSupabaseClient();
+  const data = await withReadRetry<PlatformSnapshot | null>(async () => {
+    const { data, error } = await getSupabaseClient()
+      .from('platform_snapshots')
+      .select('*')
+      .eq('platform', platform)
+      .order('data_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return { data: (data as PlatformSnapshot | null) ?? null, error };
+  });
 
-  const { data, error } = await client
-    .from('platform_snapshots')
-    .select('*')
-    .eq('platform', platform)
-    .order('data_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`读取平台快照失败: ${error.message}`);
-  }
-
-  return (data as PlatformSnapshot | null) ?? null;
+  return data ?? null;
 }
 
 /**
@@ -134,20 +165,17 @@ export async function getRecentSnapshots(
   platform: Platform,
   limit = 30
 ): Promise<PlatformSnapshot[]> {
-  const client = getSupabaseClient();
+  const data = await withReadRetry<PlatformSnapshot[]>(async () => {
+    const { data, error } = await getSupabaseClient()
+      .from('platform_snapshots')
+      .select('id, platform, data_date, fetched_at, source, summary, created_at')
+      .eq('platform', platform)
+      .order('data_date', { ascending: false })
+      .limit(limit);
+    return { data: (data as PlatformSnapshot[] | null) ?? [], error };
+  });
 
-  const { data, error } = await client
-    .from('platform_snapshots')
-    .select('id, platform, data_date, fetched_at, source, summary, created_at')
-    .eq('platform', platform)
-    .order('data_date', { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    throw new Error(`读取平台快照列表失败: ${error.message}`);
-  }
-
-  return (data as PlatformSnapshot[] | null) ?? [];
+  return data ?? [];
 }
 
 /**
@@ -157,21 +185,17 @@ export async function getLatestSnapshots(
   platform: Platform,
   limit = 30
 ): Promise<PlatformSnapshot[]> {
-  const client = getSupabaseClient();
+  const list = await withReadRetry<PlatformSnapshot[]>(async () => {
+    const { data, error } = await getSupabaseClient()
+      .from('platform_snapshots')
+      .select('*')
+      .eq('platform', platform)
+      .order('data_date', { ascending: false })
+      .limit(limit);
+    return { data: (data as PlatformSnapshot[] | null) ?? [], error };
+  });
 
-  const { data, error } = await client
-    .from('platform_snapshots')
-    .select('*')
-    .eq('platform', platform)
-    .order('data_date', { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    throw new Error(`读取平台快照列表失败: ${error.message}`);
-  }
-
-  const list = (data as PlatformSnapshot[] | null) ?? [];
-  return list.sort((a, b) => a.data_date.localeCompare(b.data_date));
+  return (list ?? []).sort((a, b) => a.data_date.localeCompare(b.data_date));
 }
 
 /**

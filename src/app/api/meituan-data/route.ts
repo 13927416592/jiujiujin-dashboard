@@ -44,8 +44,26 @@ export async function GET(request: Request) {
       );
     }
 
-    // 门店台账（ID -> 信息），用于营业状态筛选与状态分布；带缓存
-    const storeMap = await getMeituanStoreMap();
+    // 门店台账（ID -> 信息），用于营业状态筛选与状态分布；带缓存。
+    // 台账接口故障时不拖垮核心看板：未选营业状态筛选则降级为空台账，
+    // 仅在用户明确按状态筛选时才返回错误（因为没有台账无法正确过滤）。
+    let storeMap = new Map<string, { business_status: string | null }>();
+    let storeLedgerError = false;
+    try {
+      storeMap = await getMeituanStoreMap();
+    } catch (err) {
+      storeLedgerError = true;
+      console.warn(
+        '[meituan-data] 门店台账加载失败，降级不展示状态分布:',
+        err instanceof Error ? err.message : String(err)
+      );
+      if (businessStatus) {
+        return NextResponse.json(
+          { success: false, error: '门店台账暂不可用，无法按营业状态筛选，请稍后重试' },
+          { status: 503 }
+        );
+      }
+    }
 
     const allDates = snapshots.map((s) => s.data_date).sort();
     const maxDate = allDates[allDates.length - 1];
