@@ -1,7 +1,7 @@
 import { chromium, BrowserContext, Page, Frame, ElementHandle } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import { parseMeituanWorkbook, type MeituanRow } from './meituan-parser';
 import { ExportResult, ExportConfig, RawData, UnifiedMetrics } from './types';
 
 export interface MeituanExportConfig extends ExportConfig {
@@ -55,10 +55,6 @@ export const DEFAULT_MEITUAN_CONFIG: Required<
   reportCardName: '久久金美团经营数据',
   daysToDownload: 1,
 };
-
-interface MeituanReportRow {
-  [key: string]: string | number;
-}
 
 /** 判断某个 Cookie 域名是否属于美团/点评系 */
 function isMeituanDomain(domain: string): boolean {
@@ -496,8 +492,9 @@ export class MeituanExporter {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      // 失败也尝试保存一次 Cookie（可能是半登录态，便于排查）
-      await this.saveCookies().catch(() => undefined);
+      // 失败时【仅当仍处于商家后台登录态】才刷新 Cookie 存档，
+      // 避免被重定向到登录页后把失效 Cookie 存盘、污染下次免登录。
+      await this.saveCookiesIfLoggedIn().catch(() => undefined);
       return {
         success: false,
         platform: 'meituan',
@@ -1208,15 +1205,9 @@ export class MeituanExporter {
     }
   }
 
-  private parseExcel(filePath: string): MeituanReportRow[] {
-    const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) {
-      throw new Error(`Excel 文件中未找到工作表：${sheetName}`);
-    }
-    const data = XLSX.utils.sheet_to_json<MeituanReportRow>(worksheet);
-    return data;
+  private parseExcel(filePath: string): MeituanRow[] {
+    // 双行表头语义化解析：维度列 + 指标(单位) + <指标>__环比，全量保留
+    return parseMeituanWorkbook(filePath);
   }
 
   /**
@@ -1251,6 +1242,26 @@ export class MeituanExporter {
     console.log(
       `🍪 Cookie 已保存（${cookies.length} 个，其中美团/点评 ${mtNames.length} 个已设为持久化并回写浏览器）`
     );
+  }
+
+  /**
+   * 判断当前是否仍在美团/点评商家后台（登录态）。
+   * 用于失败时决定是否刷新 Cookie 存档，避免把登录页的失效 Cookie 写盘。
+   */
+  private async isLoggedInContext(): Promise<boolean> {
+    if (!this.page) return false;
+    const url = this.page.url();
+    if (!/(dianping\.com|meituan\.com|maoyan\.com|meituan\.net)/i.test(url)) return false;
+    if (/(login|passport|sign[-_]?in|account\/login)/i.test(url)) return false;
+    return true;
+  }
+
+  private async saveCookiesIfLoggedIn(): Promise<void> {
+    if (await this.isLoggedInContext()) {
+      await this.saveCookies();
+    } else {
+      console.warn('⚠️  当前处于非登录态页面，跳过 Cookie 存档以保护既有登录态');
+    }
   }
 
   private toPersistedCookie(

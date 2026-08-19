@@ -272,7 +272,7 @@ export class AlipayExporter {
       fs.writeFileSync(filePath, JSON.stringify(fullData, null, 2), 'utf-8');
       console.log(`\n💾 数据已保存：${filePath}`);
 
-      // 保存最新 Cookie
+      // 保存最新 Cookie（成功路径下当前必然处于登录态）
       await this.saveCookies();
 
       return {
@@ -286,8 +286,11 @@ export class AlipayExporter {
       const message = error instanceof Error ? error.message : String(error);
       console.error('\n❌ 支付宝导出失败：', message);
 
-      // 失败时也尝试保存 Cookie（便于下次复用）
-      await this.saveCookies().catch(() => undefined);
+      // 失败时【仅当仍处于登录态】才刷新 Cookie 存档。
+      // 关键修复：若中途被支付宝重定向到登录页，浏览器里的 ALIPAYJSESSIONID/auth_jwt
+      // 已被服务端失效，此时若无条件 saveCookies，会用未登录态的坏 Cookie 覆盖之前
+      // 有效的会话存档，导致第二天定时任务必然要重新登录（雪球式失效）。
+      await this.saveCookiesIfLoggedIn().catch(() => undefined);
 
       return {
         success: false,
@@ -1350,6 +1353,32 @@ export class AlipayExporter {
     const alipayNames = cookies.filter((c) => c.domain.includes('alipay.com')).map((c) => c.name);
     console.log(`🍪 Cookie 已保存（${cookies.length} 个，其中支付宝 ${alipayNames.length} 个已设为持久化并回写浏览器）`);
     console.log(`   🔑 支付宝 Cookie: ${alipayNames.join(', ')}`);
+  }
+
+  /**
+   * 判断当前浏览器是否仍处于支付宝登录态。
+   * 用于决定失败时是否刷新 Cookie 存档——避免把"被踢到登录页后的坏 Cookie"存盘。
+   */
+  private async isLoggedInContext(): Promise<boolean> {
+    if (!this.page) return false;
+    const url = this.page.url();
+    if (!/b\.alipay\.com/.test(url)) return false;
+    if (/(login|passport|sign[-_]?in|select-identity|select-account|appScene=)/i.test(url)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 仅当当前仍处于登录态时才保存 Cookie。
+   * 抓取中途被重定向到登录页/选择身份页时调用，保护既有有效存档不被污染。
+   */
+  private async saveCookiesIfLoggedIn(): Promise<void> {
+    if (await this.isLoggedInContext()) {
+      await this.saveCookies();
+    } else {
+      console.warn('⚠️  当前处于非登录态页面，跳过 Cookie 存档以保护既有登录态');
+    }
   }
 
   /**
