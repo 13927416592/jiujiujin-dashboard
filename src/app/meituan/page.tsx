@@ -1,302 +1,643 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Store,
+  Users,
+  ShoppingCart,
+  DollarSign,
+  Star,
+  Eye,
+  Search,
+  FilterX,
+  ChevronLeft,
+  ChevronRight,
+  Megaphone,
+  Gauge,
+  MessageCircle,
+  Trophy,
+  TrendingDown as TrendDownIcon,
+  Loader2,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp, TrendingDown, Minus, Store, Users, ShoppingCart, DollarSign, Star, Calendar } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { KpiCard } from './kpi-card';
+import { FunnelChart, TrendChart } from './charts';
+import type {
+  MeituanAggregate,
+  MeituanDataResponse,
+  MeituanRowLite,
+  MeituanRowsResponse,
+} from '@/lib/meituan-agg-types';
 
-interface MeituanData {
-  日期: string;
-  '1级组织名'?: string;
-  '2级组织名'?: string;
-  门店名称?: string;
-  [key: string]: string | number | undefined;
+const RANGE_PRESETS = [
+  { key: '7', label: '近7天' },
+  { key: '30', label: '近30天' },
+  { key: 'all', label: '全部' },
+] as const;
+
+type RangeKey = (typeof RANGE_PRESETS)[number]['key'];
+
+interface Filters {
+  range: RangeKey;
+  from: string;
+  to: string;
+  province: string;
+  city: string;
+  store: string;
 }
 
-interface MeituanSummary {
-  exposure: number;
-  visits: number;
-  orders: number;
-  sales: number;
-  coupons: number;
-  reviews: number;
-  storeCount: number;
-  recordCount: number;
+function shiftDate(date: string, days: number): string {
+  const d = new Date(date + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
-interface MeituanResponse {
-  success: boolean;
-  data?: {
-    summary: MeituanSummary;
-    trend: unknown[];
-    stores: string[];
-    raw: MeituanData[];
-  };
-  data_date?: string;
-  fetched_at?: string;
-  source?: string;
-  error?: string;
+function money(n: number): string {
+  if (n >= 10000) return `¥${(n / 10000).toFixed(2)}万`;
+  return `¥${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+function num(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 export default function MeituanPage() {
-  const [data, setData] = useState<MeituanData[]>([]);
-  const [summary, setSummary] = useState<MeituanSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [agg, setAgg] = useState<MeituanAggregate | null>(null);
+  const [latestDate, setLatestDate] = useState('');
+  const [loadingAgg, setLoadingAgg] = useState(true);
   const [error, setError] = useState('');
-  const [selectedStore, setSelectedStore] = useState('all');
-  const [selectedDate, setSelectedDate] = useState('all');
-  const [dataDate, setDataDate] = useState('');
-  const [fetchedAt, setFetchedAt] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const [filters, setFilters] = useState<Filters>({
+    range: '30',
+    from: '',
+    to: '',
+    province: '',
+    city: '',
+    store: '',
+  });
 
-  const loadData = async () => {
+  // 明细表格状态
+  const [rows, setRows] = useState<MeituanRowLite[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [loadingRows, setLoadingRows] = useState(false);
+
+  // 已知的省/市（来自数据）
+  const provinces = agg?.meta.provinces ?? [];
+  const knownCities = agg?.meta.cities ?? [];
+
+  const buildQuery = useCallback(
+    (extra?: Record<string, string>): string => {
+      const params = new URLSearchParams();
+      if (filters.from) params.set('from', filters.from);
+      if (filters.to) params.set('to', filters.to);
+      if (filters.province) params.set('province', filters.province);
+      if (filters.city) params.set('city', filters.city);
+      if (filters.store) params.set('store', filters.store);
+      if (extra) {
+        for (const [k, v] of Object.entries(extra)) params.set(k, v);
+      }
+      const s = params.toString();
+      return s ? `?${s}` : '';
+    },
+    [filters]
+  );
+
+  const loadAgg = useCallback(async () => {
+    setLoadingAgg(true);
+    setError('');
     try {
-      const res = await fetch('/api/meituan-data');
-      const result: MeituanResponse = await res.json();
-
+      const res = await fetch(`/api/meituan-data${buildQuery()}`);
+      const result: MeituanDataResponse = await res.json();
       if (result.success && result.data) {
-        setData(result.data.raw ?? []);
-        setSummary(result.data.summary ?? null);
-        setDataDate(result.data_date ?? '');
-        setFetchedAt(result.fetched_at ?? '');
+        setAgg(result.data);
+        setLatestDate(result.latest_date ?? '');
       } else {
         setError(result.error || '数据加载失败');
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setLoadingAgg(false);
     }
+  }, [buildQuery]);
+
+  const loadRows = useCallback(async () => {
+    setLoadingRows(true);
+    try {
+      const qs = buildQuery({ page: String(page), pageSize: String(pageSize), sort: 'date', order: 'desc' });
+      const res = await fetch(`/api/meituan-rows${qs}`);
+      const result: MeituanRowsResponse = await res.json();
+      if (result.success) {
+        setRows(result.rows);
+        setTotalRows(result.total);
+      }
+    } catch {
+      // 明细加载失败不影响主看板
+      setRows([]);
+    } finally {
+      setLoadingRows(false);
+    }
+  }, [buildQuery, page, pageSize]);
+
+  // 首次加载：拿到 latestDate 后设定默认范围（近30天）
+  useEffect(() => {
+    if (latestDate && filters.range === '30' && !filters.from && !filters.to) {
+      setFilters((f) => ({ ...f, to: latestDate, from: shiftDate(latestDate, -29) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestDate]);
+
+  // 筛选变化加载聚合
+  useEffect(() => {
+    if (filters.from && filters.to) loadAgg();
+  }, [loadAgg, filters.from, filters.to]);
+
+  // 筛选/分页变化加载明细
+  useEffect(() => {
+    if (filters.from && filters.to) loadRows();
+  }, [loadRows, filters.from, filters.to]);
+
+  const applyRange = (range: RangeKey) => {
+    if (!latestDate) return;
+    if (range === 'all') {
+      // 全部：from 取很早以前，to 取最新
+      setFilters((f) => ({ ...f, range, from: '2000-01-01', to: latestDate }));
+    } else {
+      const days = Number(range);
+      setFilters((f) => ({ ...f, range, from: shiftDate(latestDate, -(days - 1)), to: latestDate }));
+    }
+    setPage(1);
   };
 
-  // 获取筛选选项：门店维度兼容 门店名称 / 2级组织名 / 1级组织名
-  const storeName = (item: MeituanData): string =>
-    item.门店名称 || item['2级组织名'] || item['1级组织名'] || '';
-  const stores = [...new Set(data.map(storeName).filter(Boolean))];
-  const dates = [...new Set(data.map(item => item.日期).filter(Boolean))].sort();
-
-  // 筛选数据
-  const filteredData = data.filter(item => {
-    if (selectedStore !== 'all' && storeName(item) !== selectedStore) return false;
-    if (selectedDate !== 'all' && item.日期 !== selectedDate) return false;
-    return true;
-  });
-
-  // 筛选后按明细重算汇总（接口 summary 为全量，这里反映筛选结果）
-  const filteredSummary = {
-    totalExposure: filteredData.reduce((sum, item) => sum + (Number(item['曝光人数(人)']) || 0), 0),
-    totalVisitors: filteredData.reduce((sum, item) => sum + (Number(item['访问人数(人)']) || 0), 0),
-    totalOrders: filteredData.reduce((sum, item) => sum + (Number(item['下单人数(人)']) || 0), 0),
-    totalRedeemAmount: filteredData.reduce((sum, item) => sum + (Number(item['核销售价金额(元)']) || 0), 0),
-    totalRedeemCount: filteredData.reduce((sum, item) => sum + (Number(item['核销券数(张)']) || 0), 0),
-    newReviews: filteredData.reduce((sum, item) => sum + (Number(item['新增评价数(条)']) || 0), 0),
+  const resetFilters = () => {
+    if (!latestDate) return;
+    setFilters({
+      range: '30',
+      from: shiftDate(latestDate, -29),
+      to: latestDate,
+      province: '',
+      city: '',
+      store: '',
+    });
+    setPage(1);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#070A14]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#7C5CFF] mx-auto mb-4"></div>
-          <p className="text-[#9AA7C7]">加载美团数据中...</p>
-        </div>
-      </div>
-    );
-  }
+  const totalPages = Math.ceil(totalRows / pageSize);
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#070A14]">
-        <div className="text-center">
-          <p className="text-[#FF6B6B] mb-4">加载失败：{error}</p>
-          <button onClick={loadData} className="px-4 py-2 bg-[#7C5CFF] text-white rounded-lg hover:bg-[#7C5CFF]/80">
-            重试
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const rangeLabel = useMemo(() => {
+    if (!agg) return '';
+    return `${agg.meta.dateRange.from} ~ ${agg.meta.dateRange.to}`;
+  }, [agg]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* 页面标题 */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">美团经营数据看板</h1>
-          <p className="text-gray-400">
-            {summary
-              ? `共 ${summary.storeCount} 家门店 · ${summary.recordCount} 条记录`
+    <div className="min-h-screen bg-[#070A14] text-[#F7FAFF]">
+      {/* 背景光晕 */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-40 top-0 h-[500px] w-[500px] rounded-full bg-[#7C5CFF]/20 blur-[120px]" />
+        <div className="absolute right-0 top-40 h-[400px] w-[400px] rounded-full bg-[#69E7FF]/10 blur-[120px]" />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-6 py-8">
+        {/* 标题 */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold tracking-tight">美团经营数据看板</h1>
+          <p className="mt-1 text-sm text-[#9AA7C7]">
+            {agg
+              ? `${rangeLabel} · ${agg.meta.storeCount} 家门店 · ${num(agg.meta.rowCount)} 条明细`
               : '实时监控美团平台运营数据'}
           </p>
         </div>
 
-        {/* 筛选器 */}
-        <Card className="mb-6 bg-gray-800/50 backdrop-blur border-gray-700">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">门店筛选</label>
-                <select
-                  value={selectedStore}
-                  onChange={(e) => setSelectedStore(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="all">全部门店</option>
-                  {stores.map(store => (
-                    <option key={store} value={store}>{store}</option>
-                  ))}
-                </select>
+        {/* 筛选栏 */}
+        <Card className="mb-6 border-white/10 bg-white/[0.05] backdrop-blur-xl">
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1 rounded-lg bg-white/5 p-1">
+                {RANGE_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => applyRange(p.key)}
+                    className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                      filters.range === p.key
+                        ? 'bg-[#7C5CFF] text-white'
+                        : 'text-[#9AA7C7] hover:text-white'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">日期筛选</label>
-                <select
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="all">全部日期</option>
-                  {dates.map(date => (
-                    <option key={date} value={date}>{date}</option>
+
+              <Input
+                type="date"
+                value={filters.from}
+                onChange={(e) => setFilters((f) => ({ ...f, range: 'all', from: e.target.value }))}
+                className="h-9 w-40 border-white/10 bg-white/5 text-sm text-white [color-scheme:dark]"
+              />
+              <span className="text-[#9AA7C7]">至</span>
+              <Input
+                type="date"
+                value={filters.to}
+                onChange={(e) => setFilters((f) => ({ ...f, range: 'all', to: e.target.value }))}
+                className="h-9 w-40 border-white/10 bg-white/5 text-sm text-white [color-scheme:dark]"
+              />
+
+              <select
+                value={filters.province}
+                onChange={(e) => {
+                  setFilters((f) => ({ ...f, province: e.target.value, city: '' }));
+                  setPage(1);
+                }}
+                className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#7C5CFF]"
+              >
+                <option value="">全部省份</option>
+                {provinces.map((p) => (
+                  <option key={p} value={p} className="bg-[#0e1326]">
+                    {p}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filters.city}
+                onChange={(e) => {
+                  setFilters((f) => ({ ...f, city: e.target.value }));
+                  setPage(1);
+                }}
+                className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#7C5CFF]"
+              >
+                <option value="">全部城市</option>
+                {knownCities
+                  .filter((c) => !filters.province || true)
+                  .map((c) => (
+                    <option key={c} value={c} className="bg-[#0e1326]">
+                      {c}
+                    </option>
                   ))}
-                </select>
+              </select>
+
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9AA7C7]" />
+                <Input
+                  value={filters.store}
+                  onChange={(e) => {
+                    setFilters((f) => ({ ...f, store: e.target.value }));
+                    setPage(1);
+                  }}
+                  placeholder="搜索门店名称"
+                  className="h-9 w-48 border-white/10 bg-white/5 pl-8 text-sm text-white placeholder:text-[#9AA7C7]"
+                />
               </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={resetFilters}
+                className="h-9 gap-1.5 text-[#9AA7C7] hover:text-white"
+              >
+                <FilterX className="h-4 w-4" />
+                重置
+              </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* 汇总卡片 */}
-        <div className="grid grid-cols-3 gap-6 mb-6">
-          <Card className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur border-blue-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-blue-300 flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                总曝光人数
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">{filteredSummary.totalExposure.toLocaleString()}</div>
-            </CardContent>
-          </Card>
+        {error && (
+          <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300">
+            加载失败：{error}
+          </div>
+        )}
 
-          <Card className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur border-green-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-green-300 flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                总访问人数
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">{filteredSummary.totalVisitors.toLocaleString()}</div>
-            </CardContent>
-          </Card>
+        {loadingAgg && !agg ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-[#7C5CFF]" />
+          </div>
+        ) : agg ? (
+          <>
+            <KpiSection agg={agg} />
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
+              <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl lg:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base text-white">
+                    <Gauge className="h-4 w-4 text-[#69E7FF]" />
+                    转化漏斗
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FunnelChart stages={agg.funnel} />
+                </CardContent>
+              </Card>
 
-          <Card className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur border-purple-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-purple-300 flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4" />
-                总下单人数
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">{filteredSummary.totalOrders.toLocaleString()}</div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-orange-500/20 to-orange-600/20 backdrop-blur border-orange-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-orange-300 flex items-center gap-2">
-                <DollarSign className="w-4 h-4" />
-                总核销金额
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">¥{filteredSummary.totalRedeemAmount.toLocaleString()}</div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur border-red-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-red-300 flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4" />
-                总核销券数
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">{filteredSummary.totalRedeemCount.toLocaleString()}</div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur border-yellow-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-yellow-300 flex items-center gap-2">
-                <Star className="w-4 h-4" />
-                新增评价数
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-white">{filteredSummary.newReviews.toLocaleString()}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* 数据表格 */}
-        <Card className="bg-gray-800/50 backdrop-blur border-gray-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Store className="w-5 h-5" />
-              门店数据明细
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-gray-700 hover:bg-gray-700/50">
-                    <TableHead className="text-gray-300">日期</TableHead>
-                    <TableHead className="text-gray-300">门店</TableHead>
-                    <TableHead className="text-gray-300">曝光人数</TableHead>
-                    <TableHead className="text-gray-300">访问人数</TableHead>
-                    <TableHead className="text-gray-300">下单人数</TableHead>
-                    <TableHead className="text-gray-300">核销金额</TableHead>
-                    <TableHead className="text-gray-300">核销券数</TableHead>
-                    <TableHead className="text-gray-300">新增评价</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredData.map((item, index) => (
-                    <TableRow key={index} className="border-gray-700 hover:bg-gray-700/50">
-                      <TableCell className="text-gray-300">{item.日期}</TableCell>
-                      <TableCell className="text-gray-300">{storeName(item)}</TableCell>
-                      <TableCell className="text-gray-300">{item['曝光人数(人)'] ?? 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['访问人数(人)'] ?? 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['下单人数(人)'] ?? 0}</TableCell>
-                      <TableCell className="text-gray-300">¥{item['核销售价金额(元)'] ?? 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['核销券数(张)'] ?? 0}</TableCell>
-                      <TableCell className="text-gray-300">{item['新增评价数(条)'] ?? 0}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl lg:col-span-3">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base text-white">
+                    <DollarSign className="h-4 w-4 text-[#7C5CFF]" />
+                    核销金额与订单趋势
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TrendChart data={agg.trend} />
+                  <div className="mt-2 flex items-center justify-end gap-4 text-xs text-[#9AA7C7]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-[#7C5CFF]" />核销金额(元)
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-[#69E7FF]" />核销订单
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-            {filteredData.length === 0 && (
-              <div className="text-center py-8 text-gray-400">
-                暂无数据
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* 数据说明 */}
-        <div className="mt-6 text-center text-gray-400 text-sm">
-          <p>
-            数据日期范围：{dataDate || '—'}
-            {fetchedAt && ` · 入库时间：${new Date(fetchedAt).toLocaleString('zh-CN')}`}
-          </p>
-          <p className="mt-1">共 {filteredData.length} 条记录 | 组织/门店数：{stores.length}</p>
-        </div>
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <RoiCard agg={agg} />
+              <ServiceCard agg={agg} />
+              <CityCard agg={agg} />
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <RankCard title="核销金额 TOP 10 门店" icon={<Trophy className="h-4 w-4 text-amber-400" />} items={agg.topStores} />
+              <RankCard title="待提升门店（核销金额后 10）" icon={<TrendDownIcon className="h-4 w-4 text-rose-400" />} items={agg.bottomStores} />
+            </div>
+
+            {/* 明细表 */}
+            <Card className="mt-6 border-white/10 bg-white/[0.05] backdrop-blur-xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base text-white">
+                  <Store className="h-4 w-4 text-[#9AA7C7]" />
+                  门店明细
+                  <span className="ml-2 text-xs font-normal text-[#9AA7C7]">
+                    共 {num(totalRows)} 条
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/10 hover:bg-transparent">
+                        <TableHead className="text-[#9AA7C7]">日期</TableHead>
+                        <TableHead className="text-[#9AA7C7]">门店</TableHead>
+                        <TableHead className="text-[#9AA7C7]">城市</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">曝光</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">访问</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">下单</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">核销金额</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">核销订单</TableHead>
+                        <TableHead className="text-right text-[#9AA7C7]">评价</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loadingRows ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-10 text-center text-[#9AA7C7]">
+                            <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                          </TableCell>
+                        </TableRow>
+                      ) : rows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-10 text-center text-[#9AA7C7]">
+                            暂无数据
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        rows.map((r, i) => (
+                          <TableRow key={`${r.date}-${r.storeId}-${i}`} className="border-white/5 hover:bg-white/5">
+                            <TableCell className="text-sm text-[#9AA7C7]">{r.date}</TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm text-white">{r.store}</TableCell>
+                            <TableCell className="text-sm text-[#9AA7C7]">{r.city}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.exposure)}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.visits)}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.orders)}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#62FAD3]">{money(r.sales)}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.redeemOrders)}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums text-[#F7FAFF]">{num(r.reviews)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* 分页 */}
+                <div className="mt-4 flex items-center justify-between text-sm text-[#9AA7C7]">
+                  <span>
+                    第 {page} / {totalPages || 1} 页
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page <= 1 || loadingRows}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      className="h-8 border-white/10 bg-white/5 text-[#F7FAFF] hover:bg-white/10"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      上一页
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page >= totalPages || loadingRows}
+                      onClick={() => setPage((p) => p + 1)}
+                      className="h-8 border-white/10 bg-white/5 text-[#F7FAFF] hover:bg-white/10"
+                    >
+                      下一页
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function KpiSection({ agg }: { agg: MeituanAggregate }) {
+  const k = agg.kpi;
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <KpiCard label="核销金额" value={money(k.sales.value)} delta={k.sales.delta} icon={DollarSign} accent="violet" />
+      <KpiCard label="核销订单" value={num(k.redeemOrders.value)} delta={k.redeemOrders.delta} icon={ShoppingCart} accent="emerald" />
+      <KpiCard label="曝光人数" value={num(k.exposure.value)} delta={k.exposure.delta} icon={Eye} accent="cyan" />
+      <KpiCard label="访问人数" value={num(k.visits.value)} delta={k.visits.delta} icon={Users} accent="sky" />
+      <KpiCard label="下单人数" value={num(k.orders.value)} delta={k.orders.delta} icon={Store} accent="amber" />
+      <KpiCard label="新增评价" value={num(k.reviews.value)} delta={k.reviews.delta} icon={Star} accent="rose" />
+    </div>
+  );
+}
+
+function RoiCard({ agg }: { agg: MeituanAggregate }) {
+  const { roi } = agg;
+  return (
+    <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
+          <Megaphone className="h-4 w-4 text-[#7C5CFF]" />
+          推广通 ROI
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-[#9AA7C7]">推广消耗</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">{money(roi.adSpend)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">带动核销</p>
+            <p className="mt-1 text-xl font-bold text-[#62FAD3] tabular-nums">{money(roi.sales)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">ROI（核销/消耗）</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">
+              {roi.roi === null ? '—' : `${roi.roi}×`}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">单次点击成本</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">
+              {roi.cpc === null ? '—' : `¥${roi.cpc}`}
+            </p>
+          </div>
+        </div>
+        {roi.adSpend === 0 && (
+          <p className="mt-3 rounded-lg bg-white/5 p-2 text-xs text-[#9AA7C7]">
+            当前筛选范围无推广通消耗数据。若已投放推广通，检查导出报表是否包含该列。
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ServiceCard({ agg }: { agg: MeituanAggregate }) {
+  const s = agg.service;
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  return (
+    <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
+          <MessageCircle className="h-4 w-4 text-[#69E7FF]" />
+          服务与口碑
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-[#9AA7C7]">平均响应时长</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">
+              {s.avgResponse ? `${s.avgResponse.toFixed(1)}秒` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">30秒内回复率</p>
+            <p className="mt-1 text-xl font-bold text-[#62FAD3] tabular-nums">{pct(s.reply30s)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">5分钟内回复率</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">{pct(s.reply5min)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">好评率</p>
+            <p className="mt-1 text-xl font-bold text-[#62FAD3] tabular-nums">{pct(s.goodRate)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">新增差评</p>
+            <p className={`mt-1 text-xl font-bold tabular-nums ${s.newBad > 0 ? 'text-rose-400' : 'text-white'}`}>
+              {num(s.newBad)} 条
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-[#9AA7C7]">差评回复率</p>
+            <p className="mt-1 text-xl font-bold text-white tabular-nums">{pct(s.badReplyRate)}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CityCard({ agg }: { agg: MeituanAggregate }) {
+  return (
+    <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
+          <Store className="h-4 w-4 text-[#b8a8ff]" />
+          城市 TOP 8（核销金额）
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {agg.cities.slice(0, 8).map((c, i) => {
+            const max = agg.cities[0]?.sales || 1;
+            return (
+              <div key={c.name} className="flex items-center gap-3">
+                <span className="w-5 shrink-0 text-xs tabular-nums text-[#9AA7C7]">{i + 1}</span>
+                <span className="w-16 shrink-0 truncate text-sm text-white">{c.name}</span>
+                <div className="h-5 flex-1 overflow-hidden rounded bg-white/5">
+                  <div
+                    className="h-full rounded bg-gradient-to-r from-[#7C5CFF] to-[#69E7FF]"
+                    style={{ width: `${Math.max(4, (c.sales / max) * 100)}%` }}
+                  />
+                </div>
+                <span className="w-20 shrink-0 text-right text-sm tabular-nums text-[#62FAD3]">
+                  {money(c.sales)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RankCard({
+  title,
+  icon,
+  items,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  items: MeituanAggregate['topStores'];
+}) {
+  return (
+    <Card className="border-white/10 bg-white/[0.05] backdrop-blur-xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-white">
+          {icon}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-1.5">
+          {items.map((s, i) => (
+            <div
+              key={s.name}
+              className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white/5"
+            >
+              <span className="w-5 shrink-0 text-xs tabular-nums text-[#9AA7C7]">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-white">{s.name}</p>
+                <p className="text-xs text-[#9AA7C7]">
+                  {s.city || '—'} · 订单 {num(s.orders)} · 曝光 {num(s.exposure)}
+                </p>
+              </div>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-[#62FAD3]">
+                {money(s.sales)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
