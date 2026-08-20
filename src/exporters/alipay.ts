@@ -664,13 +664,18 @@ export class AlipayExporter {
    */
   private async waitForBusinessSettled(page: Page, timeoutMs: number): Promise<boolean> {
     const LOGIN_RE = /(auth\.alipay\.com\/login|\/login\/|\/login\b|passport|sign[-_]?in)/i;
+    // 关键修复：选企业回跳到业务页后，URL 上常残留 ?appScene=MRCH 查询参数，
+    // 不能仅凭 appScene= 就判定仍在选择页（否则已落到 b.alipay.com 业务页也会被误判、
+    // 反复空转直到超时，进而错误地进入手动登录流程）。必须命中"选择/鉴权页路径"才算。
+    const SELECT_RE = /(select-identity|select-account|staffmng\/account\/select)/i;
+    const isSelectUrl = (url: string): boolean => SELECT_RE.test(url);
     const deadline = Date.now() + timeoutMs;
     let warnedLogin = false;
 
     while (Date.now() < deadline) {
       const url = page.url();
       const onLogin = LOGIN_RE.test(url);
-      const onSelect = /select-identity|select-account|appScene=/.test(url);
+      const onSelect = isSelectUrl(url);
 
       if (onLogin) {
         if (!warnedLogin) {
@@ -693,7 +698,7 @@ export class AlipayExporter {
         // 已到业务域，给 SPA 一点渲染/二次鉴权时间后确认
         await page.waitForTimeout(1500);
         const finalUrl = page.url();
-        if (!LOGIN_RE.test(finalUrl) && !/select-identity|select-account|appScene=/.test(finalUrl)) {
+        if (!LOGIN_RE.test(finalUrl) && !isSelectUrl(finalUrl)) {
           return true;
         }
       }
@@ -716,10 +721,12 @@ export class AlipayExporter {
     const target = this.config.enterpriseName;
     const isSelectPage = (url: string, body: string): boolean => {
       if (url.includes('/staffmng/account/select-identity') || url.includes('select-identity')) return true;
-      if (url.includes('/account/select') || /appScene=/.test(url)) {
+      if (url.includes('/account/select')) {
         // 含企业名选择列表特征才认定，避免误判普通业务页
         if (body.includes('选择') && (body.includes('企业') || body.includes('身份') || body.includes('账号'))) return true;
       }
+      // 注意：不能仅凭 URL 带 appScene= 判定选择页——选完企业回跳业务页后该参数会残留，
+      // 会导致已落地业务页仍被误判为选择页。
       return body.includes('请选择登录账号') && body.includes('登录员工身份');
     };
 
@@ -1789,7 +1796,7 @@ export class AlipayExporter {
     if (!this.page) return false;
     const url = this.page.url();
     if (!/b\.alipay\.com/.test(url)) return false;
-    if (/(login|passport|sign[-_]?in|select-identity|select-account|appScene=)/i.test(url)) {
+    if (/(login|passport|sign[-_]?in|select-identity|select-account|staffmng\/account\/select)/i.test(url)) {
       return false;
     }
     return true;
