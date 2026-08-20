@@ -1070,32 +1070,56 @@ export class AlipayExporter {
   private async clickTrafficTab(tabText: string): Promise<boolean> {
     if (!this.page) return false;
     try {
-      // 顶部 Tab 通常在页面上方的 tabs 容器内，文本较短
-      const loc = this.page
-        .locator(`[role="tab"], .ant-tabs-tab, [class*="tabs"] [class*="tab"], nav [class*="item"]`)
-        .filter({ hasText: tabText })
-        .first();
-      const visible = await loc.isVisible({ timeout: 2000 }).catch(() => false);
-      if (visible) {
-        await loc.click({ timeout: 4000 }).catch(() => undefined);
-        return true;
-      }
-      // 兜底：页面顶部区域内包含该文字的可点击短元素
-      return await this.page.evaluate((text) => {
-        const nodes = Array.from(
-          document.querySelectorAll<HTMLElement>('div, span, a, button, li, [role="tab"], [role="button"]')
+      // 顶部子 Tab 条：它同时包含"流量概览/小程序流量/生活号+流量/商家粉丝群流量/其他活跃流量"。
+      // 关键：不能只按 top 区域 + 文字匹配，否则会点到左侧导航菜单里同名/近名的项
+      //（左侧"小程序分析/生活号+分析/商家粉丝群分析"），导致 Tab 根本没切、抓成流量概览页。
+      // 这里先定位"同时含流量概览和目标文字"的最小容器（即 Tab 条本身），再在该容器内点目标。
+      const clicked = await this.page.evaluate((text) => {
+        const all = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[role="tab"], .ant-tabs-tab, [class*="tabs"] [class*="tab"], div, span, a, li'
+          )
         );
-        for (const el of nodes) {
+        // 找到 Tab 条：一个可见容器，其文本同时包含"流量概览"和至少另一个子 Tab 名
+        const tabBar = all.find((el) => {
           const r = el.getBoundingClientRect();
-          if (r.top < 0 || r.top > 240 || r.width === 0 || r.height === 0) continue;
+          if (r.width === 0 || r.height === 0 || r.top > 260) return false;
+          const t = (el.textContent || '').replace(/\s+/g, '');
+          return t.includes('流量概览') && (t.includes('小程序流量') || t.includes('生活号'));
+        });
+        if (!tabBar) return false;
+
+        // 在 Tab 条内找文本最贴近目标的可点击项
+        const items = Array.from(
+          tabBar.querySelectorAll<HTMLElement>('[role="tab"], .ant-tabs-tab, a, li, span, div')
+        );
+        const exact = items.filter((el) => {
           const t = (el.textContent || '').replace(/\s+/g, '').trim();
-          if (t && t.includes(text) && t.length <= 12) {
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            return true;
-          }
-        }
-        return false;
+          return t && t.includes(text) && t.length <= 12;
+        });
+        // 取最小的（最内层）元素，避免点到整条 Tab 容器
+        exact.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
+        const target = exact[0];
+        if (!target) return false;
+        target.scrollIntoView({ block: 'center' });
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
       }, tabText);
+
+      if (!clicked) return false;
+
+      // 等待切换并校验：点击后该 Tab 应变为选中态（class 含 active/selected），
+      // 或正文出现对应子页的特征文字。校验失败则返回 false，让调用方走深链兜底。
+      await this.page.waitForTimeout(1200);
+      const switched = await this.page.evaluate((text) => {
+        const active = document.querySelector<HTMLElement>(
+          '[role="tab"][aria-selected="true"], .ant-tabs-tab-active, [class*="tab-active"], [class*="tab-active"] *'
+        );
+        if (active && (active.textContent || '').includes(text)) return true;
+        return false;
+      }, tabText).catch(() => false);
+
+      return switched;
     } catch {
       return false;
     }
