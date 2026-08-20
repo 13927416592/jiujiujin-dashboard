@@ -1119,7 +1119,12 @@ export class AlipayExporter {
           let data: AlipayPageData | null = null;
           if (entered) {
             const ok = await this.gotoMiniTab(t.path, prog.id, t.label, prog.name);
-            if (ok) data = await this.extractPageData(this.page);
+            if (ok) {
+              // 小程序分析各 Tab（概览/流量/交易）顶部都有 1日|7日|30日 控件，
+              // 切 Tab/小程序后显式点一次以保证日期范围正确
+              await this.applyDateRange(this.page, this.config.daysToDownload === 7 ? 7 : 1);
+              data = await this.extractPageData(this.page);
+            }
           }
           if (!data) {
             // 上下文建立失败（无小程序/需初始化），记录空数据而非整体中断
