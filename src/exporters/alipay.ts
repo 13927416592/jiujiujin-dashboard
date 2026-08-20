@@ -1496,34 +1496,64 @@ export class AlipayExporter {
     const targets = days === 7 ? ['7日', '近7日'] : ['1日'];
 
     try {
-      const clicked = await page.evaluate((labels) => {
-        // 仅在页面顶部 360px 范围内找候选，避免点到正文/图表里碰巧包含同样文字的元素
-        const candidates = Array.from(
-          document.querySelectorAll<HTMLElement>('div, span, a, button, li, [role="tab"], [role="button"]')
-        ).filter((el) => {
-          const rect = el.getBoundingClientRect();
-          if (rect.top < 0 || rect.top > 360) return false;
-          const text = (el.textContent || '').replace(/\s+/, '').trim();
-          // 文本必须精确等于候选词，避免匹配到"7日交易金额"等卡片标题
-          if (!labels.includes(text)) return false;
-          // 排除过大的容器（日期切换是小标签）
-          if (rect.width > 160 || rect.height > 56) return false;
-          return rect.width > 0 && rect.height > 0;
-        });
+      // 判断当前正文的对比口径：每日是"较前日"，7日是"较前7日"。
+      // 用于点击后校验是否真的切到了目标范围（粉丝群等页默认是7日高亮，不校验可能存错）。
+      const detectMode = async (): Promise<'1d' | '7d' | 'unknown'> => {
+        const text = (await this.getBodyText(page)).replace(/\s+/g, '');
+        if (/较前[0-9]*日/.test(text)) {
+          return /较前日/.test(text) ? '1d' : '7d';
+        }
+        return 'unknown';
+      };
 
-        // 优先命中精确文本元素本身；若文本在子节点，则取最内层匹配
-        const exact = candidates.find((el) => labels.includes((el.textContent || '').replace(/\s+/, '').trim()));
-        const el = exact ?? candidates[0];
-        if (!el) return false;
-        el.scrollIntoView({ block: 'center' });
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        return true;
-      }, targets);
+      const clickRangeTab = async (): Promise<boolean> => {
+        return page.evaluate((labels) => {
+          // 仅在页面顶部 360px 范围内找候选，避免点到正文/图表里碰巧包含同样文字的元素
+          const candidates = Array.from(
+            document.querySelectorAll<HTMLElement>('div, span, a, button, li, [role="tab"], [role="button"]')
+          ).filter((el) => {
+            const rect = el.getBoundingClientRect();
+            if (rect.top < 0 || rect.top > 360) return false;
+            const text = (el.textContent || '').replace(/\s+/, '').trim();
+            if (!labels.includes(text)) return false;
+            // 排除过大的容器（日期切换是小标签）
+            if (rect.width > 160 || rect.height > 56) return false;
+            return rect.width > 0 && rect.height > 0;
+          });
+          const exact = candidates.find((el) =>
+            labels.includes((el.textContent || '').replace(/\s+/, '').trim())
+          );
+          const el = exact ?? candidates[0];
+          if (!el) return false;
+          el.scrollIntoView({ block: 'center' });
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          return true;
+        }, targets);
+      };
 
+      const clicked = await clickRangeTab();
       if (clicked) {
-        console.log(`    📅 已切换日期范围：${days === 7 ? '近7日' : '1日（昨日）'}`);
-        // 点击后图表会重新请求数据，等待刷新
         await this.waitForDataLoaded(page);
+
+        // 校验：若口径不对，重试一次（部分页面首次点击未生效/被浮层拦截）
+        if (days === 1) {
+          let mode = await detectMode();
+          if (mode === '7d') {
+            console.log('    🔁 检测到仍是7日口径，重试点一次"1日"...');
+            await page.waitForTimeout(500);
+            if (await clickRangeTab()) {
+              await this.waitForDataLoaded(page);
+              mode = await detectMode();
+            }
+          }
+          if (mode === '7d') {
+            console.warn('    ⚠️ "1日"切换后仍为7日口径，本页可能存入的是7天汇总数据，请人工核对');
+          } else {
+            console.log('    📅 已切换日期范围：1日（昨日）');
+          }
+        } else {
+          console.log('    📅 已切换日期范围：近7日');
+        }
       } else {
         console.log(`    ℹ️  本页未找到「${targets.join('/')}」日期切换（可能为单日页，使用默认日期）`);
       }
