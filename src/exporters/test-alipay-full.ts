@@ -11,6 +11,8 @@
  *   HEADLESS=1 npx tsx src/exporters/test-alipay-full.ts
  * - Cookie 有效时全程无弹窗、自动抓取并上传
  * - Cookie 过期时立即失败退出（exit 1），不会挂起等待回车，便于飞书告警
+ * - 上传失败默认长重试（30 次 × 2 分钟，约 1 小时），最终失败 exit 1 触发告警；
+ *   可用 UPLOAD_MAX_ATTEMPTS / UPLOAD_RETRY_INTERVAL_MS 调整
  */
 
 import { exportAlipayData } from './alipay';
@@ -41,25 +43,50 @@ async function main(): Promise<void> {
     if (result.rawFile) {
       console.log('数据文件:', result.rawFile);
 
-      // 自动上传到云端看板（未配置上传环境变量时给出提示但不影响抓取成功）
-      try {
-        const dataDate = todayShanghai();
-        const fileName = path.basename(result.rawFile);
-        const match = fileName.match(/(\d{4}-\d{2}-\d{2})/);
-        const uploadDate = match ? match[1] : dataDate;
+      // 上传到云端看板：长重试，失败最终非零退出以触发飞书告警。
+      // 可用环境变量调整：UPLOAD_MAX_ATTEMPTS（默认30）、UPLOAD_RETRY_INTERVAL_MS（默认120000=2分钟）
+      const maxAttempts = Math.max(1, Number(process.env.UPLOAD_MAX_ATTEMPTS) || 30);
+      const retryIntervalMs = Math.max(5000, Number(process.env.UPLOAD_RETRY_INTERVAL_MS) || 120000);
 
-        console.log('\n☁️  正在上传到云端看板...');
-        const upload = await uploadSnapshot({
-          platform: 'alipay',
-          dataDate: uploadDate,
-          rawFile: result.rawFile,
-          source: 'local-mac',
-        });
-        console.log('✅ 已上传到云端看板:', upload.body);
-      } catch (uploadErr) {
-        const msg =
-          uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-        console.warn('⚠️  上传到云端失败（本地数据已保存，不影响抓取）:', msg);
+      const dataDate = todayShanghai();
+      const fileName = path.basename(result.rawFile);
+      const match = fileName.match(/(\d{4}-\d{2}-\d{2})/);
+      const uploadDate = match ? match[1] : dataDate;
+
+      let lastErr: unknown;
+      let uploaded = false;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          console.log(`\n☁️  正在上传到云端看板（第 ${attempt}/${maxAttempts} 次）...`);
+          const upload = await uploadSnapshot({
+            platform: 'alipay',
+            dataDate: uploadDate,
+            rawFile: result.rawFile,
+            source: 'local-mac',
+          });
+          console.log('✅ 已上传到云端看板:', upload.body);
+          uploaded = true;
+          break;
+        } catch (uploadErr) {
+          lastErr = uploadErr;
+          const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+          console.warn(`⚠️  第 ${attempt} 次上传失败:`, msg);
+          if (attempt < maxAttempts) {
+            console.log(`   ${retryIntervalMs / 1000} 秒后重试...（本地数据已保存，不影响下载）`);
+            await new Promise((r) => setTimeout(r, retryIntervalMs));
+          }
+        }
+      }
+
+      if (!uploaded) {
+        const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+        console.error(`\n❌ 上传到云端看板失败，已重试 ${maxAttempts} 次: ${msg}`);
+        console.error(
+          `   本地数据已保留，可手动补传：\n   npx tsx src/exporters/re-upload.ts ${result.rawFile} alipay ${uploadDate}`
+        );
+        // 非零退出，让 launchd/飞书告警感知到失败（不要静默漏数）
+        setTimeout(() => process.exit(1), 300);
+        return;
       }
     }
   } else {
