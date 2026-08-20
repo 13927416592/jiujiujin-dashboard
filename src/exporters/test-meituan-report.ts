@@ -87,35 +87,63 @@ async function main(): Promise<void> {
 
   // 自动上传：按行内"日期"拆分，每天一条快照入库（全量列保留，含环比）
   // 单日定时任务只含1天；首次/补数含多天时会拆成多条，避免单条 jsonb 过大
-  try {
-    console.log('\n☁️  正在上传到云端看板...');
-    const byDate = new Map<string, Array<Record<string, unknown>>>();
-    for (const r of rows) {
-      const d = String(r['日期'] ?? '').slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
-      const arr = byDate.get(d) ?? [];
-      arr.push(r);
-      byDate.set(d, arr);
+  const byDate = new Map<string, Array<Record<string, unknown>>>();
+  for (const r of rows) {
+    const d = String(r['日期'] ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    const arr = byDate.get(d) ?? [];
+    arr.push(r);
+    byDate.set(d, arr);
+  }
+  const items = [...byDate.entries()].map(([date, dateRows]) => ({
+    dataDate: date,
+    rawData: {
+      platform: 'meituan',
+      exportDate: date,
+      exportedAt: result.timestamp,
+      accountId: result.accountId,
+      rowCount: dateRows.length,
+      rows: dateRows,
+    },
+  }));
+  if (items.length === 0) {
+    console.error('\n❌ 数据中未识别到有效日期');
+    setTimeout(() => process.exit(1), 300);
+    return;
+  }
+
+  // 上传带长重试：Supabase 网关曾出现持续数十分钟的 502，
+  // 短重试（秒级）扛不住。这里默认每 2 分钟重试一次、最多 30 次（共约 1 小时），
+  // 网关一恢复就自动补传成功，避免当天数据静默丢失。可用环境变量调整：
+  //   UPLOAD_MAX_ATTEMPTS=5 UPLOAD_RETRY_INTERVAL_MS=60000
+  const maxAttempts = Math.max(1, Number(process.env.UPLOAD_MAX_ATTEMPTS) || 30);
+  const retryIntervalMs = Math.max(5000, Number(process.env.UPLOAD_RETRY_INTERVAL_MS) || 120000);
+  let uploadOk = false;
+  let lastErr = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`\n☁️  正在上传到云端看板（第 ${attempt}/${maxAttempts} 次）...`);
+      const upload = await uploadSnapshotItems('meituan', items);
+      console.log('✅ 已上传到云端看板:', upload.body);
+      uploadOk = true;
+      break;
+    } catch (uploadErr) {
+      lastErr = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+      console.warn(`⚠️  第 ${attempt} 次上传失败: ${lastErr}`);
+      if (attempt < maxAttempts) {
+        console.log(`   ${retryIntervalMs / 1000} 秒后重试...（本地数据已保存，不影响下载）`);
+        await new Promise((r) => setTimeout(r, retryIntervalMs));
+      }
     }
-    const items = [...byDate.entries()].map(([date, dateRows]) => ({
-      dataDate: date,
-      rawData: {
-        platform: 'meituan',
-        exportDate: date,
-        exportedAt: result.timestamp,
-        accountId: result.accountId,
-        rowCount: dateRows.length,
-        rows: dateRows,
-      },
-    }));
-    if (items.length === 0) {
-      throw new Error('数据中未识别到有效日期');
-    }
-    const upload = await uploadSnapshotItems('meituan', items);
-    console.log('✅ 已上传到云端看板:', upload.body);
-  } catch (uploadErr) {
-    const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-    console.warn('⚠️  上传到云端失败（本地数据已保存，不影响下载）:', msg);
+  }
+
+  if (!uploadOk) {
+    // 上传最终失败：非 0 退出，让 meituan-daily.sh 触发飞书告警
+    console.error(`\n❌ 上传到云端看板失败，已重试 ${maxAttempts} 次: ${lastErr}`);
+    console.error('   本地数据已保存，网关恢复后可手动补传：');
+    console.error(`   npx tsx src/exporters/re-upload.ts <xlsx路径> meituan`);
+    setTimeout(() => process.exit(1), 300);
+    return;
   }
 
   // 显式退出：Playwright/网络/stdin 可能残留句柄导致事件循环不退出

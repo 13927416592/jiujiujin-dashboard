@@ -105,8 +105,32 @@ async function uploadMeituan(
     },
   }));
 
-  const result = await uploadSnapshotItems('meituan', items);
-  console.log('\n✅ 上传成功:', result.body);
+  // 上传带重试：Supabase 网关可能持续 502，默认重试 6 次、间隔 30 秒
+  // 可用环境变量调整：UPLOAD_MAX_ATTEMPTS=10 UPLOAD_RETRY_INTERVAL_MS=60000
+  const maxAttempts = Math.max(1, Number(process.env.UPLOAD_MAX_ATTEMPTS) || 6);
+  const retryIntervalMs = Math.max(5000, Number(process.env.UPLOAD_RETRY_INTERVAL_MS) || 30000);
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(
+        attempt === 1
+          ? '\n📤 正在上传...'
+          : `\n📤 第 ${attempt}/${maxAttempts} 次重试上传...`
+      );
+      const result = await uploadSnapshotItems('meituan', items);
+      console.log('\n✅ 上传成功:', result.body);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`⚠️  第 ${attempt} 次上传失败: ${msg}`);
+      if (attempt < maxAttempts) {
+        console.log(`   ${retryIntervalMs / 1000} 秒后重试...`);
+        await new Promise((r) => setTimeout(r, retryIntervalMs));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 async function main(): Promise<void> {
