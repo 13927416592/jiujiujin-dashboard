@@ -1314,17 +1314,36 @@ export class AlipayExporter {
 
   /** 等待页面数据加载完成（出现指标数字或骨架屏消失） */
   private async waitForDataLoaded(page: Page): Promise<void> {
-    // 先等待网络基本空闲
-    await page.waitForLoadState('networkidle', { timeout: PAGE_LOAD_TIMEOUT }).catch(() => undefined);
-    // 再等待出现至少一个数字/中文字符的正文，最多 15s
+    // 支付宝数据页有常驻轮询/埋点/经营助手长连接，networkidle 永远不会触发，
+    // 旧实现会死等 45s 超时（经营总览最重，体感最久）。改为等"数据真正渲染出来"：
+    // 正文中出现指标关键词 + 数值/对比，或正文长度达标，即立即继续。
     const start = Date.now();
-    while (Date.now() - start < 15000) {
-      const text = await this.getBodyText(page);
-      if (text.trim().length > 200) break;
-      await page.waitForTimeout(800);
+    const hardDeadline = start + 20000; // 硬性上限 20s，避免极端情况下无限等
+    let settled = false;
+    while (Date.now() < hardDeadline) {
+      const text = (await this.getBodyText(page)).replace(/\s+/g, ' ');
+      // 数据就绪信号：出现"较前"（环比对比，所有 KPI 卡片加载完必有）或明确的指标名+数字组合
+      const hasCompare = /较前(日|[0-9]+日)/.test(text);
+      const hasMetricWithNumber = /(交易金额|访问用户数|访问人数|活跃用户数|交易笔数|总访问用户数)[^0-9]{0,12}[0-9]/.test(
+        text
+      );
+      const bodyLongEnough = text.trim().length > 400;
+      if ((hasCompare || hasMetricWithNumber) && bodyLongEnough) {
+        settled = true;
+        break;
+      }
+      await page.waitForTimeout(700);
     }
-    // 固定缓冲，等待图表动画/接口二次加载
-    await page.waitForTimeout(1500);
+    if (!settled) {
+      // 即便没等到理想信号，只要已有实质正文也继续（与旧实现的容错一致）
+      const len = (await this.getBodyText(page)).trim().length;
+      if (len < 50) {
+        // 内容太少，可能还在加载，补一个短缓冲
+        await page.waitForTimeout(2000).catch(() => undefined);
+      }
+    }
+    // 短缓冲：等待图表动画/懒加载的二次数据
+    await page.waitForTimeout(1200);
   }
 
   /**
