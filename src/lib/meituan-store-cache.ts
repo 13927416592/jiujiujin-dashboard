@@ -9,8 +9,14 @@
  */
 
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import * as fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const TTL_MS = 5 * 60_000;
+
+// 磁盘兜底：进程重启 + 网关故障叠加时，用上次成功加载的台账兜底
+const DISK_CACHE_PATH = join(tmpdir(), 'jiujiujin-meituan-stores.json');
 
 export interface MeituanStoreInfo {
   store_id: string;
@@ -30,7 +36,35 @@ interface StoreCache {
 }
 
 let cache: StoreCache | null = null;
-let inflight: Promise<Map<string, MeituanStoreInfo>> | null = null;
+let refreshPromise: Promise<Map<string, MeituanStoreInfo>> | null = null;
+
+function persistToDisk(byId: Map<string, MeituanStoreInfo>): void {
+  try {
+    fs.writeFileSync(DISK_CACHE_PATH, JSON.stringify(Array.from(byId.values())), 'utf-8');
+  } catch (err) {
+    console.warn(
+      '[meituan-store-cache] 写入磁盘兜底缓存失败（不影响运行）:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+function readFromDisk(): Map<string, MeituanStoreInfo> | null {
+  try {
+    if (!fs.existsSync(DISK_CACHE_PATH)) return null;
+    const list = JSON.parse(fs.readFileSync(DISK_CACHE_PATH, 'utf-8')) as MeituanStoreInfo[];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const byId = new Map<string, MeituanStoreInfo>();
+    for (const s of list) byId.set(String(s.store_id), s);
+    return byId;
+  } catch (err) {
+    console.warn(
+      '[meituan-store-cache] 读取磁盘兜底台账失败:',
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+}
 
 /** 有限次重试，抵御 Supabase 网关瞬时抖动 */
 async function withRetry<T>(
@@ -81,18 +115,43 @@ async function fetchStores(): Promise<StoreCache> {
   };
 }
 
-/** 获取门店台账（ID -> 门店信息），优先走缓存 */
+/**
+ * 获取门店台账（ID -> 门店信息）。
+ * 采用 stale-while-revalidate：有内存/磁盘缓存时立即返回，后台静默刷新，
+ * 保证台账接口故障绝不拖慢或拖垮看板。
+ */
 export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo>> {
   const now = Date.now();
 
+  // 1. TTL 内直接返回
   if (cache && now - cache.savedAt < TTL_MS) {
     return cache.byId;
   }
 
-  if (inflight) return inflight;
+  // 2. 内存有旧台账：立即返回，后台刷新
+  if (cache) {
+    void refreshStoreMapInBackground();
+    return cache.byId;
+  }
 
-  inflight = (async () => {
+  // 3. 内存无（进程刚重启）：磁盘兜底立即返回，后台刷新
+  const diskMap = readFromDisk();
+  if (diskMap) {
+    cache = { byId: diskMap, count: diskMap.size, savedAt: 0, fingerprint: 'disk' };
+    void refreshStoreMapInBackground();
+    return diskMap;
+  }
+
+  // 4. 首次启动且无磁盘缓存：同步等上游；失败返回空映射（不抛错）
+  return refreshStoreMapInBackground();
+}
+
+function refreshStoreMapInBackground(): Promise<Map<string, MeituanStoreInfo>> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
     try {
+      const now = Date.now();
       // 过期后简单指纹校验：数量一致就认为没变（台账全量导入，数量变化是可靠信号）
       if (cache) {
         const client = getSupabaseClient();
@@ -111,17 +170,21 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
       }
       const fresh = await withRetry(fetchStores);
       cache = fresh;
+      persistToDisk(fresh.byId);
       return fresh.byId;
     } catch (err) {
-      // 台账属于「锦上添花」（营业状态展示/筛选），绝不能拖垮核心看板：
-      // - 有旧台账就降级继续用；
-      // - 首次加载且上游不可用，返回空映射（状态列显示"未匹配台账"），而不是抛错让整个页面 500。
+      // 台账属于「锦上添花」：有缓存用缓存，没有就返回空映射，绝不抛错
       if (cache) {
         console.warn(
-          '[meituan-store-cache] 刷新门店台账失败，降级使用旧缓存:',
+          '[meituan-store-cache] 后台刷新失败，沿用内存缓存:',
           err instanceof Error ? err.message : String(err)
         );
         return cache.byId;
+      }
+      const diskMap = readFromDisk();
+      if (diskMap) {
+        cache = { byId: diskMap, count: diskMap.size, savedAt: Date.now(), fingerprint: 'disk' };
+        return diskMap;
       }
       console.warn(
         '[meituan-store-cache] 门店台账不可用，降级为空映射:',
@@ -129,17 +192,26 @@ export async function getMeituanStoreMap(): Promise<Map<string, MeituanStoreInfo
       );
       return new Map<string, MeituanStoreInfo>();
     } finally {
-      inflight = null;
+      refreshPromise = null;
     }
   })();
 
-  return inflight;
+  return refreshPromise;
 }
 
 /** 台账导入后主动失效 */
 export function invalidateMeituanStoreCache(): void {
   cache = null;
 }
+
+// 模块加载时后台预热：成功则内存 + 磁盘都有台账兜底。不 await，失败静默。
+void (async () => {
+  try {
+    await getMeituanStoreMap();
+  } catch {
+    // ignore
+  }
+})();
 
 /** 经营数据行的门店ID列（点评门店ID）统一转字符串 */
 export function rowStoreId(r: Record<string, unknown>): string {
