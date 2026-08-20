@@ -98,6 +98,13 @@ export interface AlipayExportConfig {
     miniProgramBase: string;
     miniProgram: { overview: string; visit: string; trade: string };
   };
+  /**
+   * 导出时间范围（天数）。
+   * - 1：每日定时任务，点页面"1日"取昨天（用户分析页只有单日，取其默认最近一天）。
+   * - 7：首次回填基线，点"7日/近7日"取近7天汇总。
+   * 页面上的"30日/自然月"当前不使用（30天为周期汇总，不是每日明细，无法拆成每日快照）。
+   */
+  daysToDownload?: number;
 }
 
 /** 支付宝商家平台真实数据页 URL（2026-08-13 第一版验证通过） */
@@ -146,6 +153,7 @@ export const DEFAULT_ALIPAY_CONFIG: Required<
   enterpriseName: '深圳市久久金供应链有限公司',
   overviewUrl: 'https://b.alipay.com/page/manage-consultant/data-index',
   lifeAccountAppId: '2017122701284248',
+  daysToDownload: 1,
   pageUrls: ALIPAY_PAGE_URLS,
 };
 
@@ -167,14 +175,22 @@ export class AlipayExporter {
    * 执行全量数据导出
    */
   async export(): Promise<ExportResult> {
-    // 按上海时区取当天日期（YYYY-MM-DD），避免 UTC 在晚间/凌晨取到前一天
-    const dateStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // 快照日期（按上海时区）：
+    // - daysToDownload=1（每日追加）：取"昨天"，存每日快照。
+    // - daysToDownload=7（首次基线）：取"今天"，存近7日汇总为一条基线快照。
+    const days = this.config.daysToDownload === 7 ? 7 : 1;
+    const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    const dateStr =
+      days === 7
+        ? now.toISOString().slice(0, 10)
+        : new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rangeLabel = days === 7 ? '近7日（基线）' : '昨日（1日）';
 
     try {
       await this.init();
       await this.ensureLogin();
 
-      console.log('\n📊 开始抓取支付宝经营数据...');
+      console.log(`\n📊 开始抓取支付宝经营数据（日期范围：${rangeLabel}，快照日期：${dateStr}）...`);
 
       // 统一策略：使用第一版验证通过的真实 URL 直接访问，并等待数据渲染。
       const page = this.page!;
@@ -182,6 +198,7 @@ export class AlipayExporter {
 
       console.log('  [1/6] 经营总览...');
       await this.gotoBusinessPage(page, this.config.overviewUrl);
+      await this.applyDateRange(page, days);
       const overview = await this.extractPageData(page);
 
       // 2. 用户分析
@@ -189,6 +206,8 @@ export class AlipayExporter {
       let user: AlipayPageData;
       try {
         await this.gotoBusinessPage(page, urls.user);
+        // 用户分析页只有单日日历、无 7日 切换；两种模式都取其默认最近一天
+        await this.applyDateRange(page, days);
         user = await this.extractPageData(page);
       } catch {
         user = this.emptyPage();
@@ -199,6 +218,7 @@ export class AlipayExporter {
       let trade: AlipayPageData;
       try {
         await this.gotoBusinessPage(page, urls.trade);
+        await this.applyDateRange(page, days);
         trade = await this.extractPageData(page);
       } catch {
         trade = this.emptyPage();
@@ -218,6 +238,9 @@ export class AlipayExporter {
         try {
           await this.safeGoto(page, tab.url);
           await this.waitForDataLoaded(page);
+          // 流量分析 5 个 Tab 共用同一套顶部日期控件，跨 Tab 通常会保留选中范围；
+          // 这里仍显式点一次以保证范围正确
+          await this.applyDateRange(page, days);
           traffic.tabs[tab.key] = await this.extractPageData(page);
         } catch (err) {
           console.warn(`    ⚠️ ${tab.label}抓取失败:`, err);
@@ -235,6 +258,7 @@ export class AlipayExporter {
         const lifeUrl = this.appendQuery(urls.lifeAccount, { appId: this.config.lifeAccountAppId });
         await this.safeGoto(page, lifeUrl);
         await this.waitForDataLoaded(page);
+        await this.applyDateRange(page, days);
         lifeAccount = await this.extractPageData(page);
         if (lifeAccount.bodyText.includes('您还没有创建生活号') || lifeAccount.bodyText.includes('还没有创建生活号')) {
           console.log('    ℹ️  当前企业未开通生活号，生活号+分析无数据（属正常状态）');
@@ -247,6 +271,7 @@ export class AlipayExporter {
       try {
         await this.safeGoto(page, urls.fanGroup);
         await this.waitForDataLoaded(page);
+        await this.applyDateRange(page, days);
         fanGroup = await this.extractPageData(page);
       } catch {
         fanGroup = this.emptyPage();
@@ -1295,6 +1320,57 @@ export class AlipayExporter {
     }
     // 固定缓冲，等待图表动画/接口二次加载
     await page.waitForTimeout(1500);
+  }
+
+  /**
+   * 在数据页顶部切换日期范围。
+   *
+   * 支付宝各页的日期控件有两套文案：
+   *  - 经营总览/交易分析/流量分析/粉丝群：`1日 | 7日 | 30日 | 自然月`
+   *  - 生活号+分析：`1日 | 近7日 | 近30日`
+   *  - 用户分析：只有单日日历，无 7日 切换，两种模式都取其默认单日
+   *
+   * 本方法只点"1日"或"7日/近7日"两种；找不到对应选项时静默跳过（不报错），
+   * 因为用户分析等页没有该控件。点击后等待数据重新加载。
+   */
+  private async applyDateRange(page: Page, days: 1 | 7): Promise<void> {
+    const targets = days === 7 ? ['7日', '近7日'] : ['1日'];
+
+    try {
+      const clicked = await page.evaluate((labels) => {
+        // 仅在页面顶部 360px 范围内找候选，避免点到正文/图表里碰巧包含同样文字的元素
+        const candidates = Array.from(
+          document.querySelectorAll<HTMLElement>('div, span, a, button, li, [role="tab"], [role="button"]')
+        ).filter((el) => {
+          const rect = el.getBoundingClientRect();
+          if (rect.top < 0 || rect.top > 360) return false;
+          const text = (el.textContent || '').replace(/\s+/, '').trim();
+          // 文本必须精确等于候选词，避免匹配到"7日交易金额"等卡片标题
+          if (!labels.includes(text)) return false;
+          // 排除过大的容器（日期切换是小标签）
+          if (rect.width > 160 || rect.height > 56) return false;
+          return rect.width > 0 && rect.height > 0;
+        });
+
+        // 优先命中精确文本元素本身；若文本在子节点，则取最内层匹配
+        const exact = candidates.find((el) => labels.includes((el.textContent || '').replace(/\s+/, '').trim()));
+        const el = exact ?? candidates[0];
+        if (!el) return false;
+        el.scrollIntoView({ block: 'center' });
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
+      }, targets);
+
+      if (clicked) {
+        console.log(`    📅 已切换日期范围：${days === 7 ? '近7日' : '1日（昨日）'}`);
+        // 点击后图表会重新请求数据，等待刷新
+        await this.waitForDataLoaded(page);
+      } else {
+        console.log(`    ℹ️  本页未找到「${targets.join('/')}」日期切换（可能为单日页，使用默认日期）`);
+      }
+    } catch (err) {
+      console.warn(`    ⚠️  日期范围切换失败（继续使用页面默认日期）：`, err);
+    }
   }
 
   /** 点击包含指定文字的 Tab，返回是否点击成功 */

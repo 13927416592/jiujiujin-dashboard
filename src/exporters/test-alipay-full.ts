@@ -7,6 +7,11 @@
  * - 登录成功后 Cookie 会保存到 src/exporters/cookies/alipay.json（约 7 天有效）
  * - 后续运行自动复用 Cookie，无需重复登录
  *
+ * 日期范围（与美团 MEITUAN_EXPORT_DAYS 对齐）：
+ *   - 默认 ALIPAY_EXPORT_DAYS=1：每日定时任务用，点页面"1日"取昨天数据，存每日快照
+ *   - 首次回填设 ALIPAY_EXPORT_DAYS=7：点"7日/近7日"取近7日汇总作为基线（用户分析页
+ *     只有单日口径，取其默认最近一天）
+ *
  * 自动化 / 定时任务（无界面）：
  *   HEADLESS=1 npx tsx src/exporters/test-alipay-full.ts
  * - Cookie 有效时全程无弹窗、自动抓取并上传
@@ -28,12 +33,20 @@ function todayShanghai(): string {
 
 async function main(): Promise<void> {
   const headless = process.env.HEADLESS === '1' || process.env.HEADLESS === 'true';
+  // 导出天数：默认 1（昨天，每日定时任务用）。首次回填历史基线设 ALIPAY_EXPORT_DAYS=7，
+  // 会在各数据页点"7日/近7日"取近7日汇总（用户分析页只有单日口径，取其默认最近一天）。
+  const daysToDownload = Number(process.env.ALIPAY_EXPORT_DAYS) === 7 ? 7 : 1;
   console.log('=== 支付宝经营数据全量抓取 ===');
-  console.log(`模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'}\n`);
+  console.log(
+    `模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'} | 日期范围: ${
+      daysToDownload === 7 ? '近7日（基线）' : '1日（昨天）'
+    }\n`
+  );
 
   const result = await exportAlipayData({
     headless,
     slowMo: headless ? 0 : 400,
+    daysToDownload,
   });
 
   if (result.success) {
