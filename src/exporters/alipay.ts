@@ -1500,9 +1500,10 @@ export class AlipayExporter {
       // 用于点击后校验是否真的切到了目标范围（粉丝群等页默认是7日高亮，不校验可能存错）。
       const detectMode = async (): Promise<'1d' | '7d' | 'unknown'> => {
         const text = (await this.getBodyText(page)).replace(/\s+/g, '');
-        if (/较前[0-9]*日/.test(text)) {
-          return /较前日/.test(text) ? '1d' : '7d';
-        }
+        // 1日口径文案：粉丝群/经营页是"较前日"，小程序页是"较前1日"
+        if (/较前(日|1日)/.test(text)) return '1d';
+        // 7日/30日口径："较前7日"、"较前30日"等
+        if (/较前[0-9]+日/.test(text)) return '7d';
         return 'unknown';
       };
 
