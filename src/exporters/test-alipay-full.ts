@@ -33,20 +33,28 @@ function todayShanghai(): string {
 
 async function main(): Promise<void> {
   const headless = process.env.HEADLESS === '1' || process.env.HEADLESS === 'true';
-  // 导出天数：默认 1（昨天，每日定时任务用）。首次回填历史基线设 ALIPAY_EXPORT_DAYS=7，
-  // 会在各数据页点"7日/近7日"取近7日汇总（用户分析页只有单日口径，取其默认最近一天）。
+  // 导出天数：默认 1（每日明细）。
+  // - 每日定时：不设 ALIPAY_TARGET_DATE，取昨天。
+  // - 历史回填：设 ALIPAY_TARGET_DATE=YYYY-MM-DD（如 2026-08-18），抓取指定日期。
+  //   小程序页通过 URL 参数精确取数；其余页尝试在日历中点选该日。
   const daysToDownload = Number(process.env.ALIPAY_EXPORT_DAYS) === 7 ? 7 : 1;
+  const targetDate = (process.env.ALIPAY_TARGET_DATE || '').trim() || undefined;
+  const rangeLabel =
+    daysToDownload === 7
+      ? '近7日（基线）'
+      : targetDate
+      ? `指定日（${targetDate}）`
+      : '1日（昨天）';
   console.log('=== 支付宝经营数据全量抓取 ===');
   console.log(
-    `模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'} | 日期范围: ${
-      daysToDownload === 7 ? '近7日（基线）' : '1日（昨天）'
-    }\n`
+    `模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'} | 日期范围: ${rangeLabel}\n`
   );
 
   const result = await exportAlipayData({
     headless,
     slowMo: headless ? 0 : 400,
     daysToDownload,
+    targetDate,
   });
 
   if (result.success) {

@@ -105,6 +105,14 @@ export interface AlipayExportConfig {
    * 页面上的"30日/自然月"当前不使用（30天为周期汇总，不是每日明细，无法拆成每日快照）。
    */
   daysToDownload?: number;
+  /**
+   * 指定抓取某一天的数据（YYYY-MM-DD），用于历史回填，例如 '2026-08-18'。
+   * 仅在 daysToDownload=1（每日明细）时生效；设置后快照日期即为该日。
+   * - 小程序页：URL 直接带 reportDate=YYYYMMDD&subtract=1，最可靠。
+   * - 其余页：在 1日 模式下尝试点开日期选择器选中该日；点不中则回退页面默认（昨天）。
+   * 不设置时默认取昨天。
+   */
+  targetDate?: string;
 }
 
 /** 支付宝商家平台真实数据页 URL（2026-08-13 第一版验证通过） */
@@ -176,15 +184,22 @@ export class AlipayExporter {
    */
   async export(): Promise<ExportResult> {
     // 快照日期（按上海时区）：
-    // - daysToDownload=1（每日追加）：取"昨天"，存每日快照。
+    // - daysToDownload=1（每日追加）：默认取"昨天"；若显式指定 targetDate 则取该日（历史回填）。
     // - daysToDownload=7（首次基线）：取"今天"，存近7日汇总为一条基线快照。
     const days = this.config.daysToDownload === 7 ? 7 : 1;
     const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    const targetDate = (this.config.targetDate || '').trim();
     const dateStr =
       days === 7
         ? now.toISOString().slice(0, 10)
-        : new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const rangeLabel = days === 7 ? '近7日（基线）' : '昨日（1日）';
+        : targetDate ||
+          new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const isBackfill = days === 1 && !!targetDate;
+    const rangeLabel =
+      days === 7 ? '近7日（基线）' : isBackfill ? `指定日（${targetDate}）` : '昨日（1日）';
+
+    // 小程序页支持通过 URL 参数精确指定日期（reportDate=YYYYMMDD&subtract=1）
+    const miniReportDate = dateStr.replace(/-/g, '');
 
     try {
       await this.init();
@@ -1068,7 +1083,14 @@ export class AlipayExporter {
    */
   private async gotoMiniTab(path: string, appId: string, label: string, progName: string): Promise<boolean> {
     if (!this.page) return false;
-    const target = this.appendQuery(path, { appId });
+    // 小程序页支持 URL 精确指定日期：reportDate=YYYYMMDD，subtract=1 表示单日
+    const query: Record<string, string> = { appId };
+    const miniReportDate = (this.config.targetDate || '').trim().replace(/-/g, '');
+    if (miniReportDate) {
+      query.reportDate = miniReportDate;
+      query.subtract = '1';
+    }
+    const target = this.appendQuery(path, query);
     await this.safeGoto(this.page, target);
     await this.waitForDataLoaded(this.page);
 
@@ -1392,10 +1414,115 @@ export class AlipayExporter {
       } else {
         console.log(`    ℹ️  本页未找到「${targets.join('/')}」日期切换（可能为单日页，使用默认日期）`);
       }
+
+      // 历史回填：点完"1日"后，日历默认仍是"昨天"。需要打开日期选择器选中目标日期。
+      if (days === 1 && (this.config.targetDate || '').trim()) {
+        await this.pickTargetDate(page, this.config.targetDate!.trim());
+      }
     } catch (err) {
       console.warn(`    ⚠️  日期范围切换失败（继续使用页面默认日期）：`, err);
     }
   }
+
+  /**
+   * 历史回填：在已切到"1日"的页面上，打开日期选择器并选中 targetDate（YYYY-MM-DD）。
+   * 支付宝各页日期控件形态不一（Ant Design 日历 / 原生输入），这里用多策略尝试，
+   * 任一成功即返回；全部失败则静默回退到页面默认日期（昨天）。
+   */
+  private async pickTargetDate(page: Page, targetDate: string): Promise<void> {
+    if (!page) return;
+    const [y, m, d] = targetDate.split('-');
+    if (!y || !m || !d) return;
+    const dayNum = Number(d).toString(); // 去掉前导 0，匹配日历单元格里的"18"
+    const monthLabel = `${y}-${m}`; // AntD 日历标题形如 "2026-08"
+    const ymNum = `${y}${m}`;
+
+    try {
+      // 1) 点开日期输入框：顶部区域里看起来像日期/日历的可点击元素
+      const opened = await page.evaluate(() => {
+        const top = Array.from(
+          document.querySelectorAll<HTMLElement>('div, span, button, input, [class*="picker"], [class*="date"], [class*="calendar"]')
+        ).filter((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.top < 0 || r.top > 360 || r.width === 0 || r.height === 0) return false;
+          // 命中含日期格式文本 或日历图标的元素
+          const t = (el.textContent || '').trim();
+          const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+          return /\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(t) || /picker|date|calendar/i.test(cls);
+        });
+        // 取最小的可点击元素（避免点到整行容器）
+        top.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
+        const el = top[0];
+        if (!el) return false;
+        (el as HTMLElement).scrollIntoView({ block: 'center' });
+        (el as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
+      });
+
+      if (!opened) {
+        console.log('    ℹ️  未找到日期选择器入口，跳过目标日期点选（使用默认日期）');
+        return;
+      }
+
+      await page.waitForTimeout(600);
+
+      // 2) 在弹出的日历面板里点目标日。AntD 单元格 td[title="2026-08-18"] 最可靠；
+      //    兜底则按"月份标题 + 日期数字"找。
+      const picked = await page.evaluate(
+        ({ full, ym, day, titleAttr }) => {
+          const panel = document.querySelector<HTMLElement>(
+            '.ant-picker-dropdown:not(.ant-picker-dropdown-hidden), .ant-calendar-picker-container, [class*="picker-dropdown"]:not([class*="hidden"])'
+          ) || document.body;
+
+          // 优先：带 title="YYYY-MM-DD" 的单元格
+          const byTitle = panel.querySelector<HTMLElement>(`[title="${full}"], [data-date="${full}"]`);
+          if (byTitle) {
+            byTitle.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return 'title';
+          }
+
+          // 兜底：找到包含目标年月的面板，再点日期数字
+          const panels = Array.from(panel.querySelectorAll<HTMLElement>('[class*="picker-cell"], td, [role="gridcell"]'));
+          for (const cell of panels) {
+            const title = cell.getAttribute('title') || '';
+            if (title && title.replace(/[^0-9]/g, '').startsWith(ym)) {
+              const txt = (cell.textContent || '').replace(/\s+/g, '').trim();
+              if (txt === day && !cell.className.includes('disabled')) {
+                cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return 'cell';
+              }
+            }
+          }
+
+          // 再兜底：输入框直接赋值 + 触发 change（原生 input 场景）
+          const input = document.querySelector<HTMLInputElement>(
+            '.ant-picker-input input, input[placeholder*="日期"], input[class*="date"]'
+          );
+          if (input) {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+            setter?.set?.call(input, full);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+            return 'input';
+          }
+          void titleAttr;
+          return false;
+        },
+        { full: targetDate, ym: ymNum, day: dayNum, titleAttr: monthLabel }
+      );
+
+      if (picked) {
+        await this.waitForDataLoaded(page);
+        console.log(`    ✅ 已在日历中选中目标日期：${targetDate}（方式：${picked}）`);
+      } else {
+        console.log(`    ⚠️  未能在日历中选中 ${targetDate}，本页将使用默认日期（建议核对该页是否支持历史日期）`);
+      }
+    } catch (err) {
+      console.warn(`    ⚠️  目标日期点选异常（继续使用默认日期）：`, err);
+    }
+  }
+
 
   /** 点击包含指定文字的 Tab，返回是否点击成功 */
   private async clickTabIfPresent(tabName: string): Promise<boolean> {
