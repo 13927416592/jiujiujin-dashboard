@@ -4,6 +4,11 @@
  * 支付宝商家平台的 bodyText 中，指标名与数值之间可能是空格、换行或制表符，
  * 且不同 Tab 的"较前 N 日"措辞不同（较前7日 / 较前日 / 较前1日）。
  * 本模块统一按「指标名 → 数值 → 变化」的顺序扫描，不依赖它们在同一行。
+ *
+ * 日期范围兼容：抓取支持 ALIPAY_EXPORT_DAYS=1（每日，指标名形如"1日交易金额"、
+ * 对比"较前日"）与 =7（基线，"7日交易金额"、"较前7日"）。这里在扫描前把文本做
+ * 归一化，把"1日交易X/1日活跃X"统一映射为"7日..."，使两种口径落到同一组字段名，
+ * 看板前端无需区分。
  */
 
 export interface MetricValue {
@@ -13,7 +18,20 @@ export interface MetricValue {
 
 /** 把任意空白（含换行）压缩为单个空格，便于顺序匹配 */
 function flatten(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return normalizeRange(text.replace(/\s+/g, ' ').trim());
+}
+
+/**
+ * 把每日模式（ALIPAY_EXPORT_DAYS=1）下的指标名归一化为基线模式（=7）的字段名，
+ * 使两种口径落到同一组 key，看板无需区分。仅替换带范围前缀的几个总览 KPI 名，
+ * 不影响其它指标。
+ * 例："1日交易金额" / "昨日交易金额" → "7日交易金额"
+ */
+function normalizeRange(text: string): string {
+  return text.replace(
+    /(1日|昨日|今日)(交易金额|交易用户数|交易笔数|活跃用户数)/g,
+    '7日$2'
+  );
 }
 
 /**
