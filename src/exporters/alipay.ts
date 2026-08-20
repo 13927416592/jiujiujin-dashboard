@@ -608,28 +608,31 @@ export class AlipayExporter {
     // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
     await this.selectEnterpriseIfNeeded();
 
-    // 二次确认：打开主流程第一个落地页（经营总览）来预热子应用会话。
-    // 冷启动/持久化 profile 首次访问数据子应用时，支付宝会先把页面送到
-    // auth.alipay.com/login?goto=<数据页>，由 SSO 静默完成子应用授权后再 302 回数据页。
+    // 二次确认：进入主流程第一个数据页（经营总览）来确认登录态真正可用。
     //
-    // 关键：这里预热的 URL 必须与主流程第一个深链落地页（overviewUrl，经营总览 data-index）
-    // 保持一致！若预热 A 子应用、却深链落地 B 子应用，B 仍会再触发一次 SSO，表现为
-    // "首页已登录 → 紧接着又检测到登录页等待静默 SSO"，给人"又要重新登录"的错觉。
-    // 统一预热 overviewUrl，把 SSO 集中在登录阶段一次走完，主流程后续全部走菜单 SPA 切换。
-    console.log('🔎 二次确认数据页访问...');
-    const warmupUrl = this.config.overviewUrl;
-    await this.safeGoto(this.page, warmupUrl);
-    let dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
+    // 关键：这里【不能用 page.goto(深链)】！直接 goto 数据子应用是跨文档跳转，
+    // 即使首页已登录，也会被支付宝强制重定向到 auth.alipay.com 走一次硬 SSO
+    // （该 SSO 冷却只有几小时），表现就是"明明刚登录过，又被要求登录"。
+    // 真实用户在首页是点左侧菜单「经营总览」进入，属于同域 SPA 路由切换，
+    // 不会触发硬 SSO。因此这里也走菜单进入，从源头避免反复鉴权。
+    console.log('🔎 二次确认数据页访问（经左侧菜单进入）...');
+    let dataPageOk = await this.enterOverviewViaMenu();
 
-    // 静默 SSO 没自动跳回时，回首页预热一次会话再重试（首页已登录说明基础 Cookie 有效，
-    // 可能是直接深链数据页触发了子应用冷启动）。同样给足静默跳转时间。
-    if (!dataPageOk && isLoginUrl(this.page.url())) {
-      console.log('   🔄 数据页被踢登录，回首页预热会话后重试一次...');
-      await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
-      await this.page.waitForTimeout(4000);
-      await this.selectEnterpriseIfNeeded();
-      await this.safeGoto(this.page, warmupUrl);
+    // 菜单进入失败（菜单没渲染/被遮挡）时，才退回到深链兜底，并给足静默 SSO 时间。
+    if (!dataPageOk) {
+      console.log('   ↪️ 菜单进入失败，使用深链兜底...');
+      const warmupUrl = this.config.overviewUrl;
+      await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
       dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
+
+      if (!dataPageOk && isLoginUrl(this.page.url())) {
+        console.log('   🔄 数据页被踢登录，回首页预热会话后重试一次...');
+        await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
+        await this.page.waitForTimeout(4000);
+        await this.selectEnterpriseIfNeeded();
+        await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
+        dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
+      }
     }
 
     if (!dataPageOk) {
@@ -641,11 +644,10 @@ export class AlipayExporter {
       }
       console.log('⚠️ 数据页需要登录，进入手动登录流程。落地 URL:', this.page.url());
       await this.promptManualLogin();
-      // 手动登录成功后，也等待一次业务页静默落地（登录后通常还需走一次选企业 + goto 回跳）
-      dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
+      // 手动登录成功后优先菜单进入，失败再深链
+      dataPageOk = await this.enterOverviewViaMenu();
       if (!dataPageOk) {
-        // 手动登录后可能落在首页，再主动跳一次数据页
-        await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
+        await this.safeGoto(this.page, this.config.overviewUrl).catch(() => undefined);
         dataPageOk = await this.waitForBusinessSettled(this.page, 20_000);
       }
     }
@@ -653,6 +655,41 @@ export class AlipayExporter {
     if (dataPageOk) {
       console.log('✅ 数据页可访问，登录有效');
     }
+  }
+
+  /**
+   * 从当前页（通常是商家首页/portal home）通过点击左侧菜单「经营总览」进入数据页，
+   * 走同域 SPA 导航，避免 page.goto 深链触发 auth.alipay.com 硬 SSO。
+   * 返回 true 表示已稳定落在经营总览业务页（含其可能的重定向落地页）。
+   */
+  private async enterOverviewViaMenu(): Promise<boolean> {
+    if (!this.page) return false;
+
+    // 已在经营总览（或其重定向后的等价路径）则直接成功
+    const here = (): boolean => {
+      const u = this.page!.url();
+      return /manage-consultant\/data-index|manage-consultant\/(overview|home)/.test(u) &&
+        !/(login|select-identity|select-account)/i.test(u);
+    };
+    if (here()) {
+      await this.waitForDataLoaded(this.page).catch(() => undefined);
+      return true;
+    }
+
+    const viaMenu = await this.clickMenuContaining('经营总览').catch(() => false);
+    if (viaMenu) {
+      // 菜单点击是 SPA 路由，等数据加载；可能伴随选企业页，统一处理后判断落地
+      await this.page.waitForTimeout(1500);
+      await this.waitForDataLoaded(this.page).catch(() => undefined);
+      await this.selectEnterpriseIfNeeded();
+      // 等待 SPA 落地到 b.alipay.com 业务页（菜单点击不会走 auth 登录域，给短超时即可）
+      const ok = await this.waitForBusinessSettled(this.page, 12_000);
+      if (ok || here()) {
+        console.log('   🧭 已通过菜单进入「经营总览」');
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
