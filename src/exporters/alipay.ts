@@ -468,6 +468,18 @@ export class AlipayExporter {
           if (typeof v === 'string') cookie.partitionKey = v;
         }
         out.push(cookie);
+
+        // 关键兼容：支付宝把部分核心会话 Cookie 以 CHIPS 分区形式下发
+        // （_CHIPS-ALIPAYJSESSIONID 等）。分区 Cookie 只有在“顶级站点=b.alipay.com”
+        // 的上下文才会发送；但访问数据页时会先以顶级站点跳到 auth.alipay.com 做 SSO，
+        // 此时分区 Cookie 不会被带上，导致静默 SSO 失败、被踢回登录页。
+        // 这里对每个支付宝域的分区 Cookie 再补一份“无分区”副本，使其在 auth.alipay.com
+        // 顶级跳转时也能发送，完成静默登录；原分区副本仍保留，不影响 b.alipay.com 内的请求。
+        if (cookie.partitionKey && /alipay\.com$/i.test(cookie.domain.replace(/^\./, ''))) {
+          const { partitionKey: _omitted, ...unpartitioned } = cookie;
+          void _omitted;
+          out.push(unpartitioned);
+        }
       }
       return out;
     } catch (err) {
@@ -542,45 +554,22 @@ export class AlipayExporter {
     await this.selectEnterpriseIfNeeded();
 
     // 二次确认：尝试打开真实数据页。冷启动/持久化 profile 首次访问数据页时，
-    // 支付宝可能有一次瞬时重定向（选身份/鉴权回跳），因此重试几轮，不要第一次失败就判定未登录。
+    // 支付宝会先把我们送到 auth.alipay.com/login?goto=<数据页>，由 SSO 静默完成
+    // 子应用授权后再 302 回数据页。这个静默跳转链可能需要 10~20 秒，不能 5 秒就
+    // 判定失败并重新 goto（那会打断正在进行的 SSO 流程，永远跳不回来）。
     console.log('🔎 二次确认数据页访问...');
-    let dataPageOk = false;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await this.safeGoto(this.page, this.config.pageUrls.trade);
-      // 给 SPA 充足的重定向/鉴权时间
-      await this.page.waitForTimeout(5000);
-      // 数据页可能再次要求选择企业身份（select-identity），自动处理
-      await this.selectEnterpriseIfNeeded();
+    await this.safeGoto(this.page, this.config.pageUrls.trade);
+    let dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
 
-      const cur = this.page.url();
-      if (isLoginUrl(cur)) {
-        console.log(`   ⏳ 第 ${attempt} 次访问数据页落在登录页: ${cur}`);
-        await this.page.waitForTimeout(2000);
-        continue;
-      }
-      // 落地在 b.alipay.com 业务页（含 trade-analysis）即视为通过
-      if (cur.includes('b.alipay.com') && !cur.includes('select-identity') && !cur.includes('select-account')) {
-        dataPageOk = true;
-        break;
-      }
-      console.log(`   ⏳ 第 ${attempt} 次访问数据页尚未就绪，当前 URL: ${cur}`);
-      await this.page.waitForTimeout(2000);
-    }
-
-    // 三次都被踢到登录页时，先回首页让会话刷新一次（首页校验通过说明 Cookie 有效，
-    // 可能是直接深链数据页触发了风控/会话冷启动），再重试一次数据页。
-    if (!dataPageOk && this.page.url().includes('auth.alipay.com')) {
+    // 静默 SSO 没自动跳回时，回首页预热一次会话再重试（首页已登录说明基础 Cookie 有效，
+    // 可能是直接深链数据页触发了子应用冷启动）。同样给足静默跳转时间。
+    if (!dataPageOk && isLoginUrl(this.page.url())) {
       console.log('   🔄 数据页被踢登录，回首页预热会话后重试一次...');
       await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
       await this.page.waitForTimeout(4000);
       await this.selectEnterpriseIfNeeded();
       await this.safeGoto(this.page, this.config.pageUrls.trade);
-      await this.page.waitForTimeout(5000);
-      await this.selectEnterpriseIfNeeded();
-      const cur = this.page.url();
-      if (cur.includes('b.alipay.com') && !isLoginUrl(cur) && !cur.includes('select-identity')) {
-        dataPageOk = true;
-      }
+      dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
     }
 
     if (!dataPageOk) {
@@ -592,9 +581,66 @@ export class AlipayExporter {
       }
       console.log('⚠️ 数据页需要登录，进入手动登录流程。落地 URL:', this.page.url());
       await this.promptManualLogin();
-    } else {
+      // 手动登录成功后，也等待一次业务页静默落地（登录后通常还需走一次选企业 + goto 回跳）
+      dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
+      if (!dataPageOk) {
+        // 手动登录后可能落在首页，再主动跳一次数据页
+        await this.safeGoto(this.page, this.config.pageUrls.trade).catch(() => undefined);
+        dataPageOk = await this.waitForBusinessSettled(this.page, 20_000);
+      }
+    }
+
+    if (dataPageOk) {
       console.log('✅ 数据页可访问，登录有效');
     }
+  }
+
+  /**
+   * 访问数据页后，等待页面"落地"到真正的业务页（而非停在登录/选身份页）。
+   *
+   * 关键：当落地在 auth.alipay.com/login?goto=... 时，支付宝正在做静默 SSO，
+   * 会自动 302 回 goto 指向的数据页。此过程不要重新导航打断它，只轮询等待。
+   * 返回 true 表示已稳定落在 b.alipay.com 业务页。
+   */
+  private async waitForBusinessSettled(page: Page, timeoutMs: number): Promise<boolean> {
+    const LOGIN_RE = /(auth\.alipay\.com\/login|\/login\/|\/login\b|passport|sign[-_]?in)/i;
+    const deadline = Date.now() + timeoutMs;
+    let warnedLogin = false;
+
+    while (Date.now() < deadline) {
+      const url = page.url();
+      const onLogin = LOGIN_RE.test(url);
+      const onSelect = /select-identity|select-account|appScene=/.test(url);
+
+      if (onLogin) {
+        if (!warnedLogin) {
+          console.log('   ⏳ 检测到登录页，等待支付宝静默 SSO 自动跳转回数据页（不要打断）...');
+          warnedLogin = true;
+        }
+        // 登录页上的静默跳转进行中，只等待，绝不 goto
+        await page.waitForTimeout(1500);
+        continue;
+      }
+
+      if (onSelect) {
+        // 选企业/身份页：自动点击目标企业，点击后会跳回业务页
+        await this.selectEnterpriseIfNeeded();
+        await page.waitForTimeout(2000);
+        continue;
+      }
+
+      if (url.includes('b.alipay.com')) {
+        // 已到业务域，给 SPA 一点渲染/二次鉴权时间后确认
+        await page.waitForTimeout(1500);
+        const finalUrl = page.url();
+        if (!LOGIN_RE.test(finalUrl) && !/select-identity|select-account|appScene=/.test(finalUrl)) {
+          return true;
+        }
+      }
+
+      await page.waitForTimeout(1000);
+    }
+    return false;
   }
 
   /**
