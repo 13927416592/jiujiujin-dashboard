@@ -212,6 +212,7 @@ export class AlipayExporter {
       const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
 
       console.log('  [1/6] 经营总览...');
+      // 第一个页用深链落地（建立子应用会话），后续页都走菜单，避免反复触发 SSO
       await this.gotoBusinessPage(page, this.config.overviewUrl);
       await this.applyDateRange(page, days);
       const overview = await this.extractPageData(page);
@@ -220,7 +221,7 @@ export class AlipayExporter {
       console.log('  [2/6] 用户分析...');
       let user: AlipayPageData;
       try {
-        await this.gotoBusinessPage(page, urls.user);
+        await this.navigateToPage(page, urls.user, { menuText: '用户分析', label: '用户分析' });
         // 用户分析页只有单日日历、无 7日 切换；两种模式都取其默认最近一天
         await this.applyDateRange(page, days);
         user = await this.extractPageData(page);
@@ -232,27 +233,35 @@ export class AlipayExporter {
       console.log('  [3/6] 交易分析...');
       let trade: AlipayPageData;
       try {
-        await this.gotoBusinessPage(page, urls.trade);
+        await this.navigateToPage(page, urls.trade, { menuText: '交易分析', label: '交易分析' });
         await this.applyDateRange(page, days);
         trade = await this.extractPageData(page);
       } catch {
         trade = this.emptyPage();
       }
 
-      // 4. 流量分析（5 个独立 URL，对应第一版的 5 个 Tab）
+      // 4. 流量分析（5 个 Tab，同属一个子应用，通过顶部 Tab 切换，不再逐 URL 深链）
       console.log('  [4/6] 流量分析（5 个 Tab）...');
       const traffic: { tabs: Record<string, AlipayPageData> } = { tabs: {} };
-      const trafficTabs: Array<{ key: string; label: string; url: string }> = [
-        { key: 'overview', label: '流量概览', url: urls.traffic.overview },
-        { key: 'miniApp', label: '小程序流量', url: urls.traffic.miniApp },
-        { key: 'lifeAccount', label: '生活号+流量', url: urls.traffic.lifeAccount },
-        { key: 'fanGroup', label: '商家粉丝群流量', url: urls.traffic.fanGroup },
-        { key: 'other', label: '其他活跃流量', url: urls.traffic.other },
+      const trafficTabs: Array<{ key: string; label: string; tabText: string; url: string }> = [
+        { key: 'overview', label: '流量概览', tabText: '流量概览', url: urls.traffic.overview },
+        { key: 'miniApp', label: '小程序流量', tabText: '小程序', url: urls.traffic.miniApp },
+        { key: 'lifeAccount', label: '生活号+流量', tabText: '生活号', url: urls.traffic.lifeAccount },
+        { key: 'fanGroup', label: '商家粉丝群流量', tabText: '粉丝群', url: urls.traffic.fanGroup },
+        { key: 'other', label: '其他活跃流量', tabText: '其他', url: urls.traffic.other },
       ];
+      // 先确保落在流量分析页（菜单进入）
+      await this.navigateToPage(page, urls.traffic.overview, { menuText: '流量分析', label: '流量分析' }).catch(() => undefined);
       for (const tab of trafficTabs) {
         try {
-          await this.safeGoto(page, tab.url);
-          await this.waitForDataLoaded(page);
+          // 同一子应用内点顶部 Tab 切换（SPA，不触发 SSO）；点不到才深链兜底
+          const clicked = await this.clickTrafficTab(tab.tabText);
+          if (!clicked) {
+            await this.gotoBusinessPage(page, tab.url).catch(() => undefined);
+          } else {
+            await page.waitForTimeout(1000);
+            await this.waitForDataLoaded(page).catch(() => undefined);
+          }
           // 流量分析 5 个 Tab 共用同一套顶部日期控件，跨 Tab 通常会保留选中范围；
           // 这里仍显式点一次以保证范围正确
           await this.applyDateRange(page, days);
@@ -271,8 +280,10 @@ export class AlipayExporter {
       let lifeAccount: AlipayPageData;
       try {
         const lifeUrl = this.appendQuery(urls.lifeAccount, { appId: this.config.lifeAccountAppId });
-        await this.safeGoto(page, lifeUrl);
-        await this.waitForDataLoaded(page);
+        // 生活号+是独立子应用，先深链落地建立上下文，再点日期
+        if (!/life-data/.test(page.url())) {
+          await this.gotoBusinessPage(page, lifeUrl);
+        }
         await this.applyDateRange(page, days);
         lifeAccount = await this.extractPageData(page);
         if (lifeAccount.bodyText.includes('您还没有创建生活号') || lifeAccount.bodyText.includes('还没有创建生活号')) {
@@ -284,8 +295,8 @@ export class AlipayExporter {
 
       let fanGroup: AlipayPageData;
       try {
-        await this.safeGoto(page, urls.fanGroup);
-        await this.waitForDataLoaded(page);
+        // 粉丝群与生活号同属"经营阵地"菜单组，优先菜单切换；失败再深链
+        await this.navigateToPage(page, urls.fanGroup, { menuText: '粉丝群', label: '商家粉丝群分析' });
         await this.applyDateRange(page, days);
         fanGroup = await this.extractPageData(page);
       } catch {
@@ -871,6 +882,46 @@ export class AlipayExporter {
   }
 
   /**
+   * 会话内导航到某个业务页（避免反复深链触发 auth.alipay.com 严格鉴权）。
+   *
+   * 背景：脚本若对每个数据页都 page.goto(深链)，每次都是跨文档跳转，都会过一遍
+   * auth.alipay.com 的 SSO 鉴权，其冷却只有几小时，导致"离上次登录才几小时又要重登"。
+   * 真实用户在已登录后是通过左侧菜单在 SPA 内切换，不会重新走鉴权。
+   *
+   * 策略：先尝试点击包含 menuText 的左侧菜单项（同域 SPA 路由，不触发 SSO）；
+   * 菜单点不到时才回退到深链 goto（兜底，尽量少用）。
+   */
+  private async navigateToPage(
+    page: Page,
+    url: string,
+    options: { menuText?: string; label: string }
+  ): Promise<void> {
+    // 已经在目标页就不重复导航
+    const cur = page.url();
+    const samePath =
+      cur.split('?')[0].replace(/\/$/, '') === url.split('?')[0].replace(/\/$/, '');
+
+    if (!samePath && options.menuText) {
+      const viaMenu = await this.clickMenuContaining(options.menuText).catch(() => false);
+      if (viaMenu) {
+        await page.waitForTimeout(1200);
+        await this.waitForDataLoaded(page).catch(() => undefined);
+        const stillLogin = /auth\.alipay\.com\/login/.test(page.url());
+        if (!stillLogin) {
+          console.log(`    🧭 通过菜单进入「${options.label}」`);
+          return;
+        }
+        // 菜单点击后反而被踢登录，回退深链（后续 ensureLogin/调用方处理）
+        console.log(`    ⚠️ 菜单进入「${options.label}」被踢登录，回退深链`);
+      }
+    }
+
+    if (!samePath) {
+      await this.gotoBusinessPage(page, url);
+    }
+  }
+
+  /**
    * 通过点击左侧菜单导航到目标页（比猜网址更可靠：支付宝自己处理跳转和数据加载）。
    * menuText 为左侧菜单文字，如"用户分析"。
    * 返回导航后页面是否有真实内容（非404/空白）。
@@ -1010,6 +1061,44 @@ export class AlipayExporter {
     console.warn('    ⚠️ 未能在任何承载页找到"小程序分析"入口');
     await this.dumpVisibleMenuItems();
     return false;
+  }
+
+  /**
+   * 点击流量分析页顶部的子 Tab（流量概览/小程序/生活号/粉丝群/其他），同子应用 SPA 切换。
+   * 返回是否点击成功。
+   */
+  private async clickTrafficTab(tabText: string): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      // 顶部 Tab 通常在页面上方的 tabs 容器内，文本较短
+      const loc = this.page
+        .locator(`[role="tab"], .ant-tabs-tab, [class*="tabs"] [class*="tab"], nav [class*="item"]`)
+        .filter({ hasText: tabText })
+        .first();
+      const visible = await loc.isVisible({ timeout: 2000 }).catch(() => false);
+      if (visible) {
+        await loc.click({ timeout: 4000 }).catch(() => undefined);
+        return true;
+      }
+      // 兜底：页面顶部区域内包含该文字的可点击短元素
+      return await this.page.evaluate((text) => {
+        const nodes = Array.from(
+          document.querySelectorAll<HTMLElement>('div, span, a, button, li, [role="tab"], [role="button"]')
+        );
+        for (const el of nodes) {
+          const r = el.getBoundingClientRect();
+          if (r.top < 0 || r.top > 240 || r.width === 0 || r.height === 0) continue;
+          const t = (el.textContent || '').replace(/\s+/g, '').trim();
+          if (t && t.includes(text) && t.length <= 12) {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+          }
+        }
+        return false;
+      }, tabText);
+    } catch {
+      return false;
+    }
   }
 
   /**
