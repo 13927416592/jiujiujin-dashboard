@@ -174,6 +174,15 @@ function refreshInBackground(): Promise<{
 /** 数据写入后可主动失效缓存（上传接口调用），下次请求立即拉新 */
 export function invalidateMeituanCache(): void {
   cache = null;
+  // 同时删除磁盘兜底缓存：否则进程重启后可能读到旧的磁盘快照
+  try {
+    if (fs.existsSync(DISK_CACHE_PATH)) fs.unlinkSync(DISK_CACHE_PATH);
+  } catch (err) {
+    console.warn(
+      '[meituan-cache] 删除磁盘缓存失败（不影响运行）:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 }
 
 // 模块加载时后台预热一次：成功则内存 + 磁盘都有了缓存，
