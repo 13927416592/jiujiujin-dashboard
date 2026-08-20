@@ -100,7 +100,16 @@
 - 接口：`GET /api/meituan-data`（聚合）、`GET /api/meituan-rows`（分页明细），均支持 from/to/province/city/store/business_status
 - 快照缓存：`src/lib/meituan-cache.ts`（TTL 60s + 指纹 + in-flight 去重）；新数据上传后 `invalidateMeituanCache()`
 - 门店台账：表 `meituan_stores`（schema 见 `src/storage/database/shared/schema.ts`），按点评门店ID关联经营数据，提供营业状态
-  - 台账缓存：`src/lib/meituan-store-cache.ts`（TTL 5min，**必须分页**拉取，Supabase 单次最多 1000 行）
+  - 台账缓存：`src/lib/meituan-store-cache.ts`（TTL 5min，直连 Postgres 一次性拉全量）
+
+## 数据库访问（Postgres 直连）
+
+- **必须走 `pg` 直连**：服务端数据访问统一使用 `src/storage/database/pg-client.ts` 的 `query/queryRow/queryRows/getPool`，**不要再用 `@supabase/supabase-js` 读写数据**。
+- 原因：Supabase 的 PostgREST REST 网关间歇性 502（"invalid response from the upstream server"），但底层 Postgres 引擎稳定；直连原生 TCP 从源头绕开该网关。
+- 连接信息由平台在运行时注入（`PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE` 或 `PGDATABASE_URL`），`pg-client` 自动读取，**禁止硬编码**。
+- 写入用参数化 SQL（`$1,$2...`）+ `ON CONFLICT ... DO UPDATE` 实现 upsert；`platform_snapshots` 唯一键是 `(platform, data_date)`，`meituan_stores` 主键是 `store_id`。
+- `snapshot-repo.ts`、`meituan-store-cache.ts`、`scripts/import-meituan-stores.ts` 均已改为直连，可作为写法参考。
+- `supabase-client.ts` 仅保留 `loadEnv` 供连接配置复用，不再用于数据读写。
   - 导入脚本：`npx tsx scripts/import-meituan-stores.ts <xlsx路径>`（该 xlsx 的 dimension 标记错误，脚本会扫描单元格地址重算 !ref）
   - 营业状态分布在 `aggregate().storeStatus`；明细行带 `status`；前端可按状态筛选
 - 转化漏斗同口径：曝光→访问→下单（核销含跨期核销，不放入漏斗末级）

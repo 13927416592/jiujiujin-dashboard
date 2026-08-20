@@ -8,7 +8,7 @@
  * 门店总数指纹校验，避免每次看板请求都查库。
  */
 
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { queryRow, queryRows } from '@/storage/database/pg-client';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -66,7 +66,7 @@ function readFromDisk(): Map<string, MeituanStoreInfo> | null {
   }
 }
 
-/** 有限次重试，抵御 Supabase 网关瞬时抖动 */
+/** 有限次重试，抵御数据库瞬时错误（连接重置等） */
 async function withRetry<T>(
   fn: () => Promise<T> | PromiseLike<T>,
   retries = 2,
@@ -78,31 +78,27 @@ async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (attempt < retries) await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient =
+        /timeout|aborted|ECONNRESET|ETIMEDOUT|ECONNREFUSED|Connection terminated|server closed|57P01|57P02|57P03|08006|08003/i.test(
+          msg
+        );
+      if (!transient || attempt === retries) break;
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
     }
   }
   throw lastErr;
 }
 
 async function fetchStores(): Promise<StoreCache> {
-  const client = getSupabaseClient();
-  // 台账 2000+ 家，Supabase 单次最多返回 1000 行，必须分页拉全量
-  const PAGE = 1000;
-  const list: MeituanStoreInfo[] = [];
-  let from = 0;
-  // select 只取看板需要的列；按 store_id 稳定排序以保证分页一致
-  for (;;) {
-    const { data, error } = await client
-      .from('meituan_stores')
-      .select('store_id,name,brand,city,business_status,claim_status,qualification_entity')
-      .order('store_id')
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`加载门店台账失败: ${error.message}`);
-    const batch = (data ?? []) as MeituanStoreInfo[];
-    list.push(...batch);
-    if (batch.length < PAGE) break;
-    from += PAGE;
-  }
+  // 直连 Postgres 一次性拉全量（不再受 Supabase 单次 1000 行限制）
+  const list = await withRetry(() =>
+    queryRows<MeituanStoreInfo>(
+      `SELECT store_id, name, brand, city, business_status, claim_status, qualification_entity
+       FROM meituan_stores
+       ORDER BY store_id`
+    )
+  );
 
   const byId = new Map<string, MeituanStoreInfo>();
   for (const s of list) byId.set(String(s.store_id), s);
@@ -154,15 +150,10 @@ function refreshStoreMapInBackground(): Promise<Map<string, MeituanStoreInfo>> {
       const now = Date.now();
       // 过期后简单指纹校验：数量一致就认为没变（台账全量导入，数量变化是可靠信号）
       if (cache) {
-        const client = getSupabaseClient();
-        const countResult = await withRetry<{ count: number | null }>(async () => {
-          const { count, error } = await client
-            .from('meituan_stores')
-            .select('*', { count: 'exact', head: true });
-          if (error) throw new Error(error.message);
-          return { count };
-        });
-        const fingerprint = `count:${countResult.count ?? 0}`;
+        const countRow = await withRetry(() =>
+          queryRow<{ count: string }>(`SELECT count(*)::text AS count FROM meituan_stores`)
+        );
+        const fingerprint = `count:${countRow?.count ?? '0'}`;
         if (fingerprint === cache.fingerprint) {
           cache.savedAt = now;
           return cache.byId;
@@ -175,9 +166,10 @@ function refreshStoreMapInBackground(): Promise<Map<string, MeituanStoreInfo>> {
     } catch (err) {
       // 台账属于「锦上添花」：有缓存用缓存，没有就返回空映射，绝不抛错
       if (cache) {
+        const detail = err instanceof Error ? `${err.name}: ${err.message} [code=${(err as NodeJS.ErrnoException).code ?? ''}]` : String(err);
         console.warn(
           '[meituan-store-cache] 后台刷新失败，沿用内存缓存:',
-          err instanceof Error ? err.message : String(err)
+          detail
         );
         return cache.byId;
       }
@@ -186,9 +178,10 @@ function refreshStoreMapInBackground(): Promise<Map<string, MeituanStoreInfo>> {
         cache = { byId: diskMap, count: diskMap.size, savedAt: Date.now(), fingerprint: 'disk' };
         return diskMap;
       }
+      const detail = err instanceof Error ? `${err.name}: ${err.message} [code=${(err as NodeJS.ErrnoException).code ?? ''}]` : String(err);
       console.warn(
         '[meituan-store-cache] 门店台账不可用，降级为空映射:',
-        err instanceof Error ? err.message : String(err)
+        detail
       );
       return new Map<string, MeituanStoreInfo>();
     } finally {

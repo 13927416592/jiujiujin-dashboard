@@ -10,7 +10,7 @@
 import * as path from 'path';
 import { readFileSync } from 'fs';
 import * as XLSX from 'xlsx';
-import { getSupabaseClient } from '../src/storage/database/supabase-client';
+import { getPool } from '../src/storage/database/pg-client';
 
 interface RawRow {
   门店名?: string;
@@ -143,27 +143,64 @@ async function main() {
   console.log('认领状态分布:', claimCount);
   console.log(`覆盖城市: ${cities.size}`);
 
-  const client = getSupabaseClient();
+  const pool = getPool();
 
   // 批量 upsert（每批 200）
   const BATCH = 200;
   let upserted = 0;
   const totalBatches = Math.ceil(records.length / BATCH);
+  const COLS = 14;
   for (let i = 0; i < records.length; i += BATCH) {
     const batch = records.slice(i, i + BATCH);
-    const { data, error } = await client
-      .from('meituan_stores')
-      .upsert(batch, { onConflict: 'store_id' })
-      .select('store_id');
-    if (error) {
-      console.error(`❌ 批次 ${Math.floor(i / BATCH) + 1} 写入失败:`, error.message);
-      throw error;
+    const valuesSql = batch
+      .map((_, r) => {
+        const base = r * COLS;
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14})`;
+      })
+      .join(', ');
+    const params: unknown[] = [];
+    for (const s of batch) {
+      params.push(
+        s.store_id, s.name, s.brand, s.organization, s.category, s.city, s.address,
+        s.claim_status, s.business_status, s.license_status, s.qualification_type,
+        s.qualification_no, s.qualification_entity, s.third_party_code
+      );
     }
-    upserted += data?.length ?? 0;
+    try {
+      const res = await pool.query(
+        `INSERT INTO meituan_stores
+           (store_id, name, brand, organization, category, city, address,
+            claim_status, business_status, license_status, qualification_type,
+            qualification_no, qualification_entity, third_party_code)
+         VALUES ${valuesSql}
+         ON CONFLICT (store_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           brand = EXCLUDED.brand,
+           organization = EXCLUDED.organization,
+           category = EXCLUDED.category,
+           city = EXCLUDED.city,
+           address = EXCLUDED.address,
+           claim_status = EXCLUDED.claim_status,
+           business_status = EXCLUDED.business_status,
+           license_status = EXCLUDED.license_status,
+           qualification_type = EXCLUDED.qualification_type,
+           qualification_no = EXCLUDED.qualification_no,
+           qualification_entity = EXCLUDED.qualification_entity,
+           third_party_code = EXCLUDED.third_party_code,
+           updated_at = now()`,
+        params
+      );
+      upserted += res.rowCount ?? batch.length;
+    } catch (e) {
+      console.error(`❌ 批次 ${Math.floor(i / BATCH) + 1} 写入失败:`, e instanceof Error ? e.message : e);
+      throw e;
+    }
     if (totalBatches > 1) {
       console.log(`  批次 ${Math.floor(i / BATCH) + 1}/${totalBatches}: 累计 ${upserted}`);
     }
   }
+
+  await pool.end();
 
   console.log(`\n🎉 导入完成：upsert ${upserted} 家门店到 meituan_stores`);
   process.exit(0);

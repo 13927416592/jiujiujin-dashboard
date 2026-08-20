@@ -1,27 +1,26 @@
 /**
- * 平台数据快照数据访问层
+ * 平台数据快照数据访问层（Postgres 直连版）。
  *
  * 统一封装 platform_snapshots 表的读写。
- * - 云端上传接口调用 saveSnapshot 写入
- * - 看板读取接口调用 getLatestSnapshot 查询
+ * - 云端上传接口调用 saveSnapshot / saveSnapshots 写入
+ * - 看板读取接口调用 getLatestSnapshot / getRecentSnapshots / getLatestSnapshots 查询
  *
- * 未来自建服务器时，只要数据库仍是 Postgres（或 Supabase），
- * 本文件无需改动，只需配置好连接环境变量即可。
+ * 走原生 pg 连接（pg-client），绕过 Supabase REST 网关，从源头规避网关 502。
  */
 
-import { getSupabaseClient } from './supabase-client';
+import { query, queryRow, queryRows } from './pg-client';
 
 export type Platform = 'alipay' | 'meituan' | 'douyin';
 
 /**
- * 对一个异步写操作做有限次重试。
- * 仅对"瞬时错误"重试：网络错误、Supabase 网关 502/503/504、超时等。
- * 这类错误通常 10 秒内返回，重试能扛过短暂网关抖动。
+ * 对一个异步操作做有限次重试。
+ * 仅对"瞬时错误"重试：网络错误、数据库连接重置、超时等。
  */
-async function withWriteRetry<T>(
+async function withRetry<T>(
   fn: () => Promise<T> | PromiseLike<T>,
-  retries = 4,
-  baseDelayMs = 800
+  retries: number,
+  baseDelayMs: number,
+  label: string
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -31,53 +30,16 @@ async function withWriteRetry<T>(
       lastErr = err;
       const msg = err instanceof Error ? err.message : String(err);
       const transient =
-        /invalid response from the upstream|timeout|aborted|network|fetch failed|502|503|504|ECONNRESET|ETIMEDOUT/i.test(
-          msg
-        );
-      if (!transient || attempt === retries) break;
-      const delay = baseDelayMs * Math.pow(2, attempt); // 800ms,1.6s,3.2s,6.4s
-      console.warn(
-        `[snapshot-repo] 写入遇到瞬时错误，${delay}ms 后重试(${attempt + 1}/${retries}):`,
-        msg
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
-}
-
-/**
- * 读操作重试：Supabase 网关 502/503/超时等瞬时错误既可能表现为 reject，
- * 也可能表现为 { error } 返回值，这里统一转成 throw 后再做有限次重试。
- */
-async function withReadRetry<T>(
-  fn: () => PromiseLike<{ data: T; error: { message: string } | null }>,
-  retries = 2,
-  baseDelayMs = 500
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const { data, error } = await fn();
-      if (error) throw new Error(error.message);
-      return data;
-    } catch (err) {
-      lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const transient =
-        /invalid response from the upstream|timeout|aborted|network|fetch failed|502|503|504|ECONNRESET|ETIMEDOUT/i.test(
+        /invalid response from the upstream|timeout|aborted|network|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|Connection terminated|too many clients|server closed|57P01|57P02|57P03|08006|08003/i.test(
           msg
         );
       if (!transient || attempt === retries) break;
       const delay = baseDelayMs * Math.pow(2, attempt);
-      console.warn(
-        `[snapshot-repo] 读取遇到瞬时错误，${delay}ms 后重试(${attempt + 1}/${retries}):`,
-        msg
-      );
+      console.warn(`[snapshot-repo] ${label}遇到瞬时错误，${delay}ms 后重试(${attempt + 1}/${retries}):`, msg);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  throw lastErr;
 }
 
 export interface PlatformSnapshot {
@@ -105,97 +67,114 @@ export interface SaveSnapshotInput {
  * 写入或更新某平台某天的快照（同平台同日唯一，重复上传覆盖）。
  * 返回写入后的记录。
  */
-export async function saveSnapshot(
-  input: SaveSnapshotInput
-): Promise<PlatformSnapshot> {
-  const client = getSupabaseClient();
+export async function saveSnapshot(input: SaveSnapshotInput): Promise<PlatformSnapshot> {
+  const now = new Date().toISOString();
+  const params = [
+    input.platform,
+    input.data_date,
+    input.fetched_at ?? now,
+    input.source ?? 'unknown',
+    input.summary == null ? null : JSON.stringify(input.summary),
+    JSON.stringify(input.raw_data),
+    now,
+  ];
 
-  const payload = {
-    platform: input.platform,
-    data_date: input.data_date,
-    fetched_at: input.fetched_at ?? new Date().toISOString(),
-    source: input.source ?? 'unknown',
-    summary: input.summary ?? null,
-    raw_data: input.raw_data,
-    updated_at: new Date().toISOString(),
-  };
+  const row = await withRetry(
+    () =>
+      queryRow<PlatformSnapshot>(
+        `INSERT INTO platform_snapshots
+           (platform, data_date, fetched_at, source, summary, raw_data, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+         ON CONFLICT (platform, data_date) DO UPDATE SET
+           fetched_at = EXCLUDED.fetched_at,
+           source = EXCLUDED.source,
+           summary = EXCLUDED.summary,
+           raw_data = EXCLUDED.raw_data,
+           updated_at = EXCLUDED.updated_at
+         RETURNING id, platform, data_date, fetched_at, source, summary, raw_data, created_at, updated_at`,
+        params
+      ),
+    4,
+    800,
+    '写入'
+  );
 
-  const { data } = await withWriteRetry<{ data: unknown }>(async () => {
-    const { data, error } = await client
-      .from('platform_snapshots')
-      .upsert(payload, { onConflict: 'platform,data_date' })
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return { data };
-  });
-
-  if (!data) {
+  if (!row) {
     throw new Error('保存平台快照失败: 未返回写入记录');
   }
 
-  return data as PlatformSnapshot;
+  return row;
 }
 
 /**
  * 获取某平台最新一条快照（按数据日期倒序）。
  * 无数据时返回 null。
  */
-export async function getLatestSnapshot(
-  platform: Platform
-): Promise<PlatformSnapshot | null> {
-  const data = await withReadRetry<PlatformSnapshot | null>(async () => {
-    const { data, error } = await getSupabaseClient()
-      .from('platform_snapshots')
-      .select('*')
-      .eq('platform', platform)
-      .order('data_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    return { data: (data as PlatformSnapshot | null) ?? null, error };
-  });
-
-  return data ?? null;
+export async function getLatestSnapshot(platform: Platform): Promise<PlatformSnapshot | null> {
+  return withRetry(
+    () =>
+      queryRow<PlatformSnapshot>(
+        `SELECT id, platform, data_date, fetched_at, source, summary, raw_data, created_at, updated_at
+         FROM platform_snapshots
+         WHERE platform = $1
+         ORDER BY data_date DESC
+         LIMIT 1`,
+        [platform]
+      ),
+    2,
+    500,
+    '读取最新快照'
+  );
 }
 
 /**
- * 获取某平台最近 N 天的快照（用于趋势图），按日期升序。
+ * 获取某平台最近 N 天的快照（不含 raw_data，用于趋势图），按日期升序返回。
  */
 export async function getRecentSnapshots(
   platform: Platform,
   limit = 30
 ): Promise<PlatformSnapshot[]> {
-  const data = await withReadRetry<PlatformSnapshot[]>(async () => {
-    const { data, error } = await getSupabaseClient()
-      .from('platform_snapshots')
-      .select('id, platform, data_date, fetched_at, source, summary, created_at')
-      .eq('platform', platform)
-      .order('data_date', { ascending: false })
-      .limit(limit);
-    return { data: (data as PlatformSnapshot[] | null) ?? [], error };
-  });
+  const rows = await withRetry(
+    () =>
+      queryRows<PlatformSnapshot>(
+        `SELECT id, platform, data_date, fetched_at, source, summary, created_at
+         FROM platform_snapshots
+         WHERE platform = $1
+         ORDER BY data_date DESC
+         LIMIT $2`,
+        [platform, limit]
+      ),
+    2,
+    500,
+    '读取近期快照'
+  );
 
-  return data ?? [];
+  return rows.sort((a, b) => a.data_date.localeCompare(b.data_date));
 }
 
 /**
- * 获取某平台最近 N 天的快照（含 raw_data，用于看板聚合），按日期升序。
+ * 获取某平台最近 N 天的快照（含 raw_data，用于看板聚合），按日期升序返回。
  */
 export async function getLatestSnapshots(
   platform: Platform,
   limit = 30
 ): Promise<PlatformSnapshot[]> {
-  const list = await withReadRetry<PlatformSnapshot[]>(async () => {
-    const { data, error } = await getSupabaseClient()
-      .from('platform_snapshots')
-      .select('*')
-      .eq('platform', platform)
-      .order('data_date', { ascending: false })
-      .limit(limit);
-    return { data: (data as PlatformSnapshot[] | null) ?? [], error };
-  });
+  const rows = await withRetry(
+    () =>
+      queryRows<PlatformSnapshot>(
+        `SELECT id, platform, data_date, fetched_at, source, summary, raw_data, created_at, updated_at
+         FROM platform_snapshots
+         WHERE platform = $1
+         ORDER BY data_date DESC
+         LIMIT $2`,
+        [platform, limit]
+      ),
+    2,
+    500,
+    '读取聚合快照'
+  );
 
-  return (list ?? []).sort((a, b) => a.data_date.localeCompare(b.data_date));
+  return rows.sort((a, b) => a.data_date.localeCompare(b.data_date));
 }
 
 /**
@@ -203,28 +182,50 @@ export async function getLatestSnapshots(
  * 用于美团等"一次导出含多日明细"的场景，按日拆分存储，避免单条 jsonb 过大。
  * 返回成功写入的条数。
  */
-export async function saveSnapshots(
-  inputs: SaveSnapshotInput[]
-): Promise<number> {
+export async function saveSnapshots(inputs: SaveSnapshotInput[]): Promise<number> {
   if (inputs.length === 0) return 0;
-  const client = getSupabaseClient();
+
   const now = new Date().toISOString();
-  const payload = inputs.map((input) => ({
-    platform: input.platform,
-    data_date: input.data_date,
-    fetched_at: input.fetched_at ?? now,
-    source: input.source ?? 'unknown',
-    summary: input.summary ?? null,
-    raw_data: input.raw_data,
-    updated_at: now,
-  }));
+  // 构造多值 VALUES：每条 7 列 => ($1,$2,...$7), ($8,...)
+  const cols = 7;
+  const valuesSql = inputs
+    .map((_, i) => {
+      const base = i * cols;
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}::jsonb, $${base + 6}::jsonb, $${base + 7})`;
+    })
+    .join(', ');
 
-  await withWriteRetry(async () => {
-    const { error } = await client
-      .from('platform_snapshots')
-      .upsert(payload, { onConflict: 'platform,data_date' });
-    if (error) throw new Error(error.message);
-  });
+  const params: unknown[] = [];
+  for (const input of inputs) {
+    params.push(
+      input.platform,
+      input.data_date,
+      input.fetched_at ?? now,
+      input.source ?? 'unknown',
+      input.summary == null ? null : JSON.stringify(input.summary),
+      JSON.stringify(input.raw_data),
+      now
+    );
+  }
 
-  return payload.length;
+  await withRetry(
+    () =>
+      query(
+        `INSERT INTO platform_snapshots
+           (platform, data_date, fetched_at, source, summary, raw_data, updated_at)
+         VALUES ${valuesSql}
+         ON CONFLICT (platform, data_date) DO UPDATE SET
+           fetched_at = EXCLUDED.fetched_at,
+           source = EXCLUDED.source,
+           summary = EXCLUDED.summary,
+           raw_data = EXCLUDED.raw_data,
+           updated_at = EXCLUDED.updated_at`,
+        params
+      ),
+    4,
+    800,
+    '批量写入'
+  );
+
+  return inputs.length;
 }
