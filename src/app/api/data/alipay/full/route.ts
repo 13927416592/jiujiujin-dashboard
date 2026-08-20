@@ -1,188 +1,96 @@
-import { NextResponse } from 'next/server';
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import path from 'path';
-import { getLatestSnapshot } from '@/storage/database/snapshot-repo';
-import {
-  parseOverviewMetrics,
-  parseTrafficOverview,
-  parseMetricsByNames,
-  parseLifeAccountMetrics,
-  parseTrafficLifeAccountMetrics,
-  parseTrafficFanGroupMetrics,
-  parseTables,
-  MINI_PROGRAM_METRIC_NAMES,
-  type MetricValue,
-} from '@/lib/alipay-parser';
+import { NextRequest, NextResponse } from "next/server";
+import { parseAlipayRaw } from "@/lib/alipay-parser";
+import { aggregateAlipay, type RangeKey } from "@/lib/alipay-agg";
+import { getLatestSnapshots } from "@/storage/database/snapshot-repo";
 
-// 流量分析各子 Tab 在抓取结果中的英文 key
-const TRAFFIC_TAB_KEYS = {
-  overview: 'overview',
-  miniApp: 'miniApp',
-  lifeAccount: 'lifeAccount',
-  fanGroup: 'fanGroup',
-  other: 'other',
-} as const;
+// 复用解析器的类型
+type AlipayParsed = ReturnType<typeof parseAlipayRaw>;
 
-type TabLike = { bodyText?: string; tables?: string[][][] };
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function getTrafficTab(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  trafficTabs: Record<string, any>,
-  key: string
-): TabLike {
-  return (trafficTabs?.[key] as TabLike) || {};
+function isValidRange(r: string | null): r is RangeKey {
+  return r === "1d" || r === "7d" || r === "30d";
 }
 
-// 小程序指标：bodyText 与 rawMetrics 合并解析，互补缺失
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseMiniProgramMetrics(tabData: any): Record<string, MetricValue> {
-  const bodyText = (tabData?.bodyText as string) || '';
-  const rawMetrics = (tabData?.metrics as string[]) || [];
-  const combined = `${bodyText}\n${rawMetrics.join('\n')}`;
-  return parseMetricsByNames(combined, MINI_PROGRAM_METRIC_NAMES);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseMiniProgramData(mp: any) {
-  const tabs = mp.tabs || {};
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: Record<string, any> = {};
-
-  for (const [tabName, tabData] of Object.entries(tabs)) {
-    const data = tabData as Record<string, unknown>;
-    const rawMetrics = ((data.metrics as string[]) || []).slice(0, 30);
-    result[tabName] = {
-      metrics: parseMiniProgramMetrics(data),
-      tables: parseTables((data.tables as string[][][]) || []),
-      rawMetrics,
-    };
-  }
-
+/** 把解析器输出适配成聚合模块的 DailySnapshot 结构 */
+function toDailySnapshot(date: string, parsed: AlipayParsed) {
   return {
-    id: mp.id,
-    name: mp.name,
-    tabs: result,
-  };
-}
-
-/**
- * 将抓取器产出的原始 JSON 解析为看板需要的结构化数据。
- * 同时被「数据库读取」和「本地文件兜底读取」两条路径复用。
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseAlipayRaw(rawData: any, date?: string) {
-  const overview = rawData.pages?.overview || {};
-  const traffic = rawData.pages?.traffic || {};
-  const miniProgram = rawData.pages?.miniProgram || {};
-  const lifeAccount = rawData.pages?.lifeAccount || {};
-  const fanGroup = rawData.pages?.fanGroup || {};
-
-  // 经营总览
-  const overviewData = parseOverviewMetrics(overview.bodyText || '');
-
-  // 流量分析（注意：tab key 是英文）
-  const trafficTabs = traffic.tabs || {};
-  const trafficOverview = getTrafficTab(trafficTabs, TRAFFIC_TAB_KEYS.overview);
-  const miniProgramTraffic = getTrafficTab(trafficTabs, TRAFFIC_TAB_KEYS.miniApp);
-  const lifeAccountTraffic = getTrafficTab(trafficTabs, TRAFFIC_TAB_KEYS.lifeAccount);
-  const fanGroupTraffic = getTrafficTab(trafficTabs, TRAFFIC_TAB_KEYS.fanGroup);
-
-  // 小程序分析
-  const miniPrograms = (miniProgram.programs || []).map(parseMiniProgramData);
-
-  // 生活号+
-  const lifeAccountBodyText = lifeAccount.bodyText || '';
-  const lifeAccountMetrics = parseLifeAccountMetrics(lifeAccountBodyText);
-
-  // 粉丝群（顶层「粉丝群」页面同样包含访问用户数/访问次数/新入群等）
-  const fanGroupBodyText = fanGroup.bodyText || '';
-  const fanGroupMetrics = parseTrafficFanGroupMetrics(fanGroupBodyText);
-
-  // 流量-小程序 / 生活号 / 粉丝群 子 Tab 的指标名
-  const trafficMiniMetrics = parseTrafficOverview(miniProgramTraffic.bodyText || '');
-  const trafficLifeMetrics = parseTrafficLifeAccountMetrics(lifeAccountTraffic.bodyText || '');
-  const trafficFanMetrics = parseTrafficFanGroupMetrics(fanGroupTraffic.bodyText || '');
-
-  return {
-    date: date ?? rawData.date,
-    overview: overviewData,
+    date,
+    overview: parsed.overview,
     traffic: {
-      overview: {
-        metrics: parseTrafficOverview(trafficOverview.bodyText || ''),
-        tables: parseTables(trafficOverview.tables || []),
-      },
-      miniProgramTraffic: {
-        metrics: trafficMiniMetrics,
-        tables: parseTables(miniProgramTraffic.tables || []),
-      },
-      lifeAccountTraffic: {
-        metrics: trafficLifeMetrics,
-        tables: parseTables(lifeAccountTraffic.tables || []),
-      },
-      fanGroupTraffic: {
-        metrics: trafficFanMetrics,
-        tables: parseTables(fanGroupTraffic.tables || []),
-      },
+      overview: { metrics: parsed.traffic.overview.metrics },
+      miniProgramTraffic: { metrics: parsed.traffic.miniProgramTraffic.metrics },
+      lifeAccountTraffic: { metrics: parsed.traffic.lifeAccountTraffic.metrics },
+      fanGroupTraffic: { metrics: parsed.traffic.fanGroupTraffic.metrics },
     },
-    miniPrograms,
-    lifeAccountTraffic: {
-      metrics: lifeAccountMetrics,
-      tables: parseTables(lifeAccount.tables || []),
-    },
-    fanGroupTraffic: {
-      metrics: fanGroupMetrics,
-      tables: parseTables(fanGroup.tables || []),
-    },
+    lifeAccountTraffic: { metrics: parsed.lifeAccountTraffic.metrics },
+    fanGroupTraffic: { metrics: parsed.fanGroupTraffic.metrics },
+    miniPrograms: parsed.miniPrograms,
   };
 }
 
-// 兜底：从本地 output 目录读最新文件（数据库无数据时使用）
-function readLatestFromFile() {
-  const outputDir = path.join(process.cwd(), 'src/exporters/output');
-  const files = existsSync(outputDir)
-    ? readdirSync(outputDir).filter((f) => f.startsWith('alipay_full_'))
-    : [];
-
-  if (files.length === 0) return null;
-
-  const latestFile = files.sort().pop()!;
-  const filePath = path.join(outputDir, latestFile);
-  const rawData = JSON.parse(readFileSync(filePath, 'utf-8'));
-  return parseAlipayRaw(rawData);
-}
-
-export async function GET(): Promise<NextResponse> {
-  // 1. 优先从云端数据库读取
+export async function GET(req: NextRequest) {
   try {
-    const snapshot = await getLatestSnapshot('alipay');
-    if (snapshot) {
-      return NextResponse.json({
-        ...parseAlipayRaw(snapshot.raw_data, snapshot.data_date),
-        source: snapshot.source ?? 'cloud',
-        fetched_at: snapshot.fetched_at,
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('从数据库读取支付宝快照失败，尝试本地文件兜底:', message);
-  }
+    const requested = req.nextUrl.searchParams.get("days");
+    const range: RangeKey = isValidRange(requested) ? requested : "7d";
+    const limit = range === "1d" ? 1 : range === "7d" ? 7 : 30;
 
-  // 2. 兜底：本地文件
-  try {
-    const fromFile = readLatestFromFile();
-    if (fromFile) {
-      return NextResponse.json({ ...fromFile, source: 'local-file' });
+    const snaps = await getLatestSnapshots("alipay", limit);
+
+    if (!snaps || snaps.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "暂无支付宝数据，请先运行抓取脚本上传数据",
+          range,
+          dates: [],
+        },
+        { status: 404 }
+      );
     }
-  } catch (error) {
-    console.error('读取支付宝数据失败:', error);
+
+    // 每条快照解析其 raw_data，按 data_date 去重（取最新 fetched_at）
+    const byDate = new Map<string, AlipayParsed>();
+    const sorted = [...snaps].sort((a, b) =>
+      String(b.fetched_at ?? "").localeCompare(String(a.fetched_at ?? ""))
+    );
+    for (const s of sorted) {
+      if (byDate.has(s.data_date)) continue;
+      const raw = (s.raw_data ?? {}) as Record<string, unknown>;
+      byDate.set(s.data_date, parseAlipayRaw(raw, s.data_date));
+    }
+
+    const daily = [...byDate.entries()].map(([date, parsed]) =>
+      toDailySnapshot(date, parsed)
+    );
+
+    const aggregated = aggregateAlipay(daily, range);
+
+    return NextResponse.json({
+      success: true,
+      range,
+      days: aggregated.days,
+      availableDays: daily.length,
+      date: aggregated.latestDate,
+      dates: aggregated.dates,
+      overview: aggregated.overview,
+      traffic: {
+        overview: aggregated.traffic.overview,
+        miniProgramTraffic: aggregated.traffic.miniProgramTraffic,
+        lifeAccountTraffic: aggregated.traffic.lifeAccountTraffic,
+        fanGroupTraffic: aggregated.traffic.fanGroupTraffic,
+      },
+      miniPrograms: aggregated.miniPrograms,
+      lifeAccountTraffic: aggregated.lifeAccountTraffic,
+      fanGroupTraffic: aggregated.fanGroupTraffic,
+      trend: aggregated.trend,
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    console.error("加载支付宝数据失败:", e);
     return NextResponse.json(
-      { error: '读取数据失败', message: String(error) },
+      { success: false, error: e instanceof Error ? e.message : "未知错误" },
       { status: 500 }
     );
   }
-
-  return NextResponse.json(
-    { error: '暂无支付宝数据，请先运行抓取并上传' },
-    { status: 404 }
-  );
 }
