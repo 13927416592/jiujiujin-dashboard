@@ -212,8 +212,12 @@ export class AlipayExporter {
       const urls = this.config.pageUrls ?? ALIPAY_PAGE_URLS;
 
       console.log('  [1/6] 经营总览...');
-      // 第一个页用深链落地（建立子应用会话），后续页都走菜单，避免反复触发 SSO
-      await this.gotoBusinessPage(page, this.config.overviewUrl);
+      // 第一个页同样走菜单进入（SPA 同域导航），避免深链 data-index 再触发一次 auth.alipay.com SSO。
+      // ensureLogin 已预热过首页会话；这里若当前已在经营总览页则直接复用，否则点左侧菜单。
+      await this.navigateToPage(page, this.config.overviewUrl, {
+        menuText: '经营总览',
+        label: '经营总览',
+      });
       await this.applyDateRange(page, days);
       const overview = await this.extractPageData(page);
 
@@ -604,12 +608,17 @@ export class AlipayExporter {
     // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
     await this.selectEnterpriseIfNeeded();
 
-    // 二次确认：尝试打开真实数据页。冷启动/持久化 profile 首次访问数据页时，
-    // 支付宝会先把我们送到 auth.alipay.com/login?goto=<数据页>，由 SSO 静默完成
-    // 子应用授权后再 302 回数据页。这个静默跳转链可能需要 10~20 秒，不能 5 秒就
-    // 判定失败并重新 goto（那会打断正在进行的 SSO 流程，永远跳不回来）。
+    // 二次确认：打开主流程第一个落地页（经营总览）来预热子应用会话。
+    // 冷启动/持久化 profile 首次访问数据子应用时，支付宝会先把页面送到
+    // auth.alipay.com/login?goto=<数据页>，由 SSO 静默完成子应用授权后再 302 回数据页。
+    //
+    // 关键：这里预热的 URL 必须与主流程第一个深链落地页（overviewUrl，经营总览 data-index）
+    // 保持一致！若预热 A 子应用、却深链落地 B 子应用，B 仍会再触发一次 SSO，表现为
+    // "首页已登录 → 紧接着又检测到登录页等待静默 SSO"，给人"又要重新登录"的错觉。
+    // 统一预热 overviewUrl，把 SSO 集中在登录阶段一次走完，主流程后续全部走菜单 SPA 切换。
     console.log('🔎 二次确认数据页访问...');
-    await this.safeGoto(this.page, this.config.pageUrls.trade);
+    const warmupUrl = this.config.overviewUrl;
+    await this.safeGoto(this.page, warmupUrl);
     let dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
 
     // 静默 SSO 没自动跳回时，回首页预热一次会话再重试（首页已登录说明基础 Cookie 有效，
@@ -619,7 +628,7 @@ export class AlipayExporter {
       await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
       await this.page.waitForTimeout(4000);
       await this.selectEnterpriseIfNeeded();
-      await this.safeGoto(this.page, this.config.pageUrls.trade);
+      await this.safeGoto(this.page, warmupUrl);
       dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
     }
 
@@ -636,7 +645,7 @@ export class AlipayExporter {
       dataPageOk = await this.waitForBusinessSettled(this.page, 25_000);
       if (!dataPageOk) {
         // 手动登录后可能落在首页，再主动跳一次数据页
-        await this.safeGoto(this.page, this.config.pageUrls.trade).catch(() => undefined);
+        await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
         dataPageOk = await this.waitForBusinessSettled(this.page, 20_000);
       }
     }
