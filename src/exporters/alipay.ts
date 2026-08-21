@@ -925,58 +925,39 @@ export class AlipayExporter {
         await agree.click({ timeout: 2000 }).catch(() => undefined);
       }
 
-      // 5) 提交登录。支付宝登录按钮并非标准 <button>，多为 div/span/a，
-      //    最稳的方式是聚焦密码框后按回车（表单原生提交），再兜底多点几种按钮选择器。
-      const pwdInput = page
-        .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
-        .first();
-
+      // 5) 提交登录。
+      //    支付宝登录按钮可能是 button/div/a/span，且 Chrome 原生"保存密码/屏幕锁定"气泡
+      //    会抢走焦点导致按回车无效。因此：先按 Esc 关掉气泡 → 聚焦密码框按回车 →
+      //    仍不行则在 DOM 里精确找到蓝色「登录」按钮，用坐标点击。
       let submitted = false;
 
-      // 5.1 密码框按回车提交
-      try {
-        await pwdInput.click({ timeout: 2000 });
-        await pwdInput.press('Enter', { timeout: 2000 });
-        await page.waitForTimeout(800);
-        submitted = await this.hasLeftLoginPage(page);
-      } catch {
-        /* ignore, fall through to button click */
+      // 5.0 关闭可能遮挡/抢焦点的 Chrome 原生气泡（非页面元素，只能用键盘 Esc）
+      for (let i = 0; i < 3; i++) {
+        await page.keyboard.press('Escape').catch(() => undefined);
+        await page.waitForTimeout(150);
       }
 
-      // 5.2 兜底：点击登录按钮（放宽到 div/span/a/button/input，且文案严格为「登录/登 录」）
+      // 5.1 聚焦密码框后按回车（表单原生提交）
+      try {
+        const pwdInput = page
+          .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
+          .first();
+        await pwdInput.click({ timeout: 2000 });
+        await page.waitForTimeout(200);
+        await pwdInput.press('Enter', { timeout: 2000 });
+        submitted = await this.waitLoginSubmitResult(page, 1500);
+      } catch {
+        /* ignore, fall through */
+      }
+
+      // 5.2 直接在 DOM 中找蓝色「登录」按钮并点击（用坐标点中心，绕开元素标签类型问题）
       if (!submitted) {
-        const loginLoc = page
-          .locator(
-            [
-              'button:has-text("登录")',
-              'a:has-text("登 录")',
-              'div:has-text("登 录")',
-              'span:has-text("登 录")',
-              'button:has-text("登 录")',
-              'a:has-text("登录")',
-              'div[role="button"]:has-text("登录")',
-              'div[class*="submit"]',
-              'div[class*="login-btn"]',
-              'a[class*="submit"]',
-              'a[class*="login-btn"]',
-              'input[type="submit"]',
-            ].join(', ')
-          )
-          .filter({ hasText: /^\s*登\s*录\s*$/ });
-        const count = await loginLoc.count();
-        for (let i = 0; i < count && !submitted; i++) {
-          const el = loginLoc.nth(i);
-          if (await el.isVisible({ timeout: 400 }).catch(() => false)) {
-            await el.click({ timeout: 3000 }).catch(() => undefined);
-            await page.waitForTimeout(800);
-            submitted = await this.hasLeftLoginPage(page);
-          }
-        }
+        submitted = await this.clickLoginButtonByCoordinates(page);
       }
 
       if (!submitted) {
         console.warn(
-          '⚠️  自动提交后仍停留在登录页（可能按钮未命中，或需要滑块/验证码），请在浏览器手动点登录'
+          '⚠️  自动提交后仍停留在登录页（可能需要滑块/验证码，或按钮结构变化），请在浏览器手动点登录'
         );
       } else {
         console.log('   ✓ 已提交登录');
@@ -984,7 +965,6 @@ export class AlipayExporter {
 
       await page.waitForTimeout(2500);
       // 提交后可能进入短信/滑块/APP 确认等二次验证，或直接跳回业务页。
-      // 这里只做提示，真正的等待/判定由 promptManualLogin 负责。
       if (/(验证|短信|滑块|验证码|安全|confirm|sms)/i.test(page.url())) {
         console.log('   🔔 登录后可能需要二次验证（短信/滑块/APP确认），请在浏览器中完成...');
       }
@@ -992,6 +972,62 @@ export class AlipayExporter {
     } catch (err) {
       console.warn('⚠️  账密自动填充过程出错（将回退手动登录）：', err);
       return 'skipped';
+    }
+  }
+
+  /**
+   * 提交后短轮询，判断是否离开了登录表单页（URL 变化或出现二次验证）。
+   * 与 hasLeftLoginPage 不同，这里等待一小段时间以捕获跳转过程。
+   */
+  private async waitLoginSubmitResult(page: Page, waitMs: number): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < waitMs) {
+      if (await this.hasLeftLoginPage(page)) return true;
+      await page.waitForTimeout(200);
+    }
+    return this.hasLeftLoginPage(page);
+  }
+
+  /**
+   * 在登录表单 DOM 中找到蓝色「登录」按钮，用其中心坐标点击。
+   * 用 elementFromPoint + boundingBox 直接派发鼠标事件，不依赖标签名和 class。
+   */
+  private async clickLoginButtonByCoordinates(page: Page): Promise<boolean> {
+    // 在页面上下文里找一个文案恰好是「登录/登 录」、尺寸像按钮、可见的元素
+    const box = await page.evaluate(() => {
+      const isVisible = (el: Element): boolean => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 40 || r.height < 24) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
+          return false;
+        }
+        return true;
+      };
+      const all = Array.from(document.querySelectorAll('button, a, div, span, input[type="submit"]'));
+      for (const el of all) {
+        const txt = (el.textContent || '').replace(/\s+/g, '');
+        if (txt !== '登录') continue;
+        if (!isVisible(el)) continue;
+        const r = el.getBoundingClientRect();
+        // 优先选蓝色背景的主按钮（支付宝登录蓝约 #1677ff/#00a0e9 附近）
+        const bg = window.getComputedStyle(el).backgroundColor;
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, bg };
+      }
+      return null;
+    });
+
+    if (!box) return false;
+    try {
+      // 先移动到按钮再按下/抬起，模拟真实点击
+      await page.mouse.move(box.x, box.y, { steps: 5 });
+      await page.waitForTimeout(120);
+      await page.mouse.down();
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      return this.waitLoginSubmitResult(page, 2000);
+    } catch {
+      return false;
     }
   }
 
