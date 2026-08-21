@@ -953,10 +953,40 @@ export class AlipayExporter {
       const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
 
       // 3) 填密码
-      const pwdInput = page
-        .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
-        .first();
-      const pwdFilled = await this.typeIntoInput(pwdInput, password, 3);
+      const pwdSelectors =
+        'input[type="password"], input[name="password"], input[placeholder*="密码"], input[placeholder*="password" i]';
+      const pwdInput = page.locator(pwdSelectors).first();
+
+      // 诊断：密码框定位情况（数量 / 是否在 iframe / 可见性 / disabled / readonly）
+      try {
+        const pwdCount = await page.locator(pwdSelectors).count();
+        const frames = page.frames().map((f) => f.url());
+        const diag = await pwdInput
+          .evaluate((el) => {
+            const inp = el as HTMLInputElement;
+            const r = inp.getBoundingClientRect();
+            return {
+              tag: inp.tagName,
+              type: inp.type,
+              name: inp.name,
+              placeholder: inp.placeholder,
+              disabled: inp.disabled,
+              readOnly: inp.readOnly,
+              visible: r.width > 0 && r.height > 0,
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+            };
+          })
+          .catch((e: unknown) => ({ error: String(e) }));
+        console.log(
+          `   🔍 密码框诊断: 匹配数=${pwdCount} frames=${JSON.stringify(frames)} meta=`,
+          diag
+        );
+      } catch {
+        /* ignore diag */
+      }
+
+      const pwdFilled = await this.typeIntoInput(pwdInput, password, 4);
       // 填完密码后重新读一次账号框，确认没被串入密码
       const accountAfterPwd = (await accountInput.inputValue().catch(() => '')).trim();
 
@@ -1283,12 +1313,15 @@ export class AlipayExporter {
         const actual = await locator.inputValue().catch(() => '');
         if (actual === value) return true;
 
-        // 不匹配（可能被气泡打断），清空本框后重试
+        // 不匹配（可能被安全控件清空/气泡打断），记录后清空本框重试
+        console.warn(
+          `   ⚠️  fill 后值不匹配（第${i + 1}次，期望长度${value.length}，实际长度${actual.length}），重试`
+        );
         await locator.fill('', { timeout: 1500, force: true }).catch(() => undefined);
-      } catch {
-        /* 下一器重试 */
+      } catch (e) {
+        console.warn(`   ⚠️  fill 抛错（第${i + 1}次）：${String(e).slice(0, 200)}`);
       }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 600));
     }
     return false;
   }
