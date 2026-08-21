@@ -1038,6 +1038,66 @@ export class AlipayExporter {
    * 关键：evaluate 内不声明具名函数（否则 esbuild 加 __name 包装会在浏览器报 ReferenceError）。
    */
   private async clickLoginButton(page: Page): Promise<boolean> {
+    // 0) 诊断：把登录按钮/表单的真实状态打到日志，便于定位为何点不动
+    try {
+      const diag = await page.evaluate(() => {
+        const all = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            'button, a, div, span, input[type="submit"]'
+          )
+        );
+        const btns = all
+          .filter((el) => (el.textContent || '').replace(/\s+/g, '') === '登录')
+          .slice(0, 5)
+          .map((el) => ({
+            tag: el.tagName,
+            type: el.getAttribute('type'),
+            disabled:
+              el.hasAttribute('disabled') ||
+              (el as HTMLButtonElement).disabled === true,
+            cls: (el.className || '').toString().slice(0, 80),
+            w: Math.round(el.getBoundingClientRect().width),
+            h: Math.round(el.getBoundingClientRect().height),
+          }));
+        const pwd = document.querySelector<HTMLInputElement>(
+          'input[type="password"]'
+        );
+        const form = pwd ? pwd.form : null;
+        return {
+          pwdValueLen: pwd ? pwd.value.length : -1,
+          formExists: !!form,
+          formAction: form ? form.action : '',
+          btns,
+        };
+      });
+      console.log('   🔍 登录按钮诊断：', JSON.stringify(diag));
+    } catch {
+      /* ignore diag error */
+    }
+
+    // 0.5) 最可靠：直接调用密码框所在 <form> 的原生 requestSubmit()，
+    //      不依赖按钮是否可点、是否被遮挡。
+    try {
+      const submitted = await page.evaluate(() => {
+        const pwd = document.querySelector<HTMLInputElement>(
+          'input[type="password"]'
+        );
+        const form = pwd ? pwd.form : null;
+        if (!form) return false;
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+        return true;
+      });
+      if (submitted && (await this.waitLoginSubmitResult(page, 2500))) {
+        return true;
+      }
+    } catch {
+      /* fall through to clicking */
+    }
+
     // 1) 用定位器精确找文案恰好为「登录」的可点元素，取尺寸最大的那个（蓝色主按钮）
     const candidates = [
       'button:has-text("登录")',
@@ -1058,7 +1118,7 @@ export class AlipayExporter {
           // 尺寸过小的可能是图标/链接，跳过让后面策略找
           if (box && box.width >= 80 && box.height >= 28) {
             await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
-            await loc.click({ timeout: 4000, force: false });
+            await loc.click({ timeout: 4000, force: true });
             if (await this.waitLoginSubmitResult(page, 2000)) return true;
           }
         }
@@ -1099,11 +1159,18 @@ export class AlipayExporter {
       });
       const el = handle.asElement();
       if (el) {
+        // 兜底：直接在 DOM 元素上派发 click 事件（即使按钮被标记 disabled 也强制派发，
+        // 但通常 requestSubmit 已处理，这里只是最后手段）
+        await (el as ElementHandle<HTMLElement>).evaluate((node) => {
+          node.removeAttribute('disabled');
+          (node as HTMLButtonElement).disabled = false;
+          node.classList.remove('disabled', 'btn-disabled');
+        }).catch(() => undefined);
         await (el as ElementHandle<HTMLElement>).evaluate((node) =>
           node.scrollIntoView({ block: 'center' })
         ).catch(() => undefined);
         await page.waitForTimeout(200);
-        await el.click({ timeout: 4000 }).catch(() => undefined);
+        await el.click({ timeout: 4000, force: true }).catch(() => undefined);
         if (await this.waitLoginSubmitResult(page, 2000)) return true;
 
         // 3) 坐标兜底：拿到中心坐标用鼠标点
