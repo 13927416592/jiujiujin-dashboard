@@ -1015,26 +1015,24 @@ export class AlipayExporter {
    * 用 elementFromPoint + boundingBox 直接派发鼠标事件，不依赖标签名和 class。
    */
   private async clickLoginButtonByCoordinates(page: Page): Promise<boolean> {
-    // 在页面上下文里找一个文案恰好是「登录/登 录」、尺寸像按钮、可见的元素
+    // 在页面上下文里找一个文案恰好是「登录」、尺寸像按钮、可见的元素。
+    // 注意：evaluate 内不要声明具名函数——esbuild/tsx 会给具名函数加 __name 包装，
+    // 序列化到浏览器执行时浏览器没有 __name 会报 ReferenceError。这里全部内联。
     const box = await page.evaluate(() => {
-      const isVisible = (el: Element): boolean => {
-        const r = el.getBoundingClientRect();
-        if (r.width < 40 || r.height < 24) return false;
-        const style = window.getComputedStyle(el);
-        if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
-          return false;
-        }
-        return true;
-      };
-      const all = Array.from(document.querySelectorAll('button, a, div, span, input[type="submit"]'));
-      for (const el of all) {
+      const all = Array.from(
+        document.querySelectorAll('button, a, div, span, input[type="submit"]')
+      );
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
         const txt = (el.textContent || '').replace(/\s+/g, '');
         if (txt !== '登录') continue;
-        if (!isVisible(el)) continue;
         const r = el.getBoundingClientRect();
-        // 优先选蓝色背景的主按钮（支付宝登录蓝约 #1677ff/#00a0e9 附近）
-        const bg = window.getComputedStyle(el).backgroundColor;
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, bg };
+        if (r.width < 40 || r.height < 24) continue;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
+          continue;
+        }
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
       }
       return null;
     });
