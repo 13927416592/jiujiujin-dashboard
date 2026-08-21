@@ -880,11 +880,14 @@ export class AlipayExporter {
    *
    * 账号密码只从进程环境变量读取，绝不硬编码、不写文件、不进 git。
    *
-   * @returns 'submitted' 已点登录（可能进入二次验证，需继续等待）；
+   * @returns 'submitted' 已自动点登录（可能进入二次验证，需继续等待）；
+   *          'assisted' 已自动填好账号并聚焦密码框，等待人工输入密码并登录；
    *          'skipped' 未配置账密或不在账密登录页（调用方走原手动流程）；
    *          'already-in' 当前已经是登录后业务页。
    */
-  private async attemptPasswordLogin(): Promise<'submitted' | 'skipped' | 'already-in'> {
+  private async attemptPasswordLogin(): Promise<
+    'submitted' | 'assisted' | 'skipped' | 'already-in'
+  > {
     if (!this.page) return 'skipped';
     const username = (process.env.ALIPAY_USERNAME || '').trim();
     const password = process.env.ALIPAY_PASSWORD || '';
@@ -952,115 +955,30 @@ export class AlipayExporter {
       }
       // typeIntoInput 内部会先聚焦清空再填值，这里直接填账号
       const accountFilled = await this.typeIntoInput(accountInput, username, 3);
-      const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
-
-      // 3) 填密码。
-      //    支付宝用 aliedit 安全控件：可见框 #password_rsainput 只是回显圆点，
-      //    真正提交的是隐藏域 #password（逐字符 RSA 加密）。必须【逐字键入】触发加密，
-      //    不能用 fill() 直接赋值（那样加密域为空，提交等于空密码）。
-      const pwdSelectors =
-        '#password_rsainput, input[type="password"]:not([name="password"]):not(.fn-hide), input[name="password_rsainput"]';
-      const pwdInput = await this.pickVisibleInput(page, pwdSelectors, 5000);
-      if (!pwdInput) {
-        console.warn('⚠️  未能定位可见的安全密码输入框（#password_rsainput），跳过自动填充（请手动登录）');
-        return 'skipped';
-      }
-      const pwdFilled = await this.typePasswordSecure(page, pwdInput, password, 3);
-      // 填完密码后重新读一次账号框，确认没被串入密码
-      const accountAfterPwd = (await accountInput.inputValue().catch(() => '')).trim();
-
-      if (!accountFilled || !pwdFilled) {
-        console.warn('⚠️  未能定位账密输入框，跳过自动填充（请手动登录）');
-        return 'skipped';
-      }
-      // 关键防串框：账号框内容必须严格等于账号，且不能包含密码（密码被追加/串入会导致登录失败）
-      if (accountAfterPwd !== username.trim() || accountAfterPwd.includes(password)) {
-        console.warn(
-          `⚠️  账号框内容异常（期望手机号，实际长度 ${accountAfterPwd.length}，疑似密码被串入），已清空两框，请手动登录`
-        );
-        await accountInput.fill('').catch(() => undefined);
-        await pwdInput.fill('').catch(() => undefined);
-        return 'skipped';
-      }
-      console.log('   ✓ 账号密码已填入');
-      await page.waitForTimeout(300);
-
-      // 4) 勾选"同意协议"复选框（若存在且未勾选）
-      const agree = page
-        .locator(
-          [
-            'input[type="checkbox"]',
-            '[class*="checkbox"]:not([class*="checked"])',
-            '[class*="agree"] [class*="check"]',
-          ].join(', ')
-        )
-        .first();
-      if (await agree.isVisible({ timeout: 600 }).catch(() => false)) {
-        await agree.click({ timeout: 2000 }).catch(() => undefined);
+      if (!accountFilled) {
+        console.warn('⚠️  账号自动填入失败，请手动输入账号');
       }
 
-      // 5) 提交登录。
-      //    探针确认：可见的真实登录按钮是 <input type="submit" id="J-login-simulate-btn" value="登 录">
-      //    （#J-login-btn 是 fn-hide 隐藏的）。它是 input 元素、文字在 value 里（"登 录"带空格），
-      //    因此不能用 textContent 匹配，直接按 id 做可信点击最准。
-      let submitted = false;
-
-      // 关一下可能的气泡
-      for (let i = 0; i < 2; i++) {
-        await page.keyboard.press('Escape').catch(() => undefined);
-        await page.waitForTimeout(80);
+      // 3) 密码处理。
+      //    实测：支付宝 aliedit 安全控件强制开启（#password_rsainput），且无法通过点小锁
+      //    切到普通输入模式；它只接受真人物理按键，Playwright 模拟按键会被丢弃
+      //    （圆点显示但内部缓冲区为空、提交报"请输入登录密码"）。
+      //    因此放弃自动填密码，改为【半自动】：自动填好账号、聚焦密码框，由人工输入密码
+      //    并点登录；脚本检测到登录成功后自动继续抓取。
+      console.log('   ✓ 账号已自动填入');
+      const assistedPwd = await this.pickVisibleInput(
+        page,
+        '#password_rsainput, input[type="password"]:not([name="password"]):not(.fn-hide)',
+        3000
+      );
+      if (assistedPwd) {
+        await assistedPwd.click({ timeout: 2000, force: true }).catch(() => undefined);
+        await assistedPwd.focus().catch(() => undefined);
       }
-
-      // 5.1 精确点击真实登录按钮 #J-login-simulate-btn（Playwright 可信点击，会触发控件提交）
-      try {
-        const simBtn = page.locator('#J-login-simulate-btn').first();
-        if (await simBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-          await simBtn.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
-          await simBtn.click({ timeout: 4000, force: true });
-          submitted = await this.waitLoginSubmitResult(page, 3000);
-          if (submitted) console.log('   ✓ 已点击登录按钮(#J-login-simulate-btn)并提交');
-        }
-      } catch (e) {
-        console.warn(`   ⚠️  点击 #J-login-simulate-btn 出错：${String(e).slice(0, 160)}`);
-      }
-
-      // 5.2 兜底：在可见密码框上按回车提交表单
-      if (!submitted) {
-        try {
-          const enterPwd = pwdInput;
-          if (enterPwd) {
-            await enterPwd.click({ timeout: 2000, force: true }).catch(() => undefined);
-            await enterPwd.focus().catch(() => undefined);
-            await page.waitForTimeout(150);
-            await enterPwd.press('Enter', { timeout: 2000 }).catch(() => undefined);
-            submitted = await this.waitLoginSubmitResult(page, 2500);
-          }
-        } catch {
-          /* ignore, fall through */
-        }
-      }
-
-      // 5.3 最后兜底：通用按钮探测点击
-      if (!submitted) {
-        submitted = await this.clickLoginButton(page);
-      }
-
-      if (!submitted) {
-        console.warn(
-          '⚠️  自动提交后仍停留在登录页（可能需要滑块/验证码，或按钮结构变化），请在浏览器手动点登录'
-        );
-      } else {
-        console.log('   ✓ 已提交登录');
-      }
-
-      await page.waitForTimeout(2500);
-      // 提交后可能进入短信/滑块/APP 确认等二次验证，或直接跳回业务页。
-      if (/(验证|短信|滑块|验证码|安全|confirm|sms)/i.test(page.url())) {
-        console.log('   🔔 登录后可能需要二次验证（短信/滑块/APP确认），请在浏览器中完成...');
-      }
-      return submitted ? 'submitted' : 'skipped';
+      console.log('   🔔 已为你填好账号并聚焦密码框，请【手动输入密码并点击登录】');
+      return 'assisted';
     } catch (err) {
-      console.warn('⚠️  账密自动填充过程出错（将回退手动登录）：', err);
+      console.warn('⚠️  自动填写账号出错（将回退手动登录）：', err);
       return 'skipped';
     }
   }
@@ -1331,115 +1249,12 @@ export class AlipayExporter {
   }
 
   /**
-   * 向支付宝密码框安全地输入密码。
-   *
-   * 关键背景（来自登录页 DOM 探针 + 实测）：
-   *  登录页有两套密码输入：
-   *    - 安全控件模式：可见框 #password_rsainput（小锁图标 #safeSignCheck 为 securityON），
-   *      由 aliedit 安全控件接管，只接受【真人物理按键】。Playwright/CDP 的模拟按键会被
-   *      控件识别并丢弃（圆点显示了但内部缓冲区为空、加密域为0、提交报"请输入登录密码"）。
-   *    - 普通输入模式：点击 #safeSignCheck 关掉安全控件后，可见框变成 #password_input
-   *      （标准 HTML input），Playwright 可正常填写，提交时页面 JS 会自行加密。
-   *
-   * 因此策略：主动点击小锁开关切换到普通输入模式 → 往 #password_input 逐字键入 →
-   * 校验长度。若切换失败/仍只有安全控件，则回退提示手动登录。
-   */
-  private async typePasswordSecure(
-    page: Page,
-    _visiblePwd: ReturnType<Page['locator']>,
-    password: string,
-    retries = 3
-  ): Promise<boolean> {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      try {
-        // 1) 点击安全控件开关，切到普通输入模式。先看当前状态：
-        //    #safeSignCheck 含 securityON 表示安全控件开着，点一下关掉。
-        const needToggleOff = await page
-          .locator('#safeSignCheck')
-          .first()
-          .evaluate((el) => {
-            const cls = (el.className || '').toString();
-            return cls.includes('securityON');
-          })
-          .catch(() => false);
-
-        if (needToggleOff) {
-          await page.locator('#safeSignCheck').first().click({ timeout: 2000, force: true }).catch(() => undefined);
-          await page.waitForTimeout(600);
-          // 也可点标签区域兜底
-          await page
-            .locator('#J-label-editer')
-            .first()
-            .click({ timeout: 1500, force: true })
-            .catch(() => undefined);
-          await page.waitForTimeout(400);
-        }
-
-        // 2) 等普通密码框 #password_input 出现并可见
-        const stdPwd = page.locator('#password_input, input[name="password_input"]').first();
-        const stdVisible = await stdPwd
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
-
-        // 如果普通框没出来，再点一次开关换方向
-        let target = stdPwd;
-        if (!stdVisible) {
-          await page.locator('#safeSignCheck').first().click({ timeout: 2000, force: true }).catch(() => undefined);
-          await page.waitForTimeout(600);
-          const stillNo = await stdPwd.isVisible({ timeout: 2000 }).catch(() => false);
-          if (!stillNo) {
-            console.warn('   ⚠️  无法切换到普通密码输入模式（安全控件强制开启），需手动输入密码');
-            return false;
-          }
-        }
-
-        // 3) 聚焦并清空普通密码框
-        await target.click({ timeout: 2000, force: true }).catch(() => undefined);
-        await target.focus().catch(() => undefined);
-        await page.waitForTimeout(150);
-        await target.fill('', { timeout: 1500, force: true }).catch(() => undefined);
-        for (let k = 0; k < 3; k++) {
-          await target.press('Meta+a', { timeout: 800 }).catch(() => undefined);
-          await target.press('Backspace', { timeout: 800 }).catch(() => undefined);
-        }
-        await page.waitForTimeout(150);
-
-        // 4) 逐字键入（普通 input 也用真实键盘，触发页面 JS 加密）
-        await target.pressSequentially(password, { delay: 80, timeout: 15000 });
-        await page.waitForTimeout(500);
-
-        const visibleLen = await target.inputValue().then((v) => v.length).catch(() => -1);
-        // 普通模式下加密可能在提交时才发生，这里主要校验长度
-        const hiddenEnc = await page
-          .locator('#password, input[name="password"]')
-          .first()
-          .inputValue()
-          .catch(() => '');
-
-        if (visibleLen === password.length) {
-          console.log(
-            `   🔐 密码已输入到普通密码框（可见${visibleLen}位，隐藏加密域${hiddenEnc.length}字符，提交时加密）`
-          );
-          return true;
-        }
-        console.warn(
-          `   ⚠️  普通密码框长度不符（第${attempt + 1}次：可见${visibleLen}位/期望${password.length}位），重敲`
-        );
-      } catch (e) {
-        console.warn(`   ⚠️  输入密码出错（第${attempt + 1}次）：${String(e).slice(0, 160)}`);
-      }
-      await page.waitForTimeout(500);
-    }
-    return false;
-  }
-
-  /**
    * 向普通输入框（非安全密码控件）填值，如账号框。
    *
    * 只用 Playwright 的 locator.fill()：它把操作作用在目标元素上、先聚焦再设值、
    * 并以 React/普通表单能识别的方式派发 input 事件，且不依赖全局键盘焦点，不会串框。
    * force:true 绕过遮挡检查；填完用 inputValue() 严格校验，失败清空重试。
-   * 注意：此方法【不能】用于支付宝密码框（安全控件需要逐字键入触发加密，见 typePasswordSecure）。
+   * 注意：此方法【不能】用于支付宝密码框（aliedit 安全控件会丢弃模拟按键，密码需真人输入）。
    */
   private async typeIntoInput(
     locator: ReturnType<Page['locator']>,
@@ -1477,16 +1292,19 @@ export class AlipayExporter {
     // 后台（如 launchd）下无 stdin，不能傻等回车导致进程永久挂起
     const isInteractive = Boolean(process.stdin.isTTY);
 
-    // 优先尝试账密自动填充（仅当配置了 ALIPAY_USERNAME/ALIPAY_PASSWORD 环境变量）
-    await this.attemptPasswordLogin();
+    // 尝试自动填账号并聚焦密码框。支付宝安全控件会拦截模拟按键，密码必须人工输入。
+    const loginMode = await this.attemptPasswordLogin();
 
     if (!isInteractive) {
-      // 无人值守（定时任务）：给账密登录 + 可能的二次验证一个有限等待窗口，
-      // 成功自动继续；窗口内未成功则抛错退出（exit 1），由脚本触发飞书告警，不挂起进程。
+      // 无人值守（定时任务）：密码无法自动输入（安全控件只接受真人物理按键），
+      // 仅给 90 秒等待（万一 Cookie 仍有效会自动通过）；窗口内未成功则抛错，
+      // 由脚本触发飞书告警，提醒到终端手动登录一次以刷新会话。
       const ok = await this.waitForLoginCompletion(90_000, false);
       if (!ok) {
         throw new Error(
-          '支付宝定时抓取未登录：账密自动登录后在 90 秒内未完成（可能需要短信/滑块二次验证，或账密有误）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新会话。'
+          loginMode === 'assisted'
+            ? '支付宝定时抓取未登录：会话已失效，且密码需真人输入（安全控件拦截自动按键）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts，输入密码完成登录以刷新会话。'
+            : '支付宝定时抓取未登录：90 秒内未完成（可能需要短信/滑块二次验证，或账密有误）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新会话。'
         );
       }
       console.log('✅ 定时任务：登录成功，继续抓取');
@@ -1496,7 +1314,12 @@ export class AlipayExporter {
     }
 
     console.log('\n==================================================');
-    console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密/验证码）');
+    if (loginMode === 'assisted') {
+      console.log('👤  账号已自动填好，密码框已聚焦');
+      console.log('🔑  请在浏览器里【手动输入登录密码】并点击「登录」');
+    } else {
+      console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密/验证码）');
+    }
     console.log('👉  检测到登录成功后会自动继续（请勿在未登录时按回车跳过）');
     console.log('==================================================\n');
 
