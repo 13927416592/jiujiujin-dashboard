@@ -378,6 +378,13 @@ export class AlipayExporter {
       '--disable-dev-shm-usage',
       '--no-first-run',
       '--no-default-browser-check',
+      // 关闭"Chrome 未正确关闭，要恢复页面吗？"气泡——它会持续抢焦点导致账密填错框
+      '--hide-crash-restore-bubble',
+      '--disable-session-crashed-bubble',
+      // 关闭"保存密码？""使用屏幕锁定功能保护密码"等密码相关 infobar
+      '--disable-save-password-bubble',
+      '--disable-password-manager-reauth',
+      '--disable-features=PasswordManagerOnboarding,AutofillServerCommunication,InsecurePasswordsProtection',
     ];
 
     const contextOptions = {
@@ -389,6 +396,8 @@ export class AlipayExporter {
       args: launchArgs,
       headless: this.config.headless,
       slowMo: this.config.slowMo,
+      // 禁止任何权限/通知弹窗
+      permissions: [] as string[],
     };
 
     // 确保持久化目录存在
@@ -1207,50 +1216,43 @@ export class AlipayExporter {
   }
 
   /**
-   * 向输入框填值。全程只使用「locator 元素自身」的方法（fill / press / pressSequentially），
-   * 不使用 page.keyboard 全局键盘，避免焦点被气泡抢走而串框；也不用手动原生 setter，
-   * 因为 React 受控组件可能识别不到 setter 写入，导致提交时密码为空、登录失败。
+   * 向输入框填值。
    *
-   * Playwright 的 fill() 会先聚焦元素、用 React 能识别的方式设值并派发 input 事件；
-   * force:true 可绕过气泡遮挡导致的可操作性检查。fill 不被接受时用 locator.pressSequentially
-   * 逐字键入（真实键盘事件，对受控输入最稳）。
+   * 【关键】只用 Playwright 的 locator.fill()，它会：
+   *   1) 把操作作用在「这个 locator 对应的元素」上（必要时先聚焦该元素）；
+   *   2) 通过 React 可识别的原生 setter 设值并派发 input 事件（受控组件能更新 state）；
+   *   3) 不依赖全局键盘焦点——即使有气泡存在，也不会把字打到别的输入框里。
+   *
+   * 因此这里【故意不用】 page.keyboard / locator.pressSequentially：
+   * 它们都是往「当前焦点元素」敲字符，一旦 Chrome 恢复页面/保存密码气泡抢走焦点，
+   * 密码就会被追加到账号框里（历史 bug）。
+   *
+   * force:true 绕过气泡遮挡的可操作性检查。填完用 inputValue() 严格校验，
+   * 不匹配就清空重试；多次失败返回 false 让调用方回退手动登录，绝不留下串框的值。
    */
   private async typeIntoInput(
     locator: ReturnType<Page['locator']>,
     value: string,
-    retries = 3
+    retries = 4
   ): Promise<boolean> {
     for (let i = 0; i < retries; i++) {
       try {
-        // 关掉可能遮挡输入框的 Chrome 原生气泡（Esc 是页面级，不会往输入框写东西）
+        // 关掉可能遮挡/抢焦的 Chrome 原生气泡（Esc 是页面级，不会往输入框写东西）
         await locator.page().keyboard.press('Escape').catch(() => undefined);
         await locator.waitFor({ state: 'visible', timeout: 5000 });
         await locator.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
 
-        // 先点击聚焦（force 绕过遮挡），再用元素自身的全选清空，避免全局 Cmd+A 串框
-        await locator.click({ timeout: 2000, force: true }).catch(() => undefined);
-        await locator.press('Meta+a', { timeout: 1000 }).catch(() => undefined);
-        await locator.press('Backspace', { timeout: 1000 }).catch(() => undefined);
-
-        // Playwright 原生 fill（React 友好）
-        await locator.fill(value, { timeout: 4000, force: true });
+        // fill 会先聚焦本元素、再设值，不依赖当前全局焦点
+        await locator.fill(value, { timeout: 5000, force: true });
         const actual = await locator.inputValue().catch(() => '');
         if (actual === value) return true;
-      } catch {
-        /* fall through to pressSequentially */
-      }
 
-      // 兜底：元素自身逐字键入（真实键盘事件，对受控输入最可靠）
-      try {
-        await locator.click({ timeout: 2000, force: true }).catch(() => undefined);
-        await locator.fill('', { timeout: 1000, force: true }).catch(() => undefined);
-        await locator.pressSequentially(value, { delay: 30, timeout: 8000 });
-        const actual = await locator.inputValue().catch(() => '');
-        if (actual === value) return true;
+        // 不匹配（可能被气泡打断），清空本框后重试
+        await locator.fill('', { timeout: 1500, force: true }).catch(() => undefined);
       } catch {
-        /* retry */
+        /* 下一器重试 */
       }
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 500));
     }
     return false;
   }
