@@ -935,53 +935,49 @@ export class AlipayExporter {
 
       // 2) 填账号：明确排除密码框，优先 name/id/placeholder 精确匹配，最后才兜底 type=text
       //    （账号框绝不能匹配到 input[type=password]，否则可能把账号/密码填反）
-      const accountInput = page
-        .locator(
-          [
-            'input[name="logonId"]:not([type="password"])',
-            'input#login-account:not([type="password"])',
-            'input[placeholder*="账户"]:not([type="password"])',
-            'input[placeholder*="账号"]:not([type="password"])',
-            'input[placeholder*="手机"]:not([type="password"])',
-            'input[placeholder*="邮箱"]:not([type="password"])',
-            'input[type="text"]:not([type="password"]):visible',
-          ].join(', ')
-        )
-        .first();
+      //    整页可能有多个隐藏 input（各 Tab 的模板），用 pickVisibleInput 挑可见的那个。
+      const accountSelectors = [
+        'input[name="logonId"]:not([type="password"])',
+        'input#login-account:not([type="password"])',
+        'input[placeholder*="账户"]:not([type="password"])',
+        'input[placeholder*="账号"]:not([type="password"])',
+        'input[placeholder*="手机"]:not([type="password"])',
+        'input[placeholder*="邮箱"]:not([type="password"])',
+        'input[type="text"]:not([type="password"])',
+      ].join(', ');
+      const accountInput = await this.pickVisibleInput(page, accountSelectors, 5000);
+      if (!accountInput) {
+        console.warn('⚠️  未能定位可见的账号输入框，跳过自动填充（请手动登录）');
+        return 'skipped';
+      }
       // typeIntoInput 内部会先聚焦清空再填值，这里直接填账号
       const accountFilled = await this.typeIntoInput(accountInput, username, 3);
       const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
 
-      // 3) 填密码
+      // 3) 填密码（同样从多个 password input 中挑可见的那个）
       const pwdSelectors =
         'input[type="password"], input[name="password"], input[placeholder*="密码"], input[placeholder*="password" i]';
-      const pwdInput = page.locator(pwdSelectors).first();
+      const pwdInput = await this.pickVisibleInput(page, pwdSelectors, 5000);
+      if (!pwdInput) {
+        console.warn('⚠️  未能定位可见的密码输入框，跳过自动填充（请手动登录）');
+        return 'skipped';
+      }
 
-      // 诊断：密码框定位情况（数量 / 是否在 iframe / 可见性 / disabled / readonly）
+      // 诊断：密码框定位情况（在不在 iframe / 可见性 / disabled / readonly）
       try {
-        const pwdCount = await page.locator(pwdSelectors).count();
         const frames = page.frames().map((f) => f.url());
-        const diag = await pwdInput
-          .evaluate((el) => {
-            const inp = el as HTMLInputElement;
-            const r = inp.getBoundingClientRect();
-            return {
-              tag: inp.tagName,
-              type: inp.type,
-              name: inp.name,
-              placeholder: inp.placeholder,
-              disabled: inp.disabled,
-              readOnly: inp.readOnly,
-              visible: r.width > 0 && r.height > 0,
-              w: Math.round(r.width),
-              h: Math.round(r.height),
-            };
-          })
-          .catch((e: unknown) => ({ error: String(e) }));
-        console.log(
-          `   🔍 密码框诊断: 匹配数=${pwdCount} frames=${JSON.stringify(frames)} meta=`,
-          diag
-        );
+        const diag = await pwdInput.evaluate((el) => {
+          const inp = el as HTMLInputElement;
+          const r = inp.getBoundingClientRect();
+          return {
+            type: inp.type,
+            disabled: inp.disabled,
+            readOnly: inp.readOnly,
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          };
+        });
+        console.log(`   🔍 已选可见密码框: frames=${JSON.stringify(frames)} meta=`, diag);
       } catch {
         /* ignore diag */
       }
@@ -1279,6 +1275,47 @@ export class AlipayExporter {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * 从一组选择器匹配到的输入框中，选出【真正可见】的那个。
+   *
+   * 背景：支付宝登录页有 3 个登录 Tab（扫码/账密/验证码），每个 Tab 各有自己的
+   * input（账密 Tab 甚至有多个隐藏模板 input），整页会有 4 个 input[type=password]，
+   * 但只有当前 Tab 下那个是可见的（getBoundingClientRect 宽高 > 0）。
+   * 直接用 .first() 会选中隐藏 input，导致 fill 永远等不到 visible 而超时。
+   * 因此这里遍历所有匹配，用 DOM 尺寸判断挑出可见项，返回其索引包装成 locator。
+   */
+  private async pickVisibleInput(
+    page: Page,
+    selector: string,
+    timeoutMs = 5000
+  ): Promise<ReturnType<Page['locator']> | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const all = page.locator(selector);
+      const count = await all.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const el = all.nth(i);
+        const visible = await el
+          .evaluate((node) => {
+            const inp = node as HTMLInputElement;
+            // 排除被设置为隐藏的输入框
+            if (inp.type === 'hidden' || inp.hidden || inp.disabled) return false;
+            const r = inp.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return false;
+            const style = window.getComputedStyle(inp);
+            if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
+              return false;
+            }
+            return true;
+          })
+          .catch(() => false);
+        if (visible) return el;
+      }
+      await page.waitForTimeout(200);
+    }
+    return null;
   }
 
   /**
