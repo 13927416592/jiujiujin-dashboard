@@ -1047,16 +1047,22 @@ export class AlipayExporter {
         /* ignore */
       }
 
-      // 5.2 聚焦密码框后按回车（表单原生提交）
+      // 5.2 聚焦【可见】密码框后按回车（用之前选出的可见框，不要用 .first() 选中隐藏框）
       try {
-        const pwdInput = page
-          .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
-          .first();
-        await pwdInput.click({ timeout: 2000 });
-        await pwdInput.focus().catch(() => undefined);
-        await page.waitForTimeout(200);
-        await pwdInput.press('Enter', { timeout: 2000 });
-        submitted = await this.waitLoginSubmitResult(page, 1500);
+        const enterPwd =
+          pwdInput ||
+          (await this.pickVisibleInput(
+            page,
+            'input[type="password"], input[name="password"], input[placeholder*="密码"]',
+            2000
+          ));
+        if (enterPwd) {
+          await enterPwd.click({ timeout: 2000, force: true }).catch(() => undefined);
+          await enterPwd.focus().catch(() => undefined);
+          await page.waitForTimeout(200);
+          await enterPwd.press('Enter', { timeout: 2000 }).catch(() => undefined);
+          submitted = await this.waitLoginSubmitResult(page, 2000);
+        }
       } catch {
         /* ignore, fall through */
       }
@@ -1112,22 +1118,35 @@ export class AlipayExporter {
       const diag = await page.evaluate(() => {
         const all = Array.from(
           document.querySelectorAll<HTMLElement>(
-            'button, a, div, span, input[type="submit"]'
+            'button, a, div, span, input[type="submit"], input[type="button"]'
           )
         );
+        // 宽松匹配：文本"包含"登录，把可见的可点元素都列出来（精确等于会漏掉内部嵌套 span/图标的按钮）
         const btns = all
-          .filter((el) => (el.textContent || '').replace(/\s+/g, '') === '登录')
-          .slice(0, 5)
-          .map((el) => ({
-            tag: el.tagName,
-            type: el.getAttribute('type'),
-            disabled:
-              el.hasAttribute('disabled') ||
-              (el as HTMLButtonElement).disabled === true,
-            cls: (el.className || '').toString().slice(0, 80),
-            w: Math.round(el.getBoundingClientRect().width),
-            h: Math.round(el.getBoundingClientRect().height),
-          }));
+          .filter((el) => (el.textContent || '').replace(/\s+/g, '').includes('登录'))
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return {
+              tag: el.tagName,
+              type: el.getAttribute('type'),
+              text: (el.textContent || '').replace(/\s+/g, '').slice(0, 20),
+              disabled:
+                el.hasAttribute('disabled') ||
+                (el as HTMLButtonElement).disabled === true,
+              cls: (el.className || '').toString().slice(0, 60),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+              visible:
+                r.width > 0 &&
+                r.height > 0 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity) !== 0,
+            };
+          })
+          .filter((b) => b.w > 0 && b.h > 0)
+          .slice(0, 12);
         const pwd = document.querySelector<HTMLInputElement>(
           'input[type="password"]'
         );
@@ -1136,6 +1155,7 @@ export class AlipayExporter {
           pwdValueLen: pwd ? pwd.value.length : -1,
           formExists: !!form,
           formAction: form ? form.action : '',
+          formNoValidate: form ? form.noValidate : null,
           btns,
         };
       });
@@ -1144,16 +1164,35 @@ export class AlipayExporter {
       /* ignore diag error */
     }
 
-    // 0.5) 最可靠：直接调用密码框所在 <form> 的原生 requestSubmit()，
-    //      不依赖按钮是否可点、是否被遮挡。
+    // 0.5) 直接提交密码框所在 <form>。
+    //      注意：支付宝登录按钮是 React/JS 绑定的提交（按钮 onClick 里 preventDefault +
+    //      自调接口），form.submit()/requestSubmit() 可能不触发其 handler，所以这里只作
+    //      快速尝试，失败继续走后面的真实按钮点击（可信点击能触发 React onClick）。
     try {
       const submitted = await page.evaluate(() => {
-        const pwd = document.querySelector<HTMLInputElement>(
-          'input[type="password"]'
-        );
+        const pwds = Array.from(
+          document.querySelectorAll<HTMLInputElement>('input[type="password"]')
+        ).filter((i) => {
+          const r = i.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && !i.disabled;
+        });
+        const pwd = pwds[pwds.length - 1] || null;
         const form = pwd ? pwd.form : null;
-        if (!form) return false;
+        if (!form || !pwd || pwd.value.length === 0) return false;
+        const acct = Array.from(form.querySelectorAll<HTMLInputElement>('input')).find(
+          (i) => i.type !== 'password' && i.type !== 'hidden' && i.value.length > 0
+        );
+        if (!acct) return false;
+        form.noValidate = true;
         if (typeof form.requestSubmit === 'function') {
+          // 用表单内的提交按钮触发，更可能命中页面绑定的提交逻辑
+          const submitBtn = form.querySelector<HTMLElement>(
+            'button[type="submit"], input[type="submit"], button'
+          );
+          if (submitBtn) {
+            submitBtn.click();
+            return true;
+          }
           form.requestSubmit();
         } else {
           form.submit();
@@ -1167,7 +1206,8 @@ export class AlipayExporter {
       /* fall through to clicking */
     }
 
-    // 1) 用定位器精确找文案恰好为「登录」的可点元素，取尺寸最大的那个（蓝色主按钮）
+    // 1) 用定位器找【包含】「登录」文案的可点元素（不要求文本严格等于，避免漏掉
+    //    内部嵌套 span/图标的按钮），过滤可见并取尺寸最大的蓝色主按钮。
     const candidates = [
       'button:has-text("登录")',
       'a:has-text("登录")',
@@ -1178,17 +1218,14 @@ export class AlipayExporter {
     ];
     for (const sel of candidates) {
       try {
-        const loc = page
-          .locator(sel)
-          .filter({ hasText: /^\s*登\s*录\s*$/ })
-          .first();
+        const loc = page.locator(sel).filter({ hasText: '登录' }).first();
         if (await loc.isVisible({ timeout: 600 }).catch(() => false)) {
           const box = await loc.boundingBox().catch(() => null);
-          // 尺寸过小的可能是图标/链接，跳过让后面策略找
-          if (box && box.width >= 80 && box.height >= 28) {
+          // 尺寸过小的可能是图标/链接（如"扫码登录""验证码登录"也含登录二字），跳过
+          if (box && box.width >= 120 && box.height >= 30) {
             await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
             await loc.click({ timeout: 4000, force: true });
-            if (await this.waitLoginSubmitResult(page, 2000)) return true;
+            if (await this.waitLoginSubmitResult(page, 2500)) return true;
           }
         }
       } catch {
@@ -1207,9 +1244,11 @@ export class AlipayExporter {
         for (let i = 0; i < all.length; i++) {
           const el = all[i] as HTMLElement;
           const txt = (el.textContent || '').replace(/\s+/g, '');
-          if (txt !== '登录') continue;
+          if (!txt.includes('登录')) continue;
+          // 排除"扫码登录""验证码登录""忘记登录密码"等链接：它们尺寸小、不是主按钮
+          if (txt.length > 6) continue;
           const r = el.getBoundingClientRect();
-          if (r.width < 80 || r.height < 28) continue;
+          if (r.width < 120 || r.height < 30) continue;
           const style = window.getComputedStyle(el);
           if (
             style.visibility === 'hidden' ||
