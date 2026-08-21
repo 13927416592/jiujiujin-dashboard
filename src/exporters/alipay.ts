@@ -954,35 +954,18 @@ export class AlipayExporter {
       const accountFilled = await this.typeIntoInput(accountInput, username, 3);
       const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
 
-      // 3) 填密码（同样从多个 password input 中挑可见的那个）
+      // 3) 填密码。
+      //    支付宝用 aliedit 安全控件：可见框 #password_rsainput 只是回显圆点，
+      //    真正提交的是隐藏域 #password（逐字符 RSA 加密）。必须【逐字键入】触发加密，
+      //    不能用 fill() 直接赋值（那样加密域为空，提交等于空密码）。
       const pwdSelectors =
-        'input[type="password"], input[name="password"], input[placeholder*="密码"], input[placeholder*="password" i]';
+        '#password_rsainput, input[type="password"]:not([name="password"]):not(.fn-hide), input[name="password_rsainput"]';
       const pwdInput = await this.pickVisibleInput(page, pwdSelectors, 5000);
       if (!pwdInput) {
-        console.warn('⚠️  未能定位可见的密码输入框，跳过自动填充（请手动登录）');
+        console.warn('⚠️  未能定位可见的安全密码输入框（#password_rsainput），跳过自动填充（请手动登录）');
         return 'skipped';
       }
-
-      // 诊断：密码框定位情况（在不在 iframe / 可见性 / disabled / readonly）
-      try {
-        const frames = page.frames().map((f) => f.url());
-        const diag = await pwdInput.evaluate((el) => {
-          const inp = el as HTMLInputElement;
-          const r = inp.getBoundingClientRect();
-          return {
-            type: inp.type,
-            disabled: inp.disabled,
-            readOnly: inp.readOnly,
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-          };
-        });
-        console.log(`   🔍 已选可见密码框: frames=${JSON.stringify(frames)} meta=`, diag);
-      } catch {
-        /* ignore diag */
-      }
-
-      const pwdFilled = await this.typeIntoInput(pwdInput, password, 4);
+      const pwdFilled = await this.typePasswordSecure(page, pwdInput, password, 3);
       // 填完密码后重新读一次账号框，确认没被串入密码
       const accountAfterPwd = (await accountInput.inputValue().catch(() => '')).trim();
 
@@ -1017,57 +1000,47 @@ export class AlipayExporter {
       }
 
       // 5) 提交登录。
-      //    支付宝登录按钮可能是 button/div/a/span。策略：先按 Esc 关掉 Chrome 原生气泡 →
-      //    用原生事件再触发一次输入框 input（确保 React 状态同步、按钮处于可点状态）→
-      //    聚焦密码框按回车 → 仍不行则用 DOM 句柄对「登录」按钮做可信点击。
+      //    探针确认：可见的真实登录按钮是 <input type="submit" id="J-login-simulate-btn" value="登 录">
+      //    （#J-login-btn 是 fn-hide 隐藏的）。它是 input 元素、文字在 value 里（"登 录"带空格），
+      //    因此不能用 textContent 匹配，直接按 id 做可信点击最准。
       let submitted = false;
 
-      // 5.0 关闭可能遮挡/抢焦点的 Chrome 原生气泡，并滚动登录按钮到可视区
-      for (let i = 0; i < 3; i++) {
+      // 关一下可能的气泡
+      for (let i = 0; i < 2; i++) {
         await page.keyboard.press('Escape').catch(() => undefined);
-        await page.waitForTimeout(120);
+        await page.waitForTimeout(80);
       }
 
-      // 5.1 对两个输入框再派发一次 input/change/blur，确保 React 受控状态已同步、按钮启用
+      // 5.1 精确点击真实登录按钮 #J-login-simulate-btn（Playwright 可信点击，会触发控件提交）
       try {
-        await accountInput.evaluate((el) => {
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-        const pwdInput2 = page
-          .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
-          .first();
-        await pwdInput2.evaluate((el) => {
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          (el as HTMLInputElement).blur();
-        });
-        await page.waitForTimeout(300);
-      } catch {
-        /* ignore */
-      }
-
-      // 5.2 聚焦【可见】密码框后按回车（用之前选出的可见框，不要用 .first() 选中隐藏框）
-      try {
-        const enterPwd =
-          pwdInput ||
-          (await this.pickVisibleInput(
-            page,
-            'input[type="password"], input[name="password"], input[placeholder*="密码"]',
-            2000
-          ));
-        if (enterPwd) {
-          await enterPwd.click({ timeout: 2000, force: true }).catch(() => undefined);
-          await enterPwd.focus().catch(() => undefined);
-          await page.waitForTimeout(200);
-          await enterPwd.press('Enter', { timeout: 2000 }).catch(() => undefined);
-          submitted = await this.waitLoginSubmitResult(page, 2000);
+        const simBtn = page.locator('#J-login-simulate-btn').first();
+        if (await simBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await simBtn.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
+          await simBtn.click({ timeout: 4000, force: true });
+          submitted = await this.waitLoginSubmitResult(page, 3000);
+          if (submitted) console.log('   ✓ 已点击登录按钮(#J-login-simulate-btn)并提交');
         }
-      } catch {
-        /* ignore, fall through */
+      } catch (e) {
+        console.warn(`   ⚠️  点击 #J-login-simulate-btn 出错：${String(e).slice(0, 160)}`);
       }
 
-      // 5.3 用 DOM 句柄对「登录」按钮做 Playwright 可信点击
+      // 5.2 兜底：在可见密码框上按回车提交表单
+      if (!submitted) {
+        try {
+          const enterPwd = pwdInput;
+          if (enterPwd) {
+            await enterPwd.click({ timeout: 2000, force: true }).catch(() => undefined);
+            await enterPwd.focus().catch(() => undefined);
+            await page.waitForTimeout(150);
+            await enterPwd.press('Enter', { timeout: 2000 }).catch(() => undefined);
+            submitted = await this.waitLoginSubmitResult(page, 2500);
+          }
+        } catch {
+          /* ignore, fall through */
+        }
+      }
+
+      // 5.3 最后兜底：通用按钮探测点击
       if (!submitted) {
         submitted = await this.clickLoginButton(page);
       }
@@ -1358,19 +1331,80 @@ export class AlipayExporter {
   }
 
   /**
-   * 向输入框填值。
+   * 向支付宝【安全密码控件】安全地输入密码。
    *
-   * 【关键】只用 Playwright 的 locator.fill()，它会：
-   *   1) 把操作作用在「这个 locator 对应的元素」上（必要时先聚焦该元素）；
-   *   2) 通过 React 可识别的原生 setter 设值并派发 input 事件（受控组件能更新 state）；
-   *   3) 不依赖全局键盘焦点——即使有气泡存在，也不会把字打到别的输入框里。
+   * 关键背景（来自登录页 DOM 探针）：
+   *   支付宝登录用的是 aliedit 安全控件，可见输入框是 #password_rsainput，
+   *   但表单真正提交的是隐藏域 <input type="hidden" id="password" name="password">。
+   *   用户每敲一个字符，控件的 keypress 监听会把明文逐字符 RSA 加密后写进隐藏域。
+   *   因此【绝不能用 fill() 直接给可见框赋值】——那样圆点会显示，但加密隐藏域是空的，
+   *   提交过去等于空密码、登录失败。
    *
-   * 因此这里【故意不用】 page.keyboard / locator.pressSequentially：
-   * 它们都是往「当前焦点元素」敲字符，一旦 Chrome 恢复页面/保存密码气泡抢走焦点，
-   * 密码就会被追加到账号框里（历史 bug）。
+   * 正确做法：聚焦可见密码框后用 locator.pressSequentially 逐字键入真实键盘事件，
+   * 触发控件加密。此时 Chrome 抢焦气泡已通过启动参数 + Preferences 从根上关闭，
+   * 不再有密码被串到账号框的历史问题。
    *
-   * force:true 绕过气泡遮挡的可操作性检查。填完用 inputValue() 严格校验，
-   * 不匹配就清空重试；多次失败返回 false 让调用方回退手动登录，绝不留下串框的值。
+   * 校验双重条件：可见框圆点长度 == 密码长度，且隐藏域 #password 已产生加密值。
+   */
+  private async typePasswordSecure(
+    page: Page,
+    visiblePwd: ReturnType<Page['locator']>,
+    password: string,
+    retries = 3
+  ): Promise<boolean> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        // 聚焦可见密码输入框（force 绕过遮挡）
+        await visiblePwd.click({ timeout: 3000, force: true }).catch(() => undefined);
+        await visiblePwd.focus().catch(() => undefined);
+        await page.waitForTimeout(150);
+        // 全选清空（元素自身，不依赖全局焦点）
+        await visiblePwd.fill('', { timeout: 1500, force: true }).catch(() => undefined);
+        // 把隐藏加密域也清零（控件会在键入时重写）
+        await page
+          .locator('#password, input[name="password"]')
+          .first()
+          .evaluate((el) => {
+            (el as HTMLInputElement).value = '';
+          })
+          .catch(() => undefined);
+
+        // 逐字真实键入，触发 aliedit 的 keypress 加密
+        await visiblePwd.pressSequentially(password, { delay: 60, timeout: 15000 });
+        await page.waitForTimeout(300); // 给控件最后一个字符的加密留点时间
+
+        const visibleLen = await visiblePwd.inputValue().then((v) => v.length).catch(() => -1);
+        // 隐藏加密域是否已产生非空值（这才是表单真正提交的密码）
+        const hiddenEnc = await page
+          .locator('#password, input[name="password"]')
+          .first()
+          .inputValue()
+          .catch(() => '');
+
+        if (visibleLen === password.length && hiddenEnc.length > 0) {
+          console.log(
+            `   🔐 密码已逐字输入（可见${visibleLen}位，加密隐藏域长度${hiddenEnc.length}）`
+          );
+          return true;
+        }
+        console.warn(
+          `   ⚠️  密码输入校验未通过（第${i + 1}次：可见${visibleLen}位/期望${password.length}位，加密域${hiddenEnc.length}字符），重试`
+        );
+      } catch (e) {
+        console.warn(`   ⚠️  逐字输入密码出错（第${i + 1}次）：${String(e).slice(0, 160)}`);
+      }
+      await page.waitForTimeout(500);
+    }
+    return false;
+  }
+
+  /**
+   * 向普通输入框（非安全密码控件）填值，如账号框。
+   *
+   * 只用 Playwright 的 locator.fill()：它把操作作用在目标元素上、先聚焦再设值、
+   * 并以 React/普通表单能识别的方式派发 input 事件，且不依赖全局键盘焦点，不会串框。
+   * force:true 绕过遮挡检查；填完用 inputValue() 严格校验，失败清空重试。
+   * 注意：此方法【不能】用于支付宝密码框（安全控件需要逐字键入触发加密，见 typePasswordSecure）。
    */
   private async typeIntoInput(
     locator: ReturnType<Page['locator']>,
