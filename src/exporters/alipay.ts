@@ -609,17 +609,21 @@ export class AlipayExporter {
     // 登录后若弹出"请选择登录账号"页，自动选择目标企业账号
     await this.selectEnterpriseIfNeeded();
 
-    // 二次确认：访问主流程第一个数据页（经营总览）确认登录态真正可用。
+    // 二次确认：访问一个数据子应用页确认登录态真正可用，并建立经营顾问子应用会话。
     //
-    // 说明：b.alipay.com 门户首页(portal/home)与经营顾问(manage-consultant)是两个
-    // 独立的微前端子应用，无法用左侧菜单/history.pushState 在同文档内切换（实测会落到
-    // 开放平台空白错误页）。进入子应用必须跨文档跳转，由 auth.alipay.com 做一次静默 SSO，
-    // 只要 Cookie 有效，这个 SSO 会自动完成并自动选企业、302 回数据页，无需人工登录
-    // （8-18 已验证：深链→静默SSO→自动选企业→数据页可访问，全程不扫码）。
-    // 真正导致"误弹手动登录"的是 waitForBusinessSettled 把回跳 URL 上的 ?appScene=
-    // 误判为选择页（已修复），因此这里恢复深链并给足静默跳转时间即可。
+    // 关键：预热页【必须用交易分析(trade)】，不要用经营总览(data-index)。
+    // 这是 8-18 免登成功时的原始配置：
+    //  - 交易分析的静默 SSO 链路最稳，选企业后能干净落地；
+    //  - 交易分析与经营总览同属 manage-consultant 经营顾问子应用，预热 trade 后
+    //    主流程再深链 data-index 属于同子应用导航，不会再触发硬 SSO。
+    // 之前误把预热页换成 data-index，结果其选企业回跳带 ?appScene 命中选择页误判，
+    // 后续又错误地用菜单/pushState 绕开深链（门户与经营顾问是独立微前端，
+    // pushState 只改地址栏、子应用不加载，会落到开放平台空白错误页）。均已回退。
+    //
+    // 进入子应用必须跨文档深链，由 auth.alipay.com 做一次静默 SSO；Cookie 有效时
+    // 会自动完成并自动选企业、302 回数据页，无需人工登录（8-18 已验证全程不扫码）。
     console.log('🔎 二次确认数据页访问...');
-    const warmupUrl = this.config.overviewUrl;
+    const warmupUrl = this.config.pageUrls.trade;
     await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
     let dataPageOk = await this.waitForBusinessSettled(this.page, 30_000);
 
