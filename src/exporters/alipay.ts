@@ -878,39 +878,86 @@ export class AlipayExporter {
         await agree.click({ timeout: 2000 }).catch(() => undefined);
       }
 
-      // 5) 点登录按钮
-      const clicked = await page
-        .locator(
-          [
-            'button:has-text("登录")',
-            'a:has-text("登 录")',
-            'input[type="submit"]',
-            '[class*="submit"]',
-            '[class*="login-btn"]',
-            'button[type="submit"]',
-          ].join(', ')
-        )
-        .first()
-        .click({ timeout: 5000 })
-        .then(() => true)
-        .catch(() => false);
+      // 5) 提交登录。支付宝登录按钮并非标准 <button>，多为 div/span/a，
+      //    最稳的方式是聚焦密码框后按回车（表单原生提交），再兜底多点几种按钮选择器。
+      const pwdInput = page
+        .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
+        .first();
 
-      if (!clicked) {
-        console.warn('⚠️  未点到登录按钮，跳过自动提交（请手动登录）');
-        return 'skipped';
+      let submitted = false;
+
+      // 5.1 密码框按回车提交
+      try {
+        await pwdInput.click({ timeout: 2000 });
+        await pwdInput.press('Enter', { timeout: 2000 });
+        await page.waitForTimeout(800);
+        submitted = await this.hasLeftLoginPage(page);
+      } catch {
+        /* ignore, fall through to button click */
       }
 
-      console.log('   ✓ 已提交登录');
+      // 5.2 兜底：点击登录按钮（放宽到 div/span/a/button/input，且文案严格为「登录/登 录」）
+      if (!submitted) {
+        const loginLoc = page
+          .locator(
+            [
+              'button:has-text("登录")',
+              'a:has-text("登 录")',
+              'div:has-text("登 录")',
+              'span:has-text("登 录")',
+              'button:has-text("登 录")',
+              'a:has-text("登录")',
+              'div[role="button"]:has-text("登录")',
+              'div[class*="submit"]',
+              'div[class*="login-btn"]',
+              'a[class*="submit"]',
+              'a[class*="login-btn"]',
+              'input[type="submit"]',
+            ].join(', ')
+          )
+          .filter({ hasText: /^\s*登\s*录\s*$/ });
+        const count = await loginLoc.count();
+        for (let i = 0; i < count && !submitted; i++) {
+          const el = loginLoc.nth(i);
+          if (await el.isVisible({ timeout: 400 }).catch(() => false)) {
+            await el.click({ timeout: 3000 }).catch(() => undefined);
+            await page.waitForTimeout(800);
+            submitted = await this.hasLeftLoginPage(page);
+          }
+        }
+      }
+
+      if (!submitted) {
+        console.warn(
+          '⚠️  自动提交后仍停留在登录页（可能按钮未命中，或需要滑块/验证码），请在浏览器手动点登录'
+        );
+      } else {
+        console.log('   ✓ 已提交登录');
+      }
+
       await page.waitForTimeout(2500);
       // 提交后可能进入短信/滑块/APP 确认等二次验证，或直接跳回业务页。
       // 这里只做提示，真正的等待/判定由 promptManualLogin 负责。
       if (/(验证|短信|滑块|验证码|安全|confirm|sms)/i.test(page.url())) {
         console.log('   🔔 登录后可能需要二次验证（短信/滑块/APP确认），请在浏览器中完成...');
       }
-      return 'submitted';
+      return submitted ? 'submitted' : 'skipped';
     } catch (err) {
       console.warn('⚠️  账密自动填充过程出错（将回退手动登录）：', err);
       return 'skipped';
+    }
+  }
+
+  /** 判断是否已离开登录域、开始跳转（用于判定登录提交是否生效） */
+  private async hasLeftLoginPage(page: Page): Promise<boolean> {
+    try {
+      const url = page.url();
+      if (!/(login|passport|sign[-_]?in)/i.test(url)) return true;
+      // 部分二次验证页仍在 auth 域但 URL 路径含 validate/confirm，也算已进入登录后流程
+      if (/(validate|confirm|check|sms|security)/i.test(url)) return true;
+      return false;
+    } catch {
+      return false;
     }
   }
 
