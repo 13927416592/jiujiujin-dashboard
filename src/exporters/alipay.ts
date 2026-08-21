@@ -903,27 +903,31 @@ export class AlipayExporter {
           ].join(', ')
         )
         .first();
+      // 填充前先用原生方式清空账号框，避免历史/自动填充内容残留被追加
+      await this.clearInputValue(accountInput).catch(() => undefined);
       const accountFilled = await this.typeIntoInput(accountInput, username, 3);
-      // 校验账号框内容确实是我们期望的值（防止串框）
       const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
-      if (accountFilled && accountActual !== username.trim()) {
-        console.warn(`⚠️  账号框内容校验不一致（期望 ${username.length} 位，实际已填入 ${accountActual.length} 位）`);
-      }
 
       // 3) 填密码
       const pwdInput = page
         .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
         .first();
+      await this.clearInputValue(pwdInput).catch(() => undefined);
       const pwdFilled = await this.typeIntoInput(pwdInput, password, 3);
+      // 填完密码后重新读一次账号框，确认没被串入密码
+      const accountAfterPwd = (await accountInput.inputValue().catch(() => '')).trim();
 
       if (!accountFilled || !pwdFilled) {
         console.warn('⚠️  未能定位账密输入框，跳过自动填充（请手动登录）');
         return 'skipped';
       }
-      // 关键防串框：若账号框内容等于密码，说明焦点/选择器错了，清空重来并提示
-      if (accountActual === password) {
-        console.warn('⚠️  检测到密码被误填入账号框，已清空账号框，请核对后手动登录');
-        await accountInput.fill('').catch(() => undefined);
+      // 关键防串框：账号框内容必须严格等于账号，且不能包含密码（密码被追加/串入会导致登录失败）
+      if (accountAfterPwd !== username.trim() || accountAfterPwd.includes(password)) {
+        console.warn(
+          `⚠️  账号框内容异常（期望手机号，实际长度 ${accountAfterPwd.length}，疑似密码被串入），已清空两框，请手动登录`
+        );
+        await this.clearInputValue(accountInput).catch(() => undefined);
+        await this.clearInputValue(pwdInput).catch(() => undefined);
         return 'skipped';
       }
       console.log('   ✓ 账号密码已填入');
@@ -1063,13 +1067,33 @@ export class AlipayExporter {
   }
 
   /**
-   * 向输入框填值。只用「元素自身」的方法操作（fill / pressSequentially），
-   * 绝不使用 page.keyboard 这类全局键盘——否则焦点一旦停在上一个输入框上，
-   * 就会把本框内容（尤其密码）串填到上一个框里。
+   * 用原生 setter 清空输入框 value（不依赖焦点，避免清空错框）。
+   */
+  private async clearInputValue(locator: ReturnType<Page['locator']>): Promise<void> {
+    await locator
+      .evaluate((el) => {
+        const input = el as HTMLInputElement;
+        const proto =
+          window.HTMLInputElement.prototype ||
+          (Object.getPrototypeOf(input) as typeof HTMLInputElement.prototype);
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && typeof desc.set === 'function') {
+          desc.set.call(input, '');
+        } else {
+          input.value = '';
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * 向输入框填值。【关键】完全绕过焦点和物理键盘，直接在 DOM 上用原生 setter
+   * 设置 value 并派发 input/change 事件。这样无论页面焦点被哪个气泡/控件抢走，
+   * 值都只会写进「这个 locator 对应的输入框」，绝不会串到账号框或追加内容。
    *
-   * 策略：先按 Esc 关气泡 → 等可见 → 三击选中框内已有内容 → fill 覆盖；
-   * fill 不被接受时用元素自身的 pressSequentially 逐字输入（Playwright 会确保聚焦该元素）。
-   * 每次填完用 inputValue 校验，校验失败则重试。
+   * 这是应对 React 受控组件 + 抢焦气泡最可靠的方式；填完用 inputValue 严格校验。
    */
   private async typeIntoInput(
     locator: ReturnType<Page['locator']>,
@@ -1078,25 +1102,35 @@ export class AlipayExporter {
   ): Promise<boolean> {
     for (let i = 0; i < retries; i++) {
       try {
-        // 关掉可能遮挡输入框的 Chrome 原生气泡
-        await locator.page().keyboard.press('Escape').catch(() => undefined);
         await locator.waitFor({ state: 'visible', timeout: 5000 });
         await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => undefined);
-        // 点击聚焦，再三击选中已有内容（不依赖全局 Cmd+A，避免作用到错误的框）
-        await locator.click({ timeout: 2000 }).catch(() => undefined);
-        await locator.click({ clickCount: 3, timeout: 2000 }).catch(() => undefined);
-        // fill 会直接设置 value 并派发 input/change 事件，最干净
+
+        // 先尝试 Playwright 原生 fill（它内部会聚焦并覆盖，多数情况可用）
         await locator.fill(value, { timeout: 3000 });
-        const actual = await locator.inputValue().catch(() => '');
+        let actual = await locator.inputValue().catch(() => '');
         if (actual === value) return true;
       } catch {
-        /* fall through to pressSequentially */
+        /* fall through to native setter */
       }
 
-      // 兜底：用元素自身逐字输入（Playwright 内部会先聚焦此元素，不会串到别的框）
+      // 兜底：用原生 value setter 直接写值，派发 React 需要的 input/change 事件。
+      // 不依赖焦点，不会串框、不会追加。
       try {
-        await locator.click({ timeout: 2000 }).catch(() => undefined);
-        await locator.pressSequentially(value, { delay: 25, timeout: 5000 });
+        await locator.evaluate((el, val) => {
+          const input = el as HTMLInputElement;
+          const proto =
+            window.HTMLInputElement.prototype ||
+            (Object.getPrototypeOf(input) as typeof HTMLInputElement.prototype);
+          const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (desc && typeof desc.set === 'function') {
+            desc.set.call(input, val);
+          } else {
+            input.value = val;
+          }
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new Event('blur', { bubbles: true }));
+        }, value);
         const actual = await locator.inputValue().catch(() => '');
         if (actual === value) return true;
       } catch {
