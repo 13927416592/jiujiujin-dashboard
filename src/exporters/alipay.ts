@@ -636,15 +636,20 @@ export class AlipayExporter {
     await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
     let dataPageOk = await this.waitForBusinessSettled(this.page, 30_000);
 
-    // 静默 SSO 没自动跳回时，回首页预热一次会话再重试（首页已登录说明基础 Cookie 有效，
-    // 可能是直接深链数据页触发了子应用冷启动）。同样给足静默跳转时间。
+    // 只有当"未明确判定为会话失效"时才回首页预热重试一次（例如子应用冷启动导致的临时跳转）。
+    // 若已停在真实登录表单（服务端会话失效），回首页再深链同样会被踢，重试纯属浪费，直接进登录。
     if (!dataPageOk && isLoginUrl(this.page.url())) {
-      console.log('   🔄 数据页被踢登录，回首页预热会话后重试一次...');
-      await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
-      await this.page.waitForTimeout(4000);
-      await this.selectEnterpriseIfNeeded();
-      await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
-      dataPageOk = await this.waitForBusinessSettled(this.page, 30_000);
+      const interactive = await this.isInteractiveLoginPage(this.page).catch(() => false);
+      if (!interactive) {
+        console.log('   🔄 数据页未落地（非登录表单），回首页预热会话后重试一次...');
+        await this.safeGoto(this.page, 'https://b.alipay.com/').catch(() => undefined);
+        await this.page.waitForTimeout(4000);
+        await this.selectEnterpriseIfNeeded();
+        await this.safeGoto(this.page, warmupUrl).catch(() => undefined);
+        dataPageOk = await this.waitForBusinessSettled(this.page, 30_000);
+      } else {
+        console.log('   ℹ️  已确认为服务端会话失效（登录表单停留），跳过预热重试，直接进入登录');
+      }
     }
 
     if (!dataPageOk) {
@@ -686,6 +691,11 @@ export class AlipayExporter {
     const isSelectUrl = (url: string): boolean => SELECT_RE.test(url);
     const deadline = Date.now() + timeoutMs;
     let warnedLogin = false;
+    // 记录首次落到登录页的时间，用于区分"静默SSO进行中"与"真实登录表单(会话失效)"
+    let loginPageSince = 0;
+    // 静默 SSO 宽限期：落在登录域后先给这么多毫秒看是否自动跳转；
+    // 超过该时间仍停在登录域且登录表单可见，则判定会话失效、快速失败，不再空等。
+    const SILENT_SSO_GRACE_MS = 8000;
 
     while (Date.now() < deadline) {
       const url = page.url();
@@ -696,10 +706,22 @@ export class AlipayExporter {
         if (!warnedLogin) {
           console.log('   ⏳ 检测到登录页，等待支付宝静默 SSO 自动跳转回数据页（不要打断）...');
           warnedLogin = true;
+          loginPageSince = Date.now();
+        }
+        // 宽限期后仍在登录域、且登录表单已真实可见 → 会话已失效，继续等是徒劳，快速失败
+        if (Date.now() - loginPageSince >= SILENT_SSO_GRACE_MS) {
+          const interactive = await this.isInteractiveLoginPage(page).catch(() => false);
+          if (interactive) {
+            console.log('   ℹ️  登录表单已停留超过 8 秒未自动跳转，判定服务端会话已失效，直接进入登录流程');
+            return false;
+          }
         }
         // 登录页上的静默跳转进行中，只等待，绝不 goto
         await page.waitForTimeout(1500);
         continue;
+      } else {
+        // 离开登录域（跳去选企业或业务页），重置计时
+        loginPageSince = 0;
       }
 
       if (onSelect) {
@@ -719,6 +741,31 @@ export class AlipayExporter {
       }
 
       await page.waitForTimeout(1000);
+    }
+    return false;
+  }
+
+  /**
+   * 判断当前页是否为"真实可交互的登录表单"（扫码/账密/验证码登录入口已渲染）。
+   * 用于区分：会话有效时的静默 SSO（URL 短暂经过登录域但会自动跳走）
+   * 与会话失效时停住的登录页（表单可见、不会自动跳，需重新登录）。
+   */
+  private async isInteractiveLoginPage(page: Page): Promise<boolean> {
+    // 任一登录入口可见即认为是真实登录页
+    const checks: Array<() => Promise<boolean>> = [
+      () => page.locator('input[type="password"]').first().isVisible({ timeout: 300 }).catch(() => false),
+      () => page.locator('input[placeholder*="密码"]').first().isVisible({ timeout: 300 }).catch(() => false),
+      () => page.locator('input[placeholder*="账户"]').first().isVisible({ timeout: 300 }).catch(() => false),
+      () => page.locator('input[placeholder*="账号"]').first().isVisible({ timeout: 300 }).catch(() => false),
+      // 登录页 Tab 文案
+      () => page.locator('text=扫码登录').first().isVisible({ timeout: 300 }).catch(() => false),
+      () => page.locator('text=账密登录').first().isVisible({ timeout: 300 }).catch(() => false),
+      () => page.locator('text=验证码登录').first().isVisible({ timeout: 300 }).catch(() => false),
+      // 二维码容器常见 class
+      () => page.locator('[class*="qrcode"], [class*="qr-code"], iframe[src*="qrcode"]').first().isVisible({ timeout: 300 }).catch(() => false),
+    ];
+    for (const check of checks) {
+      if (await check()) return true;
     }
     return false;
   }
