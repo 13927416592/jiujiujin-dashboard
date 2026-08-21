@@ -888,21 +888,27 @@ export class AlipayExporter {
       await page.keyboard.press('Escape').catch(() => undefined);
       await page.waitForTimeout(200);
 
-      // 2) 填账号：先点击聚焦再用键盘输入（比 .fill() 更能容忍气泡/动画遮挡）
+      // 2) 填账号：明确排除密码框，优先 name/id/placeholder 精确匹配，最后才兜底 type=text
+      //    （账号框绝不能匹配到 input[type=password]，否则可能把账号/密码填反）
       const accountInput = page
         .locator(
           [
-            'input[name="logonId"]',
-            'input#login-account',
-            'input[placeholder*="账户"]',
-            'input[placeholder*="账号"]',
-            'input[placeholder*="手机"]',
-            'input[placeholder*="邮箱"]',
-            'input[type="text"]:visible',
+            'input[name="logonId"]:not([type="password"])',
+            'input#login-account:not([type="password"])',
+            'input[placeholder*="账户"]:not([type="password"])',
+            'input[placeholder*="账号"]:not([type="password"])',
+            'input[placeholder*="手机"]:not([type="password"])',
+            'input[placeholder*="邮箱"]:not([type="password"])',
+            'input[type="text"]:not([type="password"]):visible',
           ].join(', ')
         )
         .first();
       const accountFilled = await this.typeIntoInput(accountInput, username, 3);
+      // 校验账号框内容确实是我们期望的值（防止串框）
+      const accountActual = (await accountInput.inputValue().catch(() => '')).trim();
+      if (accountFilled && accountActual !== username.trim()) {
+        console.warn(`⚠️  账号框内容校验不一致（期望 ${username.length} 位，实际已填入 ${accountActual.length} 位）`);
+      }
 
       // 3) 填密码
       const pwdInput = page
@@ -912,6 +918,12 @@ export class AlipayExporter {
 
       if (!accountFilled || !pwdFilled) {
         console.warn('⚠️  未能定位账密输入框，跳过自动填充（请手动登录）');
+        return 'skipped';
+      }
+      // 关键防串框：若账号框内容等于密码，说明焦点/选择器错了，清空重来并提示
+      if (accountActual === password) {
+        console.warn('⚠️  检测到密码被误填入账号框，已清空账号框，请核对后手动登录');
+        await accountInput.fill('').catch(() => undefined);
         return 'skipped';
       }
       console.log('   ✓ 账号密码已填入');
@@ -1051,42 +1063,42 @@ export class AlipayExporter {
   }
 
   /**
-   * 向输入框填值：优先 .fill()，失败则点击聚焦后用键盘逐字输入（对气泡遮挡/动画更鲁棒）。
-   * 每次失败会先按 Esc 关闭可能的气泡再重试。
+   * 向输入框填值。只用「元素自身」的方法操作（fill / pressSequentially），
+   * 绝不使用 page.keyboard 这类全局键盘——否则焦点一旦停在上一个输入框上，
+   * 就会把本框内容（尤其密码）串填到上一个框里。
+   *
+   * 策略：先按 Esc 关气泡 → 等可见 → 三击选中框内已有内容 → fill 覆盖；
+   * fill 不被接受时用元素自身的 pressSequentially 逐字输入（Playwright 会确保聚焦该元素）。
+   * 每次填完用 inputValue 校验，校验失败则重试。
    */
   private async typeIntoInput(
     locator: ReturnType<Page['locator']>,
     value: string,
-    retries = 2
+    retries = 3
   ): Promise<boolean> {
     for (let i = 0; i < retries; i++) {
-      // 先尝试 fill（最快、最可靠）
       try {
-        await locator.waitFor({ state: 'visible', timeout: 4000 });
-        await locator.click({ timeout: 2000 });
-        await locator.fill('');
+        // 关掉可能遮挡输入框的 Chrome 原生气泡
+        await locator.page().keyboard.press('Escape').catch(() => undefined);
+        await locator.waitFor({ state: 'visible', timeout: 5000 });
+        await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => undefined);
+        // 点击聚焦，再三击选中已有内容（不依赖全局 Cmd+A，避免作用到错误的框）
+        await locator.click({ timeout: 2000 }).catch(() => undefined);
+        await locator.click({ clickCount: 3, timeout: 2000 }).catch(() => undefined);
+        // fill 会直接设置 value 并派发 input/change 事件，最干净
         await locator.fill(value, { timeout: 3000 });
         const actual = await locator.inputValue().catch(() => '');
-        if (actual.length > 0) return true;
+        if (actual === value) return true;
       } catch {
-        /* fall through to keyboard typing */
+        /* fall through to pressSequentially */
       }
 
-      // 兜底：关气泡 + 聚焦 + 键盘输入
+      // 兜底：用元素自身逐字输入（Playwright 内部会先聚焦此元素，不会串到别的框）
       try {
-        const page = locator.page();
-        await page.keyboard.press('Escape').catch(() => undefined);
-        await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => undefined);
-        await locator.click({ timeout: 2000, force: true }).catch(() => undefined);
-        // 清空后逐字输入
-        await page.keyboard.down('Meta').catch(() => undefined);
-        await page.keyboard.press('a').catch(() => undefined);
-        await page.keyboard.up('Meta').catch(() => undefined);
-        await page.keyboard.press('Delete').catch(() => undefined);
-        await locator.type(value, { delay: 30 }).catch(() => undefined);
-        await page.waitForTimeout(200);
+        await locator.click({ timeout: 2000 }).catch(() => undefined);
+        await locator.pressSequentially(value, { delay: 25, timeout: 5000 });
         const actual = await locator.inputValue().catch(() => '');
-        if (actual.length > 0) return true;
+        if (actual === value) return true;
       } catch {
         /* retry */
       }
