@@ -1092,6 +1092,13 @@ export class AlipayExporter {
   private async clickTrafficTab(tabText: string): Promise<boolean> {
     if (!this.page) return false;
     try {
+      // 记录点击前的路径：流量5个子Tab都在 /manage-consultant/traffic-analysis/* 下，
+      // 若点击后跳到了其它子应用（如点"生活号"误中左侧菜单"生活号+分析"→life-data），
+      // 说明点错了，本次切换无效，需要走深链兜底。
+      const beforeUrl = this.page.url();
+      const inTraffic = (u: string): boolean => /\/manage-consultant\/traffic-analysis\//.test(u);
+      if (!inTraffic(beforeUrl)) return false;
+
       // 顶部子 Tab 条：它同时包含"流量概览/小程序流量/生活号+流量/商家粉丝群流量/其他活跃流量"。
       // 关键：不能只按 top 区域 + 文字匹配，否则会点到左侧导航菜单里同名/近名的项
       //（左侧"小程序分析/生活号+分析/商家粉丝群分析"），导致 Tab 根本没切、抓成流量概览页。
@@ -1130,9 +1137,17 @@ export class AlipayExporter {
 
       if (!clicked) return false;
 
-      // 等待切换并校验：点击后该 Tab 应变为选中态（class 含 active/selected），
-      // 或正文出现对应子页的特征文字。校验失败则返回 false，让调用方走深链兜底。
+      // 等待切换并校验：
+      // 1) 落地 URL 必须仍在 traffic-analysis 子应用内（防止误点左侧菜单跳到别的子应用）；
+      // 2) 该 Tab 应变为选中态（class 含 active/selected）。
+      // 任一不满足都返回 false，让调用方走深链兜底到正确的子 Tab URL。
       await this.page.waitForTimeout(1200);
+      const afterUrl = this.page.url();
+      if (!inTraffic(afterUrl)) {
+        console.warn(`    ⚠️ 点「${tabText}」后跳到了非流量页（${afterUrl}），疑似误点左侧菜单，将深链兜底`);
+        return false;
+      }
+
       const switched = await this.page.evaluate((text) => {
         const active = document.querySelector<HTMLElement>(
           '[role="tab"][aria-selected="true"], .ant-tabs-tab-active, [class*="tab-active"], [class*="tab-active"] *'
