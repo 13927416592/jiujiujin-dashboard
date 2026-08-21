@@ -21,7 +21,7 @@
  * - bodyText: document.body.innerText 全文（后端 API 用正则从中提取指标）
  */
 
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ExportResult } from './types';
@@ -948,23 +948,43 @@ export class AlipayExporter {
       }
 
       // 5) 提交登录。
-      //    支付宝登录按钮可能是 button/div/a/span，且 Chrome 原生"保存密码/屏幕锁定"气泡
-      //    会抢走焦点导致按回车无效。因此：先按 Esc 关掉气泡 → 聚焦密码框按回车 →
-      //    仍不行则在 DOM 里精确找到蓝色「登录」按钮，用坐标点击。
+      //    支付宝登录按钮可能是 button/div/a/span。策略：先按 Esc 关掉 Chrome 原生气泡 →
+      //    用原生事件再触发一次输入框 input（确保 React 状态同步、按钮处于可点状态）→
+      //    聚焦密码框按回车 → 仍不行则用 DOM 句柄对「登录」按钮做可信点击。
       let submitted = false;
 
-      // 5.0 关闭可能遮挡/抢焦点的 Chrome 原生气泡（非页面元素，只能用键盘 Esc）
+      // 5.0 关闭可能遮挡/抢焦点的 Chrome 原生气泡，并滚动登录按钮到可视区
       for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Escape').catch(() => undefined);
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(120);
       }
 
-      // 5.1 聚焦密码框后按回车（表单原生提交）
+      // 5.1 对两个输入框再派发一次 input/change/blur，确保 React 受控状态已同步、按钮启用
+      try {
+        await accountInput.evaluate((el) => {
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        const pwdInput2 = page
+          .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
+          .first();
+        await pwdInput2.evaluate((el) => {
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          (el as HTMLInputElement).blur();
+        });
+        await page.waitForTimeout(300);
+      } catch {
+        /* ignore */
+      }
+
+      // 5.2 聚焦密码框后按回车（表单原生提交）
       try {
         const pwdInput = page
           .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
           .first();
         await pwdInput.click({ timeout: 2000 });
+        await pwdInput.focus().catch(() => undefined);
         await page.waitForTimeout(200);
         await pwdInput.press('Enter', { timeout: 2000 });
         submitted = await this.waitLoginSubmitResult(page, 1500);
@@ -972,9 +992,9 @@ export class AlipayExporter {
         /* ignore, fall through */
       }
 
-      // 5.2 直接在 DOM 中找蓝色「登录」按钮并点击（用坐标点中心，绕开元素标签类型问题）
+      // 5.3 用 DOM 句柄对「登录」按钮做 Playwright 可信点击
       if (!submitted) {
-        submitted = await this.clickLoginButtonByCoordinates(page);
+        submitted = await this.clickLoginButton(page);
       }
 
       if (!submitted) {
@@ -1011,44 +1031,101 @@ export class AlipayExporter {
   }
 
   /**
-   * 在登录表单 DOM 中找到蓝色「登录」按钮，用其中心坐标点击。
-   * 用 elementFromPoint + boundingBox 直接派发鼠标事件，不依赖标签名和 class。
+   * 在登录表单中找到「登录」按钮并用 Playwright 可信点击触发。
+   * 多策略：Playwright 定位器（自动滚动/可操作性检查/中心可信点击）→ DOM 句柄点击 →
+   * 坐标点击兜底。返回是否触发了页面跳转。
+   *
+   * 关键：evaluate 内不声明具名函数（否则 esbuild 加 __name 包装会在浏览器报 ReferenceError）。
    */
-  private async clickLoginButtonByCoordinates(page: Page): Promise<boolean> {
-    // 在页面上下文里找一个文案恰好是「登录」、尺寸像按钮、可见的元素。
-    // 注意：evaluate 内不要声明具名函数——esbuild/tsx 会给具名函数加 __name 包装，
-    // 序列化到浏览器执行时浏览器没有 __name 会报 ReferenceError。这里全部内联。
-    const box = await page.evaluate(() => {
-      const all = Array.from(
-        document.querySelectorAll('button, a, div, span, input[type="submit"]')
-      );
-      for (let i = 0; i < all.length; i++) {
-        const el = all[i];
-        const txt = (el.textContent || '').replace(/\s+/g, '');
-        if (txt !== '登录') continue;
-        const r = el.getBoundingClientRect();
-        if (r.width < 40 || r.height < 24) continue;
-        const style = window.getComputedStyle(el);
-        if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
-          continue;
+  private async clickLoginButton(page: Page): Promise<boolean> {
+    // 1) 用定位器精确找文案恰好为「登录」的可点元素，取尺寸最大的那个（蓝色主按钮）
+    const candidates = [
+      'button:has-text("登录")',
+      'a:has-text("登录")',
+      'div[role="button"]:has-text("登录")',
+      'div:has-text("登录")',
+      'span:has-text("登录")',
+      'input[type="submit"]',
+    ];
+    for (const sel of candidates) {
+      try {
+        const loc = page
+          .locator(sel)
+          .filter({ hasText: /^\s*登\s*录\s*$/ })
+          .first();
+        if (await loc.isVisible({ timeout: 600 }).catch(() => false)) {
+          const box = await loc.boundingBox().catch(() => null);
+          // 尺寸过小的可能是图标/链接，跳过让后面策略找
+          if (box && box.width >= 80 && box.height >= 28) {
+            await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
+            await loc.click({ timeout: 4000, force: false });
+            if (await this.waitLoginSubmitResult(page, 2000)) return true;
+          }
         }
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+      } catch {
+        /* try next */
       }
-      return null;
-    });
-
-    if (!box) return false;
-    try {
-      // 先移动到按钮再按下/抬起，模拟真实点击
-      await page.mouse.move(box.x, box.y, { steps: 5 });
-      await page.waitForTimeout(120);
-      await page.mouse.down();
-      await page.waitForTimeout(80);
-      await page.mouse.up();
-      return this.waitLoginSubmitResult(page, 2000);
-    } catch {
-      return false;
     }
+
+    // 2) DOM 句柄：遍历找到蓝色主按钮，用 ElementHandle.click() 做可信点击
+    try {
+      const handle = await page.evaluateHandle(() => {
+        const all = Array.from(
+          document.querySelectorAll('button, a, div, span, input[type="submit"]')
+        );
+        let best: HTMLElement | null = null;
+        let bestArea = 0;
+        for (let i = 0; i < all.length; i++) {
+          const el = all[i] as HTMLElement;
+          const txt = (el.textContent || '').replace(/\s+/g, '');
+          if (txt !== '登录') continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 80 || r.height < 28) continue;
+          const style = window.getComputedStyle(el);
+          if (
+            style.visibility === 'hidden' ||
+            style.display === 'none' ||
+            Number(style.opacity) === 0
+          ) {
+            continue;
+          }
+          const area = r.width * r.height;
+          if (area > bestArea) {
+            bestArea = area;
+            best = el;
+          }
+        }
+        return best;
+      });
+      const el = handle.asElement();
+      if (el) {
+        await (el as ElementHandle<HTMLElement>).evaluate((node) =>
+          node.scrollIntoView({ block: 'center' })
+        ).catch(() => undefined);
+        await page.waitForTimeout(200);
+        await el.click({ timeout: 4000 }).catch(() => undefined);
+        if (await this.waitLoginSubmitResult(page, 2000)) return true;
+
+        // 3) 坐标兜底：拿到中心坐标用鼠标点
+        const box = (await el.boundingBox().catch(() => null)) as {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        } | null;
+        if (box) {
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
+          await page.waitForTimeout(100);
+          await page.mouse.down();
+          await page.waitForTimeout(60);
+          await page.mouse.up();
+          if (await this.waitLoginSubmitResult(page, 2000)) return true;
+        }
+      }
+    } catch (err) {
+      console.warn('   点击登录按钮时出错：', err);
+    }
+    return false;
   }
 
   /** 判断是否已离开登录域、开始跳转（用于判定登录提交是否生效） */
