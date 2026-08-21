@@ -1340,11 +1340,12 @@ export class AlipayExporter {
    *   因此【绝不能用 fill() 直接给可见框赋值】——那样圆点会显示，但加密隐藏域是空的，
    *   提交过去等于空密码、登录失败。
    *
-   * 正确做法：聚焦可见密码框后逐字符键入真实键盘事件，触发控件加密。
-   * 关键：aliedit 安全控件对每个字符的处理较慢，一次性快速灌字符（pressSequentially
-   * 小延迟）会丢字符（实测 12 位只进了 7 位）。因此这里【逐个字符键入并确认被接收】
-   * （可见框长度 +1），某个字符没进就重敲；必要时用 page.keyboard 兜底。
-   * 此时 Chrome 抢焦气泡已通过启动参数 + Preferences 从根上关闭，不会串框。
+   * 正确做法：聚焦可见密码框后用真实键盘逐字符键入，触发控件加密。
+   *
+   * 【教训】不要做"某个字符没进就重敲那一个字符"的逐字符重试——aliedit 更新圆点显示
+   * 有延迟，会误判没敲进去而重复键入，导致密码翻倍（实测 12 位变成 24 位）。
+   * 正确策略：完整敲一遍 → 校验长度 → 不对就【全部清空、整个密码重敲】。
+   * 字符间隔给足（120ms），让安全控件处理得过来；不使用全局键盘兜底以免串框。
    *
    * 校验双重条件：可见框圆点长度 == 密码长度，且隐藏域 #password 已产生加密值。
    */
@@ -1356,23 +1357,27 @@ export class AlipayExporter {
   ): Promise<boolean> {
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        // 先点击密码容器/安全图标，确保 aliedit 安全控件已激活到可输入状态
+        // 0) 先点密码容器/安全图标，激活 aliedit 控件到可输入态
         await page
           .locator('#J-password, #safeSignCheck, #J-label-editer')
           .first()
           .click({ timeout: 2000, force: true })
           .catch(() => undefined);
         await page.waitForTimeout(200);
-        // 聚焦可见密码输入框
+
+        // 1) 聚焦可见密码框
         await visiblePwd.click({ timeout: 3000, force: true }).catch(() => undefined);
         await visiblePwd.focus().catch(() => undefined);
-        await page.waitForTimeout(250);
-        // 清空：用元素自身全选删除，避免 fill('') 被控件拦截
-        await visiblePwd.press('Meta+a', { timeout: 1000 }).catch(() => undefined);
-        await visiblePwd.press('Control+a', { timeout: 1000 }).catch(() => undefined);
-        await visiblePwd.press('Backspace', { timeout: 1000 }).catch(() => undefined);
-        await page.waitForTimeout(150);
-        // 隐藏加密域也清零（控件会在键入时重写）
+        await page.waitForTimeout(200);
+
+        // 2) 彻底清空：全选 + 删除，多做几次确保为空
+        for (let k = 0; k < 3; k++) {
+          await visiblePwd.press('Meta+a', { timeout: 1000 }).catch(() => undefined);
+          await visiblePwd.press('Control+a', { timeout: 1000 }).catch(() => undefined);
+          await visiblePwd.press('Backspace', { timeout: 1000 }).catch(() => undefined);
+          await visiblePwd.press('Delete', { timeout: 1000 }).catch(() => undefined);
+        }
+        // 隐藏加密域清零（控件键入时会重写）
         await page
           .locator('#password, input[name="password"]')
           .first()
@@ -1380,44 +1385,23 @@ export class AlipayExporter {
             (el as HTMLInputElement).value = '';
           })
           .catch(() => undefined);
+        await page.waitForTimeout(200);
 
-        // 逐字符键入，每敲一个确认可见框长度 +1
-        let entered = 0;
-        for (let idx = 0; idx < password.length; idx++) {
-          const ch = password[idx];
-          let accepted = false;
-          for (let tr = 0; tr < 5; tr++) {
-            // 重新聚焦，避免处理过程中失焦
-            if (tr > 0) {
-              await visiblePwd.click({ timeout: 1500, force: true }).catch(() => undefined);
-              await visiblePwd.focus().catch(() => undefined);
-            }
-            await visiblePwd.pressSequentially(ch, { delay: 30, timeout: 2000 });
-            await page.waitForTimeout(120); // 给控件加密处理时间
-            const curLen = await visiblePwd.inputValue().then((v) => v.length).catch(() => -1);
-            if (curLen === idx + 1) {
-              accepted = true;
-              entered = curLen;
-              break;
-            }
-            // 字符没进去：删掉多余/回退一位后重试该字符
-            if (curLen > idx + 1) {
-              // 进多了（异常），整体重来
-              break;
-            }
-          }
-          if (!accepted) {
-            // 当前字符多次未接收，可能焦点不在框里：用全局键盘兜底敲一次
-            await visiblePwd.click({ timeout: 1500, force: true }).catch(() => undefined);
-            await page.waitForTimeout(100);
-            await page.keyboard.type(ch, { delay: 30 });
-            await page.waitForTimeout(150);
-            const curLen = await visiblePwd.inputValue().then((v) => v.length).catch(() => -1);
-            if (curLen === idx + 1) entered = curLen;
-          }
+        const lenBefore = await visiblePwd.inputValue().then((v) => v.length).catch(() => -1);
+        if (lenBefore !== 0) {
+          console.warn(`   ⚠️  密码框清空后仍有 ${lenBefore} 位，重试`);
+          await page.waitForTimeout(400);
+          continue;
         }
 
-        await page.waitForTimeout(400); // 等最后一位加密
+        // 3) 重新聚焦后，完整敲一遍密码（不逐字符重试，避免翻倍）
+        await visiblePwd.click({ timeout: 2000, force: true }).catch(() => undefined);
+        await visiblePwd.focus().catch(() => undefined);
+        await page.waitForTimeout(150);
+        await visiblePwd.pressSequentially(password, { delay: 120, timeout: 20000 });
+        // 给最后一位加密处理留足时间
+        await page.waitForTimeout(600);
+
         const visibleLen = await visiblePwd.inputValue().then((v) => v.length).catch(() => -1);
         const hiddenEnc = await page
           .locator('#password, input[name="password"]')
@@ -1427,17 +1411,17 @@ export class AlipayExporter {
 
         if (visibleLen === password.length && hiddenEnc.length > 0) {
           console.log(
-            `   🔐 密码已逐字输入（可见${visibleLen}位，加密隐藏域长度${hiddenEnc.length}）`
+            `   🔐 密码已输入（可见${visibleLen}位，加密隐藏域长度${hiddenEnc.length}）`
           );
           return true;
         }
         console.warn(
-          `   ⚠️  密码输入校验未通过（第${attempt + 1}次：键入${entered}位/可见${visibleLen}位/期望${password.length}位，加密域${hiddenEnc.length}字符），重试`
+          `   ⚠️  密码输入校验未通过（第${attempt + 1}次：可见${visibleLen}位/期望${password.length}位，加密域${hiddenEnc.length}字符），全部清空后重敲`
         );
       } catch (e) {
-        console.warn(`   ⚠️  逐字输入密码出错（第${attempt + 1}次）：${String(e).slice(0, 160)}`);
+        console.warn(`   ⚠️  输入密码出错（第${attempt + 1}次）：${String(e).slice(0, 160)}`);
       }
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(500);
     }
     return false;
   }
