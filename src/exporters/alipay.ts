@@ -658,9 +658,15 @@ export class AlipayExporter {
   }
 
   /**
-   * 从当前页（通常是商家首页/portal home）通过点击左侧菜单「经营总览」进入数据页，
-   * 走同域 SPA 导航，避免 page.goto 深链触发 auth.alipay.com 硬 SSO。
-   * 返回 true 表示已稳定落在经营总览业务页（含其可能的重定向落地页）。
+   * 从当前页（通常是商家首页/portal home）通过 SPA 方式进入经营总览数据页，
+   * 避免 page.goto 深链触发 auth.alipay.com 硬 SSO。
+   *
+   * 策略（按可靠度排序）：
+   *  1) 直接点击页面里 href 指向经营总览(data-index/manage-consultant) 的真实 <a> 链接
+   *     —— 不依赖菜单文案/层级，首页和数据页布局不同也能命中；
+   *  2) 回退点左侧菜单文案「经营总览」；
+   *  3) 在页面内用 history.pushState + 派发 popstate，让前端路由自己接管（仍属同文档，不触发硬 SSO）。
+   * 返回 true 表示已稳定落在经营总览业务页。
    */
   private async enterOverviewViaMenu(): Promise<boolean> {
     if (!this.page) return false;
@@ -676,19 +682,77 @@ export class AlipayExporter {
       return true;
     }
 
-    const viaMenu = await this.clickMenuContaining('经营总览').catch(() => false);
-    if (viaMenu) {
-      // 菜单点击是 SPA 路由，等数据加载；可能伴随选企业页，统一处理后判断落地
+    const targetUrl = this.config.overviewUrl;
+    const targetPath = targetUrl.replace(/^https?:\/\/[^/]+/, '');
+
+    // 1) 找真实链接：href 包含 data-index 或 manage-consultant 的可见 <a>
+    const clickedLink = await this.page.evaluate((path) => {
+      const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
+      const candidates = anchors.filter((a) => {
+        const href = a.getAttribute('href') || '';
+        if (!href.includes('data-index') && !href.includes('manage-consultant')) return false;
+        const rect = a.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        const style = window.getComputedStyle(a);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      });
+      // 优先精确指向 data-index 的，其次任意 manage-consultant
+      candidates.sort((a, b) => {
+        const ax = (a.getAttribute('href') || '').includes('data-index') ? 0 : 1;
+        const bx = (b.getAttribute('href') || '').includes('data-index') ? 0 : 1;
+        return ax - bx;
+      });
+      const el = candidates[0];
+      if (!el) return false;
+      el.scrollIntoView({ block: 'center' });
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return true;
+    }, targetPath);
+
+    if (clickedLink) {
       await this.page.waitForTimeout(1500);
       await this.waitForDataLoaded(this.page).catch(() => undefined);
       await this.selectEnterpriseIfNeeded();
-      // 等待 SPA 落地到 b.alipay.com 业务页（菜单点击不会走 auth 登录域，给短超时即可）
       const ok = await this.waitForBusinessSettled(this.page, 12_000);
       if (ok || here()) {
-        console.log('   🧭 已通过菜单进入「经营总览」');
+        console.log('   🧭 已通过页面链接进入「经营总览」（SPA，未触发硬 SSO）');
         return true;
       }
     }
+
+    // 2) 回退：点左侧菜单文案
+    const viaMenu = await this.clickMenuContaining('经营总览').catch(() => false);
+    if (viaMenu) {
+      await this.page.waitForTimeout(1500);
+      await this.waitForDataLoaded(this.page).catch(() => undefined);
+      await this.selectEnterpriseIfNeeded();
+      const ok = await this.waitForBusinessSettled(this.page, 12_000);
+      if (ok || here()) {
+        console.log('   🧭 已通过左侧菜单进入「经营总览」');
+        return true;
+      }
+    }
+
+    // 3) 回退：前端路由接管（pushState + popstate）。同文档跳转，浏览器不发顶层导航，
+    //    因此不会触发 auth.alipay.com 跨域硬 SSO；由前端路由自己拉数据。
+    try {
+      await this.page.evaluate((url) => {
+        window.history.pushState({}, '', url);
+        window.dispatchEvent(new PopStateEvent('popstate', {}));
+      }, targetUrl);
+      await this.page.waitForTimeout(2000);
+      await this.waitForDataLoaded(this.page).catch(() => undefined);
+      if (here()) {
+        console.log('   🧭 已通过前端路由进入「经营总览」（pushState）');
+        return true;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // 诊断：把当前页可见链接/菜单项打印出来，便于下次定位
+    console.warn('   ⚠️ 未能通过 SPA 进入经营总览（首页链接/菜单均未命中），将深链兜底');
+    await this.dumpVisibleMenuItems().catch(() => undefined);
     return false;
   }
 
