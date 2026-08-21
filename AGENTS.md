@@ -88,7 +88,7 @@
 - 架构：插件化多平台导出器，通过注册表动态管理
 - 抖音导出器：Playwright + API拦截，捕获创作者中心13个指标
 - 运行测试：`npx tsx src/exporters/test-douyin.ts`
-- Cookie管理：`src/exporters/cookies/` 目录，有效期约7天
+- Cookie管理：`src/exporters/cookies/` 目录（本地持久化 + 会话级 Cookie 强制落盘）。注意：支付宝商家后台**服务端会话有效期仅几小时**，本地强制 Cookie 30 天过期只能让浏览器继续发送，无法让服务端已失效会话复活；隔几小时以上再跑可能需要重新扫码/登录。**长期免登依赖每日定时抓取续期会话**，而非靠一次登录长期保存。
 - 导出数据：`src/exporters/output/` 目录
 - 详细架构设计：`docs/architecture.md`
 - 新增平台步骤：types.ts 添加类型 → 创建导出器 → index.ts 注册 → transform.ts 添加映射
