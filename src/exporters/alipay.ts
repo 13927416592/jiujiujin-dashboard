@@ -413,6 +413,42 @@ export class AlipayExporter {
       }
     }
 
+    // 直接改写浏览器配置目录里的 Preferences，把"上次非正常退出(crashed)"标记改成
+    // 干净退出，并关闭崩溃恢复/密码保存相关提示。这是关"要恢复页面吗？"气泡最可靠的方式
+    // （命令行参数 --hide-crash-restore-bubble 在某些 Chrome 版本上不生效）。
+    try {
+      const prefPath = path.join(this.config.userDataDir, 'Default', 'Preferences');
+      let prefs: Record<string, unknown> = {};
+      if (fs.existsSync(prefPath)) {
+        try {
+          prefs = JSON.parse(fs.readFileSync(prefPath, 'utf-8')) as Record<string, unknown>;
+        } catch {
+          prefs = {};
+        }
+      }
+      const setNested = (obj: Record<string, unknown>, keys: string[], val: unknown): void => {
+        let cur = obj;
+        for (let i = 0; i < keys.length - 1; i++) {
+          const k = keys[i];
+          if (typeof cur[k] !== 'object' || cur[k] === null) cur[k] = {};
+          cur = cur[k] as Record<string, unknown>;
+        }
+        cur[keys[keys.length - 1]] = val;
+      };
+      // profile.exit_type = "Normal" 让 Chrome 认为上次是正常退出，不弹恢复气泡
+      setNested(prefs, ['profile', 'exit_type'], 'Normal');
+      setNested(prefs, ['profile', 'exited_cleanly'], true);
+      // 关闭崩溃恢复气泡
+      setNested(prefs, ['browser', 'has_seen_welcome_page'], true);
+      // 关闭密码保存/管理相关提示
+      setNested(prefs, ['credentials_enable_service'], false);
+      setNested(prefs, ['profile', 'password_manager_enabled'], false);
+      fs.mkdirSync(path.dirname(prefPath), { recursive: true });
+      fs.writeFileSync(prefPath, JSON.stringify(prefs), 'utf-8');
+    } catch {
+      /* ignore，Preferences 改写失败不影响主流程 */
+    }
+
     // 使用持久化用户目录：整套浏览器状态（Cookie/localStorage/IndexedDB）跨次保留。
     // 优先用系统真实 Chrome（更难被风控识别），失败回退自带 Chromium。
     try {
