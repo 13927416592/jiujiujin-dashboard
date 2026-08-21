@@ -19,6 +19,14 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PAT
 # 如需强制无头试验，可在此处 export HEADLESS=1（不保证可用）。
 unset HEADLESS
 
+# 加载账密等环境变量（launchd 不读 .zshrc，统一从该文件注入；文件不入库、权限 600）。
+# 内容只需支付宝账密（飞书告警走 .env，由 feishu-alert.sh 自行加载）：
+#   export ALIPAY_USERNAME="你的账号"
+#   export ALIPAY_PASSWORD="你的密码"
+if [ -f "$PROJECT_DIR/.alipay-env" ]; then
+    set -a; . "$PROJECT_DIR/.alipay-env"; set +a
+fi
+
 # Node 可执行文件（优先用 nvm/系统中的 node）
 NODE_BIN="$(command -v node || echo /usr/local/bin/node)"
 

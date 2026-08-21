@@ -178,3 +178,6 @@ Desktop.ini
 # Misc
 .coze-logs
 .codegraph/
+
+# 支付宝账密/飞书 webhook 等本地密钥（launchd 用，不入库）
+.alipay-env

@@ -94,10 +94,29 @@ launchctl load ~/Library/LaunchAgents/com.jiujiujin.alipay-daily.plist
 
 ## 注意事项
 
-1. **Cookie 有效期**：支付宝 Cookie 约 7 天有效，需要定期更新
-2. **网络环境**：确保 Mac 在定时任务执行时联网
-3. **登录状态**：首次运行需要手动登录，后续使用 Cookie
-4. **数据同步**：如需推送到 GitHub，取消 `alipay-daily.sh` 中的注释
+1. **会话有效期仅几小时**：支付宝商家后台的**服务端会话有效期只有几小时**（不是 7 天）。本地强制 Cookie 持久化只能让浏览器继续发送 Cookie，无法复活服务端已失效的会话。因此**长期免登依赖每日 9:10 定时抓取续期会话**，而不是一次登录长期保存。
+2. **账密自动登录（可选，推荐配置）**：在项目根目录创建 `.alipay-env` 文件填入账号密码，定时任务在会话失效时会自动账密登录，进一步降低需要人工介入的概率。
+3. **网络环境**：确保 Mac 在定时任务执行时联网且处于唤醒状态（可在「系统设置 → 电池 → 定时启动」里安排唤醒）。
+4. **二次验证**：支付宝风控仍可能偶尔要求短信/滑块/APP 确认，账密自动登录无法 100% 无人值守；此时 90 秒内未完成会 exit 1 并触发飞书告警，手动跑一次扫码即可。
+5. **数据同步**：抓取成功后会自动上传到云端看板。
+
+## 配置账密自动登录（可选）
+
+在项目根目录创建 `.alipay-env`（**该文件已在 .gitignore 中，不会入库**），并设置权限：
+
+```bash
+cat > ~/jiujiujin-dashboard/.alipay-env <<'EOF'
+export ALIPAY_USERNAME="你的支付宝账号"
+export ALIPAY_PASSWORD="你的登录密码"
+EOF
+chmod 600 ~/jiujiujin-dashboard/.alipay-env
+```
+
+`alipay-daily.sh` 启动时会自动 `source` 该文件注入环境变量（launchd 不会读取 `.zshrc`，必须走这里）。
+
+- 飞书失败告警复用已有的「运营助手」应用（`scripts/feishu-alert.sh` 读取项目根 `.env` 里的 `FEISHU_APP_ID/SECRET/USER_ID`），**无需在 `.alipay-env` 里再配 webhook**。
+- 交互终端手动跑时，也可以直接 `export ALIPAY_USERNAME=...` 后运行。
+- 账号密码**只从环境变量读取**，代码中不硬编码。
 
 ## 故障排查
 
@@ -117,10 +136,11 @@ cat ~/Library/LaunchAgents/com.jiujiujin.alipay-daily.plist
 # 查看日志
 cat ~/jiujiujin-dashboard/logs/alipay-$(date +%Y%m%d).log
 
-# 手动运行测试
+# 手动运行测试（有界面，会话失效时会自动账密或手动扫码登录）
 cd ~/jiujiujin-dashboard
-node scripts/test-alipay-full.mjs
+ALIPAY_USERNAME=xxx ALIPAY_PASSWORD=xxx npx tsx src/exporters/test-alipay-full.ts
 ```
+
 
 ### Cookie 过期
 

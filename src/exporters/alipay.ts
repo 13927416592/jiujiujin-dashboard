@@ -777,43 +777,207 @@ export class AlipayExporter {
   }
 
   /** 交互终端下提示用户手动登录，并自动检测登录成功（最长 5 分钟） */
+  /**
+   * 账密自动填充兜底：当 session 过期落到登录页时，若配置了环境变量
+   * ALIPAY_USERNAME / ALIPAY_PASSWORD，则自动切到「账密登录」Tab 并填写、提交。
+   *
+   * 重要：支付宝商家后台在自动化/新会话下，账密登录后大概率还要求短信验证码 / 滑块 /
+   * APP 确认等二次验证，这一步无法自动完成，需要人工过一下。本方法只负责把
+   * "找输入框、输账号密码、点登录"这几步自动化，省去手输；提交后若进入二次验证，
+   * 交给 promptManualLogin 等待人工完成。
+   *
+   * 账号密码只从进程环境变量读取，绝不硬编码、不写文件、不进 git。
+   *
+   * @returns 'submitted' 已点登录（可能进入二次验证，需继续等待）；
+   *          'skipped' 未配置账密或不在账密登录页（调用方走原手动流程）；
+   *          'already-in' 当前已经是登录后业务页。
+   */
+  private async attemptPasswordLogin(): Promise<'submitted' | 'skipped' | 'already-in'> {
+    if (!this.page) return 'skipped';
+    const username = (process.env.ALIPAY_USERNAME || '').trim();
+    const password = process.env.ALIPAY_PASSWORD || '';
+    if (!username || !password) return 'skipped';
+
+    const page = this.page;
+    const url = page.url();
+    // 已经在业务页，无需登录
+    if (!/(login|passport|sign[-_]?in)/i.test(url) && url.includes('b.alipay.com')) {
+      return 'already-in';
+    }
+
+    try {
+      console.log('🔑 检测到账密环境变量，尝试自动填写账号密码登录...');
+
+      // 1) 切到「账密登录」Tab（登录页默认常停在扫码登录）
+      //    支付宝登录页三个 Tab：扫码登录 / 账密登录 / 验证码登录。用文本与常见 class 多策略定位。
+      const pwdTabSelectors = [
+        'text=账密登录',
+        '[class*="password"] [class*="tab"]',
+        '[class*="login"] [class*="tab"]:has-text("账密")',
+        'a:has-text("账密登录")',
+        'li:has-text("账密登录")',
+        'div:has-text("账密登录")',
+      ];
+      for (const sel of pwdTabSelectors) {
+        const loc = page.locator(sel).first();
+        if (await loc.isVisible({ timeout: 800 }).catch(() => false)) {
+          // 避免点到包含该文字的大容器：文本长度限制
+          const txt = ((await loc.textContent().catch(() => '')) || '').trim();
+          if (txt.length <= 8) {
+            await loc.click({ timeout: 3000 }).catch(() => undefined);
+            await page.waitForTimeout(800);
+            break;
+          }
+        }
+      }
+
+      // 2) 填账号：兼容多种常见选择器
+      const accountFilled = await page
+        .locator(
+          [
+            'input[name="logonId"]',
+            'input#login-account',
+            'input[placeholder*="账户"]',
+            'input[placeholder*="账号"]',
+            'input[placeholder*="手机"]',
+            'input[placeholder*="邮箱"]',
+            'input[type="text"]:visible',
+          ].join(', ')
+        )
+        .first()
+        .fill(username)
+        .then(() => true)
+        .catch(() => false);
+
+      // 3) 填密码
+      const pwdFilled = await page
+        .locator('input[type="password"], input[name="password"], input[placeholder*="密码"]')
+        .first()
+        .fill(password)
+        .then(() => true)
+        .catch(() => false);
+
+      if (!accountFilled || !pwdFilled) {
+        console.warn('⚠️  未能定位账密输入框，跳过自动填充（请手动登录）');
+        return 'skipped';
+      }
+      console.log('   ✓ 账号密码已填入');
+      await page.waitForTimeout(300);
+
+      // 4) 勾选"同意协议"复选框（若存在且未勾选）
+      const agree = page
+        .locator(
+          [
+            'input[type="checkbox"]',
+            '[class*="checkbox"]:not([class*="checked"])',
+            '[class*="agree"] [class*="check"]',
+          ].join(', ')
+        )
+        .first();
+      if (await agree.isVisible({ timeout: 600 }).catch(() => false)) {
+        await agree.click({ timeout: 2000 }).catch(() => undefined);
+      }
+
+      // 5) 点登录按钮
+      const clicked = await page
+        .locator(
+          [
+            'button:has-text("登录")',
+            'a:has-text("登 录")',
+            'input[type="submit"]',
+            '[class*="submit"]',
+            '[class*="login-btn"]',
+            'button[type="submit"]',
+          ].join(', ')
+        )
+        .first()
+        .click({ timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!clicked) {
+        console.warn('⚠️  未点到登录按钮，跳过自动提交（请手动登录）');
+        return 'skipped';
+      }
+
+      console.log('   ✓ 已提交登录');
+      await page.waitForTimeout(2500);
+      // 提交后可能进入短信/滑块/APP 确认等二次验证，或直接跳回业务页。
+      // 这里只做提示，真正的等待/判定由 promptManualLogin 负责。
+      if (/(验证|短信|滑块|验证码|安全|confirm|sms)/i.test(page.url())) {
+        console.log('   🔔 登录后可能需要二次验证（短信/滑块/APP确认），请在浏览器中完成...');
+      }
+      return 'submitted';
+    } catch (err) {
+      console.warn('⚠️  账密自动填充过程出错（将回退手动登录）：', err);
+      return 'skipped';
+    }
+  }
+
   private async promptManualLogin(): Promise<void> {
     if (!this.page) throw new Error('页面未初始化');
 
     // 后台（如 launchd）下无 stdin，不能傻等回车导致进程永久挂起
     const isInteractive = Boolean(process.stdin.isTTY);
+
+    // 优先尝试账密自动填充（仅当配置了 ALIPAY_USERNAME/ALIPAY_PASSWORD 环境变量）
+    await this.attemptPasswordLogin();
+
     if (!isInteractive) {
-      throw new Error(
-        '支付宝未登录且当前为非交互环境（无终端），无法手动登录。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新 Cookie。'
-      );
+      // 无人值守（定时任务）：给账密登录 + 可能的二次验证一个有限等待窗口，
+      // 成功自动继续；窗口内未成功则抛错退出（exit 1），由脚本触发飞书告警，不挂起进程。
+      const ok = await this.waitForLoginCompletion(90_000, false);
+      if (!ok) {
+        throw new Error(
+          '支付宝定时抓取未登录：账密自动登录后在 90 秒内未完成（可能需要短信/滑块二次验证，或账密有误）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新会话。'
+        );
+      }
+      console.log('✅ 定时任务：登录成功，继续抓取');
+      await this.page.waitForTimeout(2000);
+      await this.selectEnterpriseIfNeeded();
+      return;
     }
 
     console.log('\n==================================================');
-    console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密）');
+    console.log('📱  请在弹出的浏览器中完成支付宝登录（扫码/账密/验证码）');
     console.log('👉  检测到登录成功后会自动继续（也可回到终端按【回车键】立即继续）');
     console.log('==================================================\n');
 
-    const page = this.page;
+    // 交互终端：自动检测登录（最长 5 分钟），也可按回车立即继续
+    await this.waitForLoginCompletion(5 * 60_000, true);
 
-    // 自动检测登录状态，最长等待 5 分钟；期间用户也可按回车手动触发继续。
-    const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+    console.log('⏳ 登录完成，继续抓取...');
+    await this.page.waitForTimeout(2000);
+    // 手动登录成功后同样可能需要选择企业账号
+    await this.selectEnterpriseIfNeeded();
+  }
+
+  /**
+   * 轮询等待登录完成（离开登录域并落到 b.alipay.com 业务页）。
+   * @param timeoutMs 最长等待时间
+   * @param listenEnter 是否同时监听终端回车键（交互模式下可手动提前结束等待）
+   * @returns 是否在超时前检测到登录成功
+   */
+  private async waitForLoginCompletion(timeoutMs: number, listenEnter: boolean): Promise<boolean> {
+    const page = this.page!;
     const startTime = Date.now();
 
-    // stdin 监听器需要在结束时显式移除，否则 TTY 句柄会让 Node 进程无法退出
     let onData: ((chunk: Buffer) => void) | null = null;
-    const enterPromise = new Promise<void>((resolve) => {
-      onData = (): void => {
-        if (onData) process.stdin.removeListener('data', onData);
-        onData = null;
-        resolve();
-      };
-      process.stdin.on('data', onData);
-    });
+    let enterPromise: Promise<void> | null = null;
+    if (listenEnter) {
+      enterPromise = new Promise<void>((resolve) => {
+        onData = (): void => {
+          if (onData) process.stdin.removeListener('data', onData);
+          onData = null;
+          resolve();
+        };
+        process.stdin.on('data', onData);
+      });
+    }
 
-    // 用可取消的定时器做轮询：race 结束后停止调度，避免遗留 setTimeout 链挂住进程
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const pollPromise = new Promise<void>((resolve, reject) => {
+    const pollPromise = new Promise<boolean>((resolve) => {
       const tick = async (): Promise<void> => {
         if (stopped) return;
         try {
@@ -824,43 +988,48 @@ export class AlipayExporter {
             (url.includes('b.alipay.com') ||
               /(交易金额|经营总览|工作台|商家中心|经营效果)/.test(await this.getBodyText(page)));
           if (loggedIn) {
-            resolve();
+            resolve(true);
             return;
           }
-          if (Date.now() - startTime > LOGIN_TIMEOUT_MS) {
-            reject(new Error('登录等待超时（5 分钟内未检测到登录成功）'));
+          if (Date.now() - startTime > timeoutMs) {
+            resolve(false);
             return;
           }
           if (!stopped) timer = setTimeout(tick, 2000);
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
+        } catch {
+          if (!stopped) timer = setTimeout(tick, 2000);
         }
       };
       void tick();
     });
 
     try {
-      await Promise.race([enterPromise, pollPromise]);
+      if (enterPromise) {
+        await Promise.race([enterPromise, pollPromise]);
+        // 回车可能只是用户主动继续，以实际登录态为准再确认一次
+        const url = page.url();
+        return (
+          !/(login|passport|signin)/i.test(url) &&
+          (url.includes('b.alipay.com') ||
+            /(交易金额|经营总览|工作台|商家中心|经营效果)/.test(await this.getBodyText(page)))
+        );
+      }
+      return await pollPromise;
     } finally {
-      // 无论哪个先结束，都停止轮询链并清理 stdin 监听
       stopped = true;
       if (timer) clearTimeout(timer);
       if (onData) {
         process.stdin.removeListener('data', onData);
         onData = null;
       }
-      // 恢复 stdin 流动状态，避免影响后续读取
-      try {
-        process.stdin.pause();
-      } catch {
-        /* ignore */
+      if (listenEnter) {
+        try {
+          process.stdin.pause();
+        } catch {
+          /* ignore */
+        }
       }
     }
-
-    console.log('⏳ 登录完成，继续抓取...');
-    await this.page.waitForTimeout(2000);
-    // 手动登录成功后同样可能需要选择企业账号
-    await this.selectEnterpriseIfNeeded();
   }
 
   /**
