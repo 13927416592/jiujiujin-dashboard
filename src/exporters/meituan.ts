@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page, Frame, ElementHandle } from 'playwright';
+import { chromium, BrowserContext, Page, Frame, ElementHandle, Locator } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseMeituanWorkbook, type MeituanRow } from './meituan-parser';
@@ -18,6 +18,12 @@ export interface MeituanExportConfig extends ExportConfig {
   reportCardName?: string;
   /** 下载近几天的数据（默认 1，即昨天） */
   daysToDownload?: number;
+  /**
+   * 指定抓取某一天的数据（YYYY-MM-DD），用于历史回填，例如 '2026-08-21'。
+   * 设置后在日期选择器中选单日范围（起止同一天），下载文件名/数据日期均取该日。
+   * 不设置时按 daysToDownload 走快捷选项（昨天/近7天/近30天）。
+   */
+  targetDate?: string;
 }
 
 /** 默认配置（供测试脚本/API 使用） */
@@ -67,6 +73,15 @@ export async function exportMeituanData(
 ): Promise<ExportResult> {
   const exporter = new MeituanExporter({ ...DEFAULT_MEITUAN_CONFIG, ...config });
   return exporter.export();
+}
+
+/** MTD 双月日历面板中单栏（左/右）的状态 */
+interface MtdColState {
+  side: 'left' | 'right';
+  year: number;
+  month: number;
+  targetPresent: boolean;
+  targetEnabled: boolean;
 }
 
 export class MeituanExporter {
@@ -338,21 +353,72 @@ export class MeituanExporter {
 
       // 再次确保引导气泡已关闭（首页可能未点中）
       await this.dismissGuideEverywhere(reportPage);
+      // 关闭右上角"重点消息"等通知弹窗，避免遮挡/拦截后续点击
+      await this.dismissNotifications(reportPage);
 
       console.log(' 点击"使用模板"...');
-      const useTemplateBtn = frame.locator('text=使用模板').first();
-      if (await useTemplateBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
-        await useTemplateBtn.click();
-        await frame.waitForTimeout(3000);
-      } else {
-        throw new Error('未找到"使用模板"按钮');
+      // 该按钮偶发渲染较慢，轮询等待最多 30 秒，并在多 frame 内查找。
+      let useTemplateFrame: Frame = frame;
+      let clickedTemplate = false;
+      const tDeadline = Date.now() + 30000;
+      while (Date.now() < tDeadline) {
+        const candidates: Frame[] = [frame, ...reportPage.frames().filter((f) => f !== frame)];
+        for (const f of candidates) {
+          const btn = f.locator('text=使用模板').first();
+          if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
+            useTemplateFrame = f;
+            await btn.scrollIntoViewIfNeeded().catch(() => undefined);
+            await btn.click({ timeout: 3000 }).catch(() => undefined);
+            clickedTemplate = true;
+            break;
+          }
+        }
+        if (clickedTemplate) break;
+        await reportPage.waitForTimeout(800);
       }
+      if (!clickedTemplate) {
+        // 诊断：打印各 frame 可见按钮 + 截图，帮助定位实际界面
+        console.log('   🔍 未找到"使用模板"，输出当前页可见元素：');
+        for (const f of reportPage.frames()) {
+          const info = await f
+            .evaluate(() => {
+              const nodes = document.querySelectorAll(
+                'button, a, [role="button"], [class*="btn"], [class*="card"]'
+              );
+              const set: Record<string, boolean> = {};
+              const btns: string[] = [];
+              for (let i = 0; i < nodes.length; i++) {
+                const el = nodes[i] as HTMLElement;
+                const r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                const cs = getComputedStyle(el);
+                if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                const t = (el.textContent || '').trim();
+                if (!t || t.length >= 24) continue;
+                if (!set[t]) {
+                  set[t] = true;
+                  btns.push(t);
+                }
+                if (btns.length >= 50) break;
+              }
+              return { url: location.href, btns };
+            })
+            .catch(() => null);
+          if (info) console.log(`      [${info.url.slice(0, 80)}] => ${info.btns.join(' | ') || '(无)'}`);
+        }
+        const missShot = path.join(this.config.outputDir, `debug-no-template-${Date.now()}.png`);
+        fs.mkdirSync(this.config.outputDir, { recursive: true });
+        await reportPage.screenshot({ path: missShot, fullPage: false }).catch(() => undefined);
+        console.log(`   📸 截图：${missShot}`);
+        throw new Error('未找到"使用模板"按钮（已等待 30 秒，见上方可见元素与截图）');
+      }
+      await useTemplateFrame.waitForTimeout(3000);
 
       console.log('⏳ 等待下载对话框...');
       // 历史成功版确认：点开"使用模板"后弹出的下载对话框标题是"久久金美团经营数据下载"（带"下载"后缀）
       const dialogCandidates = [
-        frame.locator('text=久久金美团经营数据下载').first(),
-        frame.locator(`text=${this.config.reportCardName}`).first(),
+        useTemplateFrame.locator('text=久久金美团经营数据下载').first(),
+        useTemplateFrame.locator(`text=${this.config.reportCardName}`).first(),
       ];
       for (const d of dialogCandidates) {
         if (await d.isVisible({ timeout: 4000 }).catch(() => false)) {
@@ -360,11 +426,11 @@ export class MeituanExporter {
           break;
         }
       }
-      await frame.waitForTimeout(2000);
+      await useTemplateFrame.waitForTimeout(2000);
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - this.config.daysToDownload);
-      const dateStr = yesterday.toISOString().split('T')[0];
+      const dateStr = this.config.targetDate || yesterday.toISOString().split('T')[0];
       console.log(` 设置日期范围：${dateStr}`);
 
       // 历史已跑通方案（commit 8496468）：日期选择器打开后点【快捷选项"昨天"】，
@@ -383,17 +449,78 @@ export class MeituanExporter {
       }
       await frame.waitForTimeout(2000);
 
-      const days = this.config.daysToDownload || 1;
-      let quickOption = '昨天';
-      if (days === 7) quickOption = '近7天';
-      else if (days === 30) quickOption = '近30天';
-      console.log(`   选择快捷选项：${quickOption}`);
+      if (this.config.targetDate) {
+        // 指定日期回填。美团报表中心使用自研 MTD 日期控件（mtd-date-picker），
+        // 其"请选择时间范围"输入框【不接受自由键入】：逐字符敲入后 DOM 值正确，
+        // 但一按回车/失焦就被 React 受控状态清空。唯一可靠方式是：点开输入框弹出
+        // 浮动日历面板，在面板里点选日期格子。
+        // 关键教训：之前用宽泛选择器（td、[class*=cell]）把下方"报表预览"表格的
+        // 单元格误判成日历格子（cells=84），日历从没被真正操作。新版用"浮动定位 +
+        // 内含 28+ 个日期数字"的几何特征精确定位日历弹层，彻底排除报表表格。
+        const td = this.config.targetDate;
+        console.log(`   指定日期回填：${td} ~ ${td}`);
+        const clicked = await this.pickCalendarDate(frame, td);
+        if (!clicked) {
+          throw new Error(`无法在日历中选择指定日期 ${td}（详见上方诊断与导出的 HTML）`);
+        }
+        const finalVal = await this.readDateRangeValue(reportPage);
+        console.log(`✅ 已选择日期范围：${finalVal || '(输入框值为空)'}`);
+      } else {
+        const days = this.config.daysToDownload || 1;
+        let quickOption = '昨天';
+        if (days === 7) quickOption = '近7天';
+        else if (days === 30) quickOption = '近30天';
+        console.log(`   选择快捷选项：${quickOption}`);
 
-      const optionBtn = frame.locator(`text=${quickOption}`).first();
-      await optionBtn.waitFor({ state: 'visible', timeout: 5000 });
-      await optionBtn.click();
-      await frame.waitForTimeout(2000);
-      console.log(`✅ 已选择时间范围：${quickOption}`);
+        const optionBtn = frame.locator(`text=${quickOption}`).first();
+        await optionBtn.waitFor({ state: 'visible', timeout: 5000 });
+        await optionBtn.click();
+        await frame.waitForTimeout(2000);
+        console.log(`✅ 已选择时间范围：${quickOption}`);
+      }
+
+      // 选定日期（尤其是改了日期）后，报表预览会重新加载，"下载"按钮要等
+      // 预览加载完成才出现。轮询等待"正在加载中/加载中"消失，且下载按钮出现。
+      console.log('⏳ 等待报表预览加载完成...');
+      const dlDeadline = Date.now() + 60000;
+      let readyToDownload = false;
+      while (Date.now() < dlDeadline) {
+        const st = await frame
+          .evaluate(() => {
+            let bodyText = '';
+            if (document.body) bodyText = document.body.innerText || '';
+            let hasDownload = false;
+            const nodes = document.querySelectorAll('button, [role="button"], a, [class*="btn"]');
+            for (let i = 0; i < nodes.length; i++) {
+              const el = nodes[i] as HTMLElement;
+              const t = (el.textContent || '').trim();
+              if (t === '下载' || t === '导 出' || t === '导出') {
+                const r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                  hasDownload = true;
+                  break;
+                }
+              }
+            }
+            const loading = bodyText.indexOf('正在加载') >= 0 || bodyText.indexOf('加载中') >= 0;
+            return { loading, hasDownload, snippet: bodyText.slice(0, 120) };
+          })
+          .catch(() => ({ loading: false, hasDownload: false, snippet: '' }));
+        if (!st.loading && st.hasDownload) {
+          readyToDownload = true;
+          console.log('   ✅ 报表预览已加载完成，下载按钮已出现');
+          break;
+        }
+        if (Date.now() % 5000 < 600) {
+          console.log(
+            `   ...等待中 loading=${st.loading} hasDownload=${st.hasDownload} "${st.snippet.replace(/\s+/g, ' ')}"`
+          );
+        }
+        await frame.waitForTimeout(700);
+      }
+      if (!readyToDownload) {
+        console.log('   ⚠️ 60 秒内未确认加载完成，仍尝试查找下载按钮');
+      }
 
       // 点下载前：截图 + 诊断对话框内可见按钮和文本，确认点的是正确的下载按钮
       fs.mkdirSync(this.config.outputDir, { recursive: true });
@@ -402,38 +529,64 @@ export class MeituanExporter {
       console.log(`📸 点下载前截图：${beforeDlShot}`);
       const dialogInfo = await frame
         .evaluate(() => {
-          const vis = (el: Element): boolean => {
+          // evaluate 内禁止定义函数/箭头（tsx __name 坑），用纯 for 循环
+          const buttons: string[] = [];
+          const nodes = document.querySelectorAll('button, [role="button"], a');
+          for (let i = 0; i < nodes.length; i++) {
+            const el = nodes[i] as HTMLElement;
             const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) continue;
             const s = getComputedStyle(el);
-            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
-          };
-          const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'))
-            .filter(vis)
-            .map((el) => (el.textContent || '').trim())
-            .filter((t) => t && t.length < 20);
+            if (s.display === 'none' || s.visibility === 'hidden') continue;
+            const t = (el.textContent || '').trim();
+            if (t && t.length < 20) buttons.push(t);
+          }
           const bodyText = (document.body.innerText || '').slice(0, 500);
-          return { buttons: [...new Set(buttons)], bodyText };
+          const unique: string[] = [];
+          for (let i = 0; i < buttons.length; i++) {
+            if (unique.indexOf(buttons[i]) < 0) unique.push(buttons[i]);
+          }
+          return { buttons: unique, bodyText };
         })
         .catch(() => ({ buttons: [] as string[], bodyText: '' }));
       console.log('   🔍 对话框内按钮:', dialogInfo.buttons.join(' | '));
       console.log('   🔍 对话框文本片段:', dialogInfo.bodyText.replace(/\s+/g, ' ').slice(0, 200));
 
       console.log('⬇️  点击下载...');
-      // 优先找文本精确为"下载"的按钮；兜底找带"下载"的按钮
-      let downloadBtn = frame.locator('button:has-text("下载"), [role="button"]:has-text("下载")').last();
-      if (!(await downloadBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
-        // 兜底：精确文本匹配
-        const handle = await this.findClickableText(frame as unknown as Page, '下载', [
-          'button',
-          '[role="button"]',
-          'a',
-        ]);
-        if (handle) {
-          await handle.dispose();
-          downloadBtn = frame.locator('text=下载').last();
-        } else {
-          throw new Error('未找到"下载"按钮');
+      // 优先在当前 frame 找文本精确为"下载"的按钮；找不到再跨所有 frame 找（弹层可能 portal）。
+      const dlCandidates: Frame[] = [frame, ...this.collectAllFrames(reportPage).filter((f) => f !== frame)];
+      let downloadBtn: Locator | null = null;
+      let dlFrame: Frame = frame;
+      for (const f of dlCandidates) {
+        const btn = f
+          .locator('button:has-text("下载"), [role="button"]:has-text("下载"), a:has-text("下载")')
+          .last();
+        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          downloadBtn = btn;
+          dlFrame = f;
+          break;
         }
+      }
+      if (!downloadBtn) {
+        // 兜底：精确文本匹配（evaluate 纯循环）
+        for (const f of dlCandidates) {
+          const handle = await this.findClickableText(f as unknown as Page, '下载', [
+            'button',
+            '[role="button"]',
+            'a',
+          ]);
+          if (handle) {
+            await handle.dispose();
+            downloadBtn = f.locator('text=下载').last();
+            dlFrame = f;
+            break;
+          }
+        }
+      }
+      if (!downloadBtn) {
+        const failShot = path.join(this.config.outputDir, `debug-no-download-${Date.now()}.png`);
+        await reportPage.screenshot({ path: failShot }).catch(() => undefined);
+        throw new Error(`未找到"下载"按钮（已等待报表加载并跨 frame 查找，截图：${failShot}）`);
       }
 
       // 关键：跨域 iframe 内触发的下载事件在 context 级别监听最稳，同时也在 page 级别等。
@@ -441,7 +594,7 @@ export class MeituanExporter {
       const downloadCtx = this.context!.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       const downloadPageP = reportPage.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       await downloadBtn.click();
-      await frame.waitForTimeout(1500);
+      await dlFrame.waitForTimeout(1500);
 
       // 若出现二次确认弹窗（"确定/确认/导出/继续下载"），点掉它
       const confirmSelectors = [
@@ -1028,6 +1181,505 @@ export class MeituanExporter {
     return el;
   }
 
+  /**
+   * 在报表下载对话框的浮动日历弹层里点选指定日期（单日范围点同一格两次）。
+   *
+   * 美团 MTD 日期控件实测结构（已从真实面板 dump 确认）：
+   *   弹层:        div.mtd-popper (position:absolute, 约 672x289, 双月)
+   *   左右两栏:    .mtd-picker-panel-content-left / -right
+   *   日期格:      span.mtd-date-picker-cells-cell（内部 em 显示日号）
+   *                禁用/补位格带 -disabled 或 上月/下月相关类
+   *   翻月箭头:    .mtd-picker-header-prev-btn / -next-btn
+   *   输入框:      input[placeholder="请选择时间范围"]，值 "YYYY-MM-DD - YYYY-MM-DD"
+   *
+   * 输入框不接受自由键入（回车即被 React 清空），必须点格子。
+   */
+  private async pickCalendarDate(frame: Frame, dateStr: string): Promise<boolean> {
+    const target = new Date(dateStr + 'T00:00:00');
+    if (Number.isNaN(target.getTime())) return false;
+    const ty = target.getFullYear();
+    const tm = target.getMonth() + 1;
+    const td = target.getDate();
+    const monthLabel = `${ty}年${tm}月`;
+    const page = frame.page();
+    const allFrames = this.collectAllFrames(page);
+
+    // ---- 1) 打开日历面板（点输入框）----
+    let opened = false;
+    for (let attempt = 0; attempt < 4 && !opened; attempt++) {
+      for (const f of allFrames) {
+        await f
+          .evaluate(() => {
+            const inputs = document.querySelectorAll('input');
+            for (let i = 0; i < inputs.length; i++) {
+              const el = inputs[i] as HTMLInputElement;
+              const ph = (el.getAttribute('placeholder') || '').trim();
+              if (ph === '请选择时间范围' || ph.indexOf('时间范围') >= 0) {
+                const r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                  el.focus();
+                  el.click();
+                  return true;
+                }
+              }
+            }
+            return false;
+          })
+          .catch(() => false);
+      }
+      for (let w = 0; w < 15 && !opened; w++) {
+        await page.waitForTimeout(300);
+        for (const f of allFrames) {
+          const ok = await f
+            .evaluate(() => {
+              // 页面上有多个 .mtd-popper（含尺寸 0 的 tooltip 气泡），
+              // 必须遍历选"可见 + 含 28+ 日期格"的那个日历面板。
+              const pops = document.querySelectorAll('.mtd-popper');
+              for (let i = 0; i < pops.length; i++) {
+                const p = pops[i] as HTMLElement;
+                const r = p.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                const cells = p.querySelectorAll('.mtd-date-picker-cells-cell');
+                if (cells.length >= 28) return true;
+              }
+              return false;
+            })
+            .catch(() => false);
+          if (ok) {
+            opened = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!opened) {
+      console.log('   ❌ 点击日期输入框后未检测到 .mtd-popper 日历面板');
+      await this.dumpCalendarPanel(frame, dateStr);
+      return false;
+    }
+    console.log('   🗓️  MTD 日历面板已打开');
+
+    // ---- 2) 读左右两栏年月 + 在目标栏点日 ----
+    for (let round = 0; round < 12; round++) {
+      const state = await this.readMtdPanel(frame, td);
+      if (!state) {
+        console.log(`   ⚠️ [round=${round}] 读取面板失败，重试`);
+        await page.waitForTimeout(400);
+        continue;
+      }
+      const colDesc = (c: MtdColState | null): string =>
+        c
+          ? `${c.year}年${c.month}月(${c.targetEnabled ? '目标日可选' : c.targetPresent ? '目标日禁用' : '无目标日'})`
+          : '(空)';
+      console.log(`   📅 [round=${round}] 两栏：[${colDesc(state.cols[0])} | ${colDesc(state.cols[1])}]`);
+
+      // 在目标年月且目标日可选的栏里点日
+      let clicked = false;
+      for (const c of state.cols) {
+        if (c && c.year === ty && c.month === tm && c.targetEnabled) {
+          clicked = await this.clickMtdDay(frame, c.side, td);
+          break;
+        }
+      }
+      if (clicked) {
+        await page.waitForTimeout(400);
+        // 单日范围：范围选择器需要起止两次，再点一次目标日
+        const st2 = await this.readMtdPanel(frame, td);
+        if (st2) {
+          for (const c of st2.cols) {
+            if (c && c.year === ty && c.month === tm && c.targetEnabled) {
+              await this.clickMtdDay(frame, c.side, td);
+              break;
+            }
+          }
+        }
+        await page.waitForTimeout(500);
+        if (await this.verifySelected(page, dateStr)) {
+          console.log(`   ✓ 日历已选中 ${dateStr}（输入框校验通过）`);
+          return true;
+        }
+        console.log('   ⚠️ 已点击目标日但输入框未含目标日期，继续');
+      }
+
+      // 目标月在面板里但目标日不可选/不存在 -> 无法通过翻页解决
+      let targetVisible = false;
+      let targetDisabled = false;
+      for (const c of state.cols) {
+        if (c && c.year === ty && c.month === tm) {
+          targetVisible = true;
+          if (c.targetPresent && !c.targetEnabled) targetDisabled = true;
+        }
+      }
+      if (targetVisible) {
+        console.log(
+          `   ❌ ${monthLabel} 在面板中但 ${td} 日${targetDisabled ? '为禁用状态' : '不存在'}，无法选择`
+        );
+        await this.dumpCalendarPanel(frame, dateStr);
+        return false;
+      }
+
+      // ---- 翻月：取较早一栏年月判断方向 ----
+      let earliest: { year: number; month: number } | null = null;
+      for (const c of state.cols) {
+        if (!c) continue;
+        if (!earliest || c.year < earliest.year || (c.year === earliest.year && c.month < earliest.month)) {
+          earliest = { year: c.year, month: c.month };
+        }
+      }
+      if (!earliest) {
+        console.log('   ❌ 无法识别面板年月，停止盲目翻页');
+        await this.dumpCalendarPanel(frame, dateStr);
+        return false;
+      }
+      const goBack = earliest.year > ty || (earliest.year === ty && earliest.month > tm);
+      const moved = await this.navMtdMonth(frame, goBack);
+      if (!moved) {
+        console.log(`   ❌ 找不到${goBack ? '上一月' : '下一月'}箭头`);
+        await this.dumpCalendarPanel(frame, dateStr);
+        return false;
+      }
+      console.log(`   ➡️ 翻到${goBack ? '上一月' : '下一月'}`);
+      await page.waitForTimeout(450);
+    }
+
+    console.log('   ❌ 翻月超过上限仍未选中目标日期');
+    await this.dumpCalendarPanel(frame, dateStr);
+    return false;
+  }
+
+  /** 跨 frame 校验日期输入框值是否包含目标日期 */
+  private async verifySelected(page: Page, dateStr: string): Promise<boolean> {
+    for (const f of this.collectAllFrames(page)) {
+      const ok = await f
+        .evaluate((target) => {
+          const inputs = document.querySelectorAll('input');
+          for (let i = 0; i < inputs.length; i++) {
+            const el = inputs[i] as HTMLInputElement;
+            if ((el.value || '').indexOf(target) >= 0) return true;
+          }
+          return false;
+        }, dateStr)
+        .catch(() => false);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 读取 MTD 双月面板左右两栏的年月与目标日状态。
+   * header 里"YYYY"和"M月"可能分在不同 span，故在栏容器内取 innerText 后用正则抽取。
+   */
+  private async readMtdPanel(
+    frame: Frame,
+    targetDay: number
+  ): Promise<{ cols: (MtdColState | null)[] } | null> {
+    for (const f of this.collectAllFrames(frame.page())) {
+      const res = await f
+        .evaluate(
+          (td) => {
+            // 多个 .mtd-popper（含 0 尺寸 tooltip），选可见且含日期格的日历面板
+            let popper: HTMLElement | null = null;
+            const pops = document.querySelectorAll('.mtd-popper');
+            for (let pi = 0; pi < pops.length; pi++) {
+              const pp = pops[pi] as HTMLElement;
+              const rr = pp.getBoundingClientRect();
+              if (rr.width <= 0 || rr.height <= 0) continue;
+              if (pp.querySelectorAll('.mtd-date-picker-cells-cell').length >= 28) {
+                popper = pp;
+                break;
+              }
+            }
+            if (!popper) return null;
+            // 注意：本回调内禁止定义任何函数/箭头（tsx/esbuild 注入 __name 会导致
+            // ReferenceError 被 catch 吞掉），左右两栏用纯 for 循环内联解析。
+            const cols: ({ side: 'left' | 'right'; year: number; month: number; targetPresent: boolean; targetEnabled: boolean } | null)[] = [];
+            const sides: ('left' | 'right')[] = ['left', 'right'];
+            for (let si = 0; si < sides.length; si++) {
+              const side = sides[si];
+              const content = popper.querySelector('.mtd-picker-panel-content-' + side) as HTMLElement | null;
+              if (!content) {
+                cols.push(null);
+                continue;
+              }
+              const txt = (content.innerText || content.textContent || '').replace(/\s+/g, ' ');
+              // 年月：表头形如 "2026年 8月"。年份取 20xx，月份取"数字月"，
+              // 用 /(\d{1,2})\s*月/ 可正确匹配到 8月（不会被日期数字干扰）。
+              const yMatch = txt.match(/(20\d{2})\s*年/);
+              const mMatch = txt.match(/(\d{1,2})\s*月/);
+              if (!yMatch || !mMatch) {
+                cols.push(null);
+                continue;
+              }
+              const year = parseInt(yMatch[1], 10);
+              const month = parseInt(mMatch[1], 10);
+              if (month < 1 || month > 12) {
+                cols.push(null);
+                continue;
+              }
+
+              let targetPresent = false;
+              let targetEnabled = false;
+              const cells = content.querySelectorAll('.mtd-date-picker-cells-cell');
+              for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i] as HTMLElement;
+                const em = cell.querySelector('em');
+                const numText = ((em ? em.textContent : cell.textContent) || '').trim();
+                if (!/^\d{1,2}$/.test(numText)) continue;
+                if (parseInt(numText, 10) !== td) continue;
+                targetPresent = true;
+                const cls = cell.className || '';
+                if (/(disabled|prev|next|other|last-month|gray)/i.test(cls)) continue;
+                const r = cell.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                targetEnabled = true;
+              }
+              cols.push({ side, year, month, targetPresent, targetEnabled });
+            }
+            return { cols };
+          },
+          targetDay
+        )
+        .catch(() => null);
+      if (res) return res as { cols: (MtdColState | null)[] };
+    }
+    return null;
+  }
+
+  /** 点击指定栏（left/right）里的目标日格 */
+  private async clickMtdDay(frame: Frame, side: 'left' | 'right', targetDay: number): Promise<boolean> {
+    for (const f of this.collectAllFrames(frame.page())) {
+      const clicked = await f
+        .evaluate(
+          (args) => {
+            let popper: HTMLElement | null = null;
+            const pops0 = document.querySelectorAll('.mtd-popper');
+            for (let pi = 0; pi < pops0.length; pi++) {
+              const pp = pops0[pi] as HTMLElement;
+              const rr = pp.getBoundingClientRect();
+              if (rr.width <= 0 || rr.height <= 0) continue;
+              if (pp.querySelectorAll('.mtd-date-picker-cells-cell').length >= 28) {
+                popper = pp;
+                break;
+              }
+            }
+            if (!popper) return false;
+            const content = popper.querySelector('.mtd-picker-panel-content-' + args.side) as HTMLElement | null;
+            if (!content) return false;
+            const cells = content.querySelectorAll('.mtd-date-picker-cells-cell');
+            for (let i = 0; i < cells.length; i++) {
+              const cell = cells[i] as HTMLElement;
+              const em = cell.querySelector('em');
+              const numText = ((em ? em.textContent : cell.textContent) || '').trim();
+              if (!/^\d{1,2}$/.test(numText)) continue;
+              if (parseInt(numText, 10) !== args.td) continue;
+              const cls = cell.className || '';
+              if (/(disabled|prev|next|other|last-month|gray)/i.test(cls)) continue;
+              const r = cell.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) continue;
+              cell.scrollIntoView({ block: 'center', inline: 'center' });
+              if (em) (em as HTMLElement).click();
+              cell.click();
+              return true;
+            }
+            return false;
+          },
+          { side, td: targetDay }
+        )
+        .catch(() => false);
+      if (clicked) return true;
+    }
+    return false;
+  }
+
+  /** 点击 MTD 面板的上一月/下一月箭头 */
+  private async navMtdMonth(frame: Frame, goBack: boolean): Promise<boolean> {
+    for (const f of this.collectAllFrames(frame.page())) {
+      const ok = await f
+        .evaluate((back) => {
+          let popper: HTMLElement | null = null;
+          const pops1 = document.querySelectorAll('.mtd-popper');
+          for (let pi = 0; pi < pops1.length; pi++) {
+            const pp = pops1[pi] as HTMLElement;
+            const rr = pp.getBoundingClientRect();
+            if (rr.width <= 0 || rr.height <= 0) continue;
+            if (pp.querySelectorAll('.mtd-date-picker-cells-cell').length >= 28) {
+              popper = pp;
+              break;
+            }
+          }
+          if (!popper) return false;
+          // MTD 有单月箭头(-prev-btn/-next-btn)和跨年双箭头(-double-*-btn)，单月翻页排除双箭头
+          const sel = back
+            ? '.mtd-picker-header-prev-btn:not(.mtd-picker-header-double-prev-btn)'
+            : '.mtd-picker-header-next-btn:not(.mtd-picker-header-double-next-btn)';
+          let btn = popper.querySelector(sel) as HTMLElement | null;
+          if (!btn) {
+            const btns = popper.querySelectorAll('button, [role="button"], span, i');
+            for (let i = 0; i < btns.length; i++) {
+              const b = btns[i] as HTMLElement;
+              const r = b.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0 || r.width > 80) continue;
+              const aria = (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '');
+              const cls = b.className || '';
+              const hay = aria + ' ' + cls;
+              if (back && /(prev|上一|上个月|previous)/i.test(hay)) {
+                btn = b;
+                break;
+              }
+              if (!back && /(next|下一|下个月)/i.test(hay)) {
+                btn = b;
+                break;
+              }
+            }
+          }
+          if (!btn) return false;
+          const r = btn.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return false;
+          btn.click();
+          return true;
+        }, goBack)
+        .catch(() => false);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 失败诊断：把 MTD 日历面板的完整 outerHTML、左右两栏年月、目标日候选导出并截图。
+   */
+  private async dumpCalendarPanel(frame: Frame, dateStr: string): Promise<void> {
+    try {
+      const td = parseInt(dateStr.slice(8, 10), 10);
+      let html = '';
+      let summary = '';
+      for (const f of this.collectAllFrames(frame.page())) {
+        const res = await f
+          .evaluate((targetDay) => {
+          // 多个 .mtd-popper（含 0 尺寸 tooltip），优先选可见且含日期格的日历面板
+          let popper: HTMLElement | null = null;
+          const allPop = document.querySelectorAll('.mtd-popper');
+          for (let pi = 0; pi < allPop.length; pi++) {
+            const pp = allPop[pi] as HTMLElement;
+            const rr = pp.getBoundingClientRect();
+            if (rr.width <= 0 || rr.height <= 0) continue;
+            if (pp.querySelectorAll('.mtd-date-picker-cells-cell').length >= 28) {
+              popper = pp;
+              break;
+            }
+          }
+          if (!popper) {
+            // 兜底：取任一可见 popper（可能是 tooltip），便于诊断
+            for (let pi = 0; pi < allPop.length; pi++) {
+              const pp = allPop[pi] as HTMLElement;
+              const rr = pp.getBoundingClientRect();
+              if (rr.width > 0 && rr.height > 0) {
+                popper = pp;
+                break;
+              }
+            }
+          }
+          if (!popper) return { html: '', summary: `frame=${location.href} 无可见 .mtd-popper` };
+          const infos: string[] = [];
+            const sides: ('left' | 'right')[] = ['left', 'right'];
+            for (let si = 0; si < sides.length; si++) {
+              const side = sides[si];
+              const content = popper.querySelector('.mtd-picker-panel-content-' + side) as HTMLElement | null;
+              if (!content) continue;
+              const txt = (content.innerText || '').replace(/\s+/g, ' ').slice(0, 40);
+              const cells = content.querySelectorAll('.mtd-date-picker-cells-cell');
+              for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i] as HTMLElement;
+                const em = cell.querySelector('em');
+                const numText = ((em ? em.textContent : cell.textContent) || '').trim();
+                if (numText !== String(targetDay)) continue;
+                const r = cell.getBoundingClientRect();
+                infos.push(
+                  `[${side}] "${txt}" day=${targetDay} rect=(${Math.round(r.left)},${Math.round(r.top)}) class="${cell.className}"`
+                );
+              }
+            }
+            return {
+              html: popper.outerHTML,
+              summary:
+                `frame=${location.href}\nmtd-popper class="${popper.className}" 尺寸=${Math.round(
+                  popper.getBoundingClientRect().width
+                )}x${Math.round(popper.getBoundingClientRect().height)}\n目标日候选:\n` + (infos.join('\n') || '(无)'),
+            };
+          }, td)
+          .catch(() => null);
+        if (res && res.html) {
+          html = res.html;
+          summary = res.summary;
+          break;
+        }
+        if (res && res.summary) summary += res.summary + '\n';
+      }
+
+      fs.mkdirSync(this.config.outputDir, { recursive: true });
+      const htmlPath = path.join(this.config.outputDir, `calendar-panel-${Date.now()}.html`);
+      if (html) {
+        fs.writeFileSync(htmlPath, html, 'utf-8');
+        console.log(`   🔍 日历面板 HTML：${htmlPath}`);
+      } else {
+        console.log('   🔍 未找到 .mtd-popper 面板（可能已关闭）');
+      }
+      if (summary) {
+        const sumPath = path.join(this.config.outputDir, `calendar-summary-${Date.now()}.txt`);
+        fs.writeFileSync(sumPath, summary, 'utf-8');
+        console.log('   🔍 ' + summary.split('\n').join('\n   🔍 '));
+      }
+      const shot = path.join(this.config.outputDir, `debug-calendar-${Date.now()}.png`);
+      await frame.page().screenshot({ path: shot, fullPage: false }).catch(() => undefined);
+      console.log(`   🔍 截图：${shot}`);
+    } catch (e) {
+      console.log('   🔍 导出日历面板失败：' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  /** 递归收集 page 下所有 frame（含顶层主 frame） */
+  private collectAllFrames(page: Page): Frame[] {
+    const out: Frame[] = [];
+    const walk = (f: Frame): void => {
+      out.push(f);
+      for (const child of f.childFrames()) walk(child);
+    };
+    walk(page.mainFrame());
+    return out;
+  }
+
+  /**
+   * 回读日期范围控件最终显示的值（跨所有 frame）。
+   * evaluate 内用纯 for 循环，禁止定义函数（tsx __name 坑）。
+   */
+  private async readDateRangeValue(page: Page): Promise<string> {
+    const frames = this.collectAllFrames(page);
+    for (const f of frames) {
+      let v = '';
+      try {
+        v = await f.evaluate(() => {
+          let result = '';
+          const inputs = document.querySelectorAll('input');
+          for (let i = 0; i < inputs.length; i++) {
+            const el = inputs[i] as HTMLInputElement;
+            const ph = (el.getAttribute('placeholder') || '').trim();
+            if (ph === '请选择时间范围' || ph.indexOf('日期') >= 0 || ph.indexOf('时间') >= 0) {
+              const val = (el.value || '').trim();
+              if (val) {
+                if (result) result += ' | ';
+                result += ph + ':' + val;
+              }
+            }
+          }
+          return result;
+        });
+      } catch {
+        v = '';
+      }
+      if (v) return v;
+    }
+    return '';
+  }
+
   private async findClickableText(
     page: Page,
     text: string,
@@ -1173,6 +1825,70 @@ export class MeituanExporter {
     }
     // 清掉顶层 body driver class
     await this.dismissOverlays(page);
+  }
+
+  /**
+   * 关闭右上角"重点消息/通知"等弹窗（点其 × 或"收起/关闭"），避免遮挡报表对话框与按钮。
+   * 在顶层页面和各 frame 都尝试一次。
+   */
+  private async dismissNotifications(page: Page): Promise<void> {
+    const scopes = [page, ...page.frames()];
+    for (const scope of scopes) {
+      try {
+        // 优先用可见文本定位"关闭"类按钮
+        const textBtns = [
+          'text=重点消息',
+          'button:has-text("关闭")',
+          '[role="button"]:has-text("关闭")',
+          'button:has-text("收起")',
+        ];
+        for (const sel of textBtns) {
+          const btn = scope.locator(sel).first();
+          if (await btn.isVisible({ timeout: 250 }).catch(() => false)) {
+            // 找到弹窗容器内的 × 关闭图标（常见为 aria-label=close / class 含 close）
+            const close = scope
+              .locator('[aria-label="close"], [aria-label="关闭"], [class*="close"], [class*="Close"]')
+              .last();
+            if (await close.isVisible({ timeout: 300 }).catch(() => false)) {
+              await close.click({ timeout: 1200 }).catch(() => undefined);
+              await page.waitForTimeout(400);
+              break;
+            }
+          }
+        }
+        // 兜底：DOM 里找包含"重点消息"且右上角有可点 × 的容器
+        await scope
+          .evaluate(() => {
+            const all = document.querySelectorAll('div,aside,section');
+            for (let i = 0; i < all.length; i++) {
+              const el = all[i] as HTMLElement;
+              const t = (el.textContent || '').trim();
+              if (t.indexOf('重点消息') !== 0) continue;
+              const r = el.getBoundingClientRect();
+              if (r.width < 100) continue;
+              // 找容器内最后一个看起来像关闭的小元素
+              const closes = el.querySelectorAll('[class*="close"],[class*="Close"],svg,button,[role="button"]');
+              let target: HTMLElement | null = null;
+              for (let j = closes.length - 1; j >= 0; j--) {
+                const c = closes[j] as HTMLElement;
+                const cr = c.getBoundingClientRect();
+                if (cr.width > 0 && cr.width <= 40 && cr.height <= 40) {
+                  target = c;
+                  break;
+                }
+              }
+              if (target) {
+                (target as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          })
+          .catch(() => false);
+      } catch {
+        /* ignore cross-origin */
+      }
+    }
   }
 
   private async waitForReportCenter(page: Page): Promise<void> {

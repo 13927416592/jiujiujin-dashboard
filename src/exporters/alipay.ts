@@ -21,10 +21,19 @@
  * - bodyText: document.body.innerText 全文（后端 API 用正则从中提取指标）
  */
 
-import { chromium, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, ElementHandle, Locator } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ExportResult } from './types';
+import {
+  isNutAvailable,
+  activateChrome,
+  getChromeWindowOrigin,
+  osClickScreen,
+  osMoveMouse,
+  osPressTab,
+  osTypePassword,
+} from './nut-os-input';
 
 /** 单个页面抓取结果 */
 export interface AlipayPageData {
@@ -249,28 +258,25 @@ export class AlipayExporter {
       // 4. 流量分析（5 个 Tab，同属一个子应用，通过顶部 Tab 切换，不再逐 URL 深链）
       console.log('  [4/6] 流量分析（5 个 Tab）...');
       const traffic: { tabs: Record<string, AlipayPageData> } = { tabs: {} };
-      const trafficTabs: Array<{ key: string; label: string; tabText: string; url: string; pathSeg: string }> = [
-        { key: 'overview', label: '流量概览', tabText: '流量概览', url: urls.traffic.overview, pathSeg: '/traffic-analysis/overview' },
-        { key: 'miniApp', label: '小程序流量', tabText: '小程序', url: urls.traffic.miniApp, pathSeg: '/traffic-analysis/tinyapp-traffic' },
-        { key: 'lifeAccount', label: '生活号+流量', tabText: '生活号', url: urls.traffic.lifeAccount, pathSeg: '/traffic-analysis/life-plus' },
-        { key: 'fanGroup', label: '商家粉丝群流量', tabText: '粉丝群', url: urls.traffic.fanGroup, pathSeg: '/traffic-analysis/fans' },
-        { key: 'other', label: '其他活跃流量', tabText: '其他', url: urls.traffic.other, pathSeg: '/traffic-analysis/other' },
+      const trafficTabs: Array<{ key: string; label: string; url: string; pathSeg: string }> = [
+        { key: 'overview', label: '流量概览', url: urls.traffic.overview, pathSeg: '/traffic-analysis/overview' },
+        { key: 'miniApp', label: '小程序流量', url: urls.traffic.miniApp, pathSeg: '/traffic-analysis/tinyapp-traffic' },
+        { key: 'lifeAccount', label: '生活号+流量', url: urls.traffic.lifeAccount, pathSeg: '/traffic-analysis/life-plus' },
+        { key: 'fanGroup', label: '商家粉丝群流量', url: urls.traffic.fanGroup, pathSeg: '/traffic-analysis/fans' },
+        { key: 'other', label: '其他活跃流量', url: urls.traffic.other, pathSeg: '/traffic-analysis/other' },
       ];
       // 先确保落在流量分析页（菜单进入）
       await this.navigateToPage(page, urls.traffic.overview, { menuText: '流量分析', label: '流量分析' }).catch(() => undefined);
       for (const tab of trafficTabs) {
         try {
-          // 同一子应用内点顶部 Tab 切换（SPA，不触发 SSO）；点不到或落到错误路径才深链兜底。
-          // 关键：点击"生活号"等 Tab 可能误中左侧同名菜单（生活号+分析）跳到别的子应用，
-          // 因此必须用期望路径 pathSeg 严格校验落地 URL，不匹配就深链到精确 URL。
-          const clicked = await this.clickTrafficTab(tab.tabText, tab.pathSeg);
-          if (!clicked) {
-            await this.gotoBusinessPage(page, tab.url).catch(() => undefined);
-          } else {
-            await page.waitForTimeout(1000);
-            await this.waitForDataLoaded(page).catch(() => undefined);
-          }
-          // 抓数据前再兜底校验一次：若仍不在期望路径（深链被重定向等），强制精确深链
+          // 直接深链到每个子 Tab 的精确 URL。
+          // 历史实现曾尝试点顶部 SPA Tab（dispatchEvent），但合成点击经常误触左侧同名菜单
+          //（"小程序分析/生活号+分析/粉丝群分析"）跳到别的子应用，再靠深链兜底，既慢又产生告警。
+          // 实测这 5 个 URL 均可直接落地（gotoBusinessPage 会处理 SSO/预热），故统一深链，
+          // 不再做易误触的 Tab 点击。
+          await this.gotoBusinessPage(page, tab.url).catch(() => undefined);
+
+          // 抓数据前兜底校验：若不在期望路径（深链被重定向等），再精确深链一次
           const cur = page.url().split('?')[0];
           if (!cur.includes(tab.pathSeg)) {
             console.log(`    ↪️ ${tab.label}未落在期望路径，精确深链兜底`);
@@ -371,29 +377,50 @@ export class AlipayExporter {
 
   /** 初始化浏览器（持久化用户目录，保留 Cookie/localStorage/IndexedDB 登录态） */
   private async init(): Promise<void> {
+    // 是否尝试用 Chrome 已保存的账号密码"自动填充"登录（ALIPAY_AUTOFILL=1 开启）。
+    // 开启后不会关闭 Chrome 密码管理器，以便：1) 手动登录时让 Chrome 记住账密；
+    // 2) 脚本聚焦输入框时由 Chrome 自动填充，再检测加密域是否被填上，填上才点登录。
+    // 注意：能否喂饱支付宝 aliedit 安全控件取决于控件是否识别自动填充事件，需实测。
+    const autofillEnabled =
+      process.env.ALIPAY_AUTOFILL === '1' || process.env.ALIPAY_AUTOFILL === 'true';
+
+    const isMac = process.platform === 'darwin';
+    // macOS 上不能带 --no-sandbox/--disable-setuid-sandbox/--disable-dev-shm-usage：
+    // 这些是 Linux 容器专用参数，在 macOS 会触发 Chrome 顶部黄条
+    // 「您使用的是不受支持的命令行标记：--disable-setuid-sandbox」，
+    // 支付宝 aliedit 安全控件据此识别为自动化环境，圆点能敲出但拒绝 RSA 加密（#password 始终为空）。
     const launchArgs = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
+      ...(isMac
+        ? []
+        : ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']),
       '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
       '--no-first-run',
       '--no-default-browser-check',
       // 关闭"Chrome 未正确关闭，要恢复页面吗？"气泡——它会持续抢焦点导致账密填错框
       '--hide-crash-restore-bubble',
       '--disable-session-crashed-bubble',
-      // 关闭"保存密码？""使用屏幕锁定功能保护密码"等密码相关 infobar
-      '--disable-save-password-bubble',
-      '--disable-password-manager-reauth',
-      '--disable-features=PasswordManagerOnboarding,AutofillServerCommunication,InsecurePasswordsProtection',
     ];
+    // 只有在【不】走自动填充时才关闭密码管理器/保存提示；
+    // 走自动填充时必须保留密码管理器，否则 Chrome 不会保存也不会自动填充账密。
+    if (!autofillEnabled) {
+      launchArgs.push(
+        // 关闭"保存密码？""使用屏幕锁定功能保护密码"等密码相关 infobar
+        '--disable-save-password-bubble',
+        '--disable-password-manager-reauth',
+        '--disable-features=PasswordManagerOnboarding,AutofillServerCommunication,InsecurePasswordsProtection'
+      );
+    }
 
     const contextOptions = {
       userAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1600, height: 1000 },
+      viewport: isMac ? null : { width: 1600, height: 1000 },
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai' as const,
       args: launchArgs,
+      // 关键：去掉 Chrome 默认的 --enable-automation 启动参数。
+      // 否则 navigator.webdriver=true + 自动化指纹，aliedit 会拒绝加密密码（参考 workbuddy 成功方案）。
+      ignoreDefaultArgs: ['--enable-automation'],
       headless: this.config.headless,
       slowMo: this.config.slowMo,
       // 禁止任何权限/通知弹窗
@@ -440,9 +467,16 @@ export class AlipayExporter {
       setNested(prefs, ['profile', 'exited_cleanly'], true);
       // 关闭崩溃恢复气泡
       setNested(prefs, ['browser', 'has_seen_welcome_page'], true);
-      // 关闭密码保存/管理相关提示
-      setNested(prefs, ['credentials_enable_service'], false);
-      setNested(prefs, ['profile', 'password_manager_enabled'], false);
+      // 关闭密码保存/管理相关提示（仅在不走自动填充时；走自动填充需保留密码管理器）
+      if (!autofillEnabled) {
+        setNested(prefs, ['credentials_enable_service'], false);
+        setNested(prefs, ['profile', 'password_manager_enabled'], false);
+      } else {
+        // 显式开启密码管理器与自动填充，确保手动登录时能"记住密码"、下次自动填充
+        setNested(prefs, ['credentials_enable_service'], true);
+        setNested(prefs, ['profile', 'password_manager_enabled'], true);
+        setNested(prefs, ['autofill', 'enabled'], true);
+      }
       fs.mkdirSync(path.dirname(prefPath), { recursive: true });
       fs.writeFileSync(prefPath, JSON.stringify(prefs), 'utf-8');
     } catch {
@@ -880,13 +914,14 @@ export class AlipayExporter {
    *
    * 账号密码只从进程环境变量读取，绝不硬编码、不写文件、不进 git。
    *
-   * @returns 'submitted' 已自动点登录（可能进入二次验证，需继续等待）；
+   * @returns 'submitted' 已自动点登录并离开登录页；
+   *          'captcha' 已自动填账号密码并提交，但弹出验证码需人工完成；
    *          'assisted' 已自动填好账号并聚焦密码框，等待人工输入密码并登录；
    *          'skipped' 未配置账密或不在账密登录页（调用方走原手动流程）；
    *          'already-in' 当前已经是登录后业务页。
    */
   private async attemptPasswordLogin(): Promise<
-    'submitted' | 'assisted' | 'skipped' | 'already-in'
+    'submitted' | 'captcha' | 'assisted' | 'skipped' | 'already-in'
   > {
     if (!this.page) return 'skipped';
     const username = (process.env.ALIPAY_USERNAME || '').trim();
@@ -903,11 +938,16 @@ export class AlipayExporter {
     try {
       console.log('🔑 检测到账密环境变量，尝试自动填写账号密码登录...');
 
-      // 0) 先按 Esc 关闭可能遮挡输入框的 Chrome 原生"保存密码/屏幕锁定"气泡，
-      //    这类气泡会导致 input.fill() 因元素被遮挡而抛错、定位不到输入框。
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press('Escape').catch(() => undefined);
-        await page.waitForTimeout(120);
+      const autofillEnabled =
+        process.env.ALIPAY_AUTOFILL === '1' || process.env.ALIPAY_AUTOFILL === 'true';
+
+      // 0) 先按 Esc 关闭可能遮挡输入框的 Chrome 原生"恢复页面/屏幕锁定"气泡。
+      //    走 Chrome 自动填充时不按 Esc，避免关掉凭据选择/自动填充下拉。
+      if (!autofillEnabled) {
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('Escape').catch(() => undefined);
+          await page.waitForTimeout(120);
+        }
       }
 
       // 1) 切到「账密登录」Tab（登录页默认常停在扫码登录）
@@ -958,14 +998,36 @@ export class AlipayExporter {
       if (!accountFilled) {
         console.warn('⚠️  账号自动填入失败，请手动输入账号');
       }
+      console.log('   ✓ 账号已自动填入');
 
       // 3) 密码处理。
-      //    实测：支付宝 aliedit 安全控件强制开启（#password_rsainput），且无法通过点小锁
-      //    切到普通输入模式；它只接受真人物理按键，Playwright 模拟按键会被丢弃
-      //    （圆点显示但内部缓冲区为空、提交报"请输入登录密码"）。
-      //    因此放弃自动填密码，改为【半自动】：自动填好账号、聚焦密码框，由人工输入密码
-      //    并点登录；脚本检测到登录成功后自动继续抓取。
-      console.log('   ✓ 账号已自动填入');
+      //    支付宝 aliedit 安全控件（#password_rsainput）逐字符 RSA 加密写入隐藏域 #password，
+      //    只认与物理键盘完全一致的硬件事件；Playwright/CDP 模拟按键（即便 isTrusted=true）
+      //    会被浏览器 input pipeline 内部标记识别并丢弃。
+      //
+      //    方案A（首选，本机有头模式）：nut.js 通过 macOS CGEvent 投递 OS 级硬件键鼠事件，
+      //          经 WindowServer 进浏览器，与真人按键一致，控件正常加密。需要「辅助功能」权限。
+      //          可用 ALIPAY_NUT=0 关闭。
+      //    方案B（ALIPAY_AUTOFILL=1，实验性）：用 Chrome 已保存密码做浏览器原生自动填充。
+      //    方案C（兜底，半自动）：聚焦密码框，人工输入密码并登录。
+      const nutDisabled = process.env.ALIPAY_NUT === '0' || process.env.ALIPAY_NUT === 'false';
+      if (!nutDisabled && isNutAvailable()) {
+        const nutResult = await this.typePasswordViaNut(page, password);
+        if (nutResult === 'submitted') return 'submitted';
+        if (nutResult === 'captcha') return 'captcha';
+        console.warn('⚠️  nut.js 硬件级输入未能完成，尝试其它方案');
+      } else if (!nutDisabled) {
+        console.warn(
+          '⚠️  nut.js 不可用（未安装或当前环境无图形/权限），无法硬件级输入密码'
+        );
+      }
+
+      if (autofillEnabled) {
+        const submitted = await this.tryChromeAutofillAndSubmit(page, accountInput);
+        if (submitted) return 'submitted';
+        console.warn('⚠️  Chrome 自动填充未能填入密码（控件未识别或未保存账密），回退半自动');
+      }
+
       const assistedPwd = await this.pickVisibleInput(
         page,
         '#password_rsainput, input[type="password"]:not([name="password"]):not(.fn-hide)',
@@ -994,6 +1056,380 @@ export class AlipayExporter {
       await page.waitForTimeout(200);
     }
     return this.hasLeftLoginPage(page);
+  }
+
+  /**
+   * 用 nut.js 在 macOS 层投递硬件级键鼠事件输入密码并提交。
+   *
+   * 关键：Playwright 的 click()/focus() 只能改 DOM 的 activeElement，无法把 OS 键盘
+   * 焦点送进网页内容区（AppleScript 激活 Chrome 后焦点常落在地址栏）。因此必须：
+   *   1. 置顶 Chrome；
+   *   2. 在页面里取可见密码框视口坐标（过滤藏在 0,0 的幽灵元素）；
+   *   3. 用 nut.js 读窗口屏幕坐标 + 浏览器外壳偏移换算屏幕坐标；
+   *   4. nut.js 真实鼠标点击该坐标夺焦；
+   *   5. nut.js 逐字符硬件输入密码；
+   *   6. 点登录，检测是否离开登录页（可能进入验证码/二次验证）。
+   *
+   * @returns 'submitted' 已离开登录页；'captcha' 已提交但需人工过验证码；
+   *          'failed' 无法完成（调用方回退其它方案）。
+   */
+  private async typePasswordViaNut(
+    page: Page,
+    password: string
+  ): Promise<'submitted' | 'captcha' | 'failed'> {
+    const sleep = (ms: number): Promise<void> => page.waitForTimeout(ms);
+    try {
+      console.log('   ⌨️  使用 nut.js 硬件级键盘输入密码（请勿触碰鼠标键盘）...');
+
+      // 0) 复刻 workbuddy 验证成功的焦点链：先在【账号框】里用 Playwright 按 Tab，
+      //    让 aliedit 按网页 Tab 顺序把 DOM 焦点切到密码框（触发控件的 Tab 激活）。
+      //    注意：这一步必须是网页内 Tab（page.keyboard），因为账号框此时已有 DOM 焦点；
+      //    后面 OS 鼠标点击只负责把 OS 键盘焦点送进网页内容区，不再改变 DOM 焦点。
+      const acctLocator = page
+        .locator(
+          '#J-input-user, input[name="logonId"], input[placeholder*="账户"], input[placeholder*="账号"]'
+        )
+        .first();
+      await acctLocator.click({ timeout: 2000, force: true }).catch(() => undefined);
+      await sleep(300);
+      await page.keyboard.press('Tab');
+      await sleep(600);
+      let preFocus = await page
+        .evaluate(() => document.activeElement?.id || document.activeElement?.tagName || '(none)')
+        .catch(() => '(unknown)');
+      if (preFocus !== 'password_rsainput') {
+        await page.keyboard.press('Tab');
+        await sleep(400);
+        preFocus = await page
+          .evaluate(() => document.activeElement?.id || document.activeElement?.tagName || '(none)')
+          .catch(() => '(unknown)');
+      }
+      console.log(`   🔘 Playwright Tab 后 DOM 焦点: ${preFocus}`);
+
+      // 1) 置顶 Chrome（拿 OS 窗口焦点）
+      const activated = await activateChrome();
+      if (!activated) {
+        console.warn('   ⚠️  无法置顶 Chrome（权限不足？），nut 输入可能串到别处');
+      }
+      await sleep(800);
+
+      // 2) 取账号框与密码框的视口中心坐标。
+      //    注意：evaluate 回调会被 Playwright 序列化到浏览器页面执行，回调内部严禁定义任何
+      //    具名/匿名函数（tsx/esbuild keepNames 会注入 __name 包装，页面里没有该 helper，
+      //    会抛 ReferenceError: __name is not defined）。这里用参数传入选择器数组，
+      //    回调体内只有纯循环，不定义任何函数。
+      const boxes = await page.evaluate(
+        (args: { acctSels: string[]; pwdSels: string[] }) => {
+          let account: { x: number; y: number } | null = null;
+          for (let i = 0; i < args.acctSels.length; i++) {
+            const el = document.querySelector<HTMLElement>(args.acctSels[i]);
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 80 && r.height > 20 && (r.x > 0 || r.y > 0)) {
+                account = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                break;
+              }
+            }
+          }
+          let pwd: { x: number; y: number } | null = null;
+          for (let i = 0; i < args.pwdSels.length; i++) {
+            const el = document.querySelector<HTMLElement>(args.pwdSels[i]);
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 80 && r.height > 20 && (r.x > 0 || r.y > 0)) {
+                pwd = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                break;
+              }
+            }
+          }
+          return { account, pwd };
+        },
+        {
+          acctSels: [
+            '#J-input-user',
+            'input[name="logonId"]',
+            'input[placeholder*="账户"]',
+            'input[placeholder*="账号"]',
+            'input[type="text"]',
+          ],
+          pwdSels: ['#password_rsainput', '#password_container', '.alieditContainer', '#J-password'],
+        }
+      );
+      if (!boxes.pwd) {
+        console.warn('   ⚠️  nut：找不到可见密码框坐标');
+        return 'failed';
+      }
+      console.log(
+        `   📍 账号框=(${boxes.account ? Math.round(boxes.account.x) : '-'},${
+          boxes.account ? Math.round(boxes.account.y) : '-'
+        }) 密码框=(${Math.round(boxes.pwd.x)}, ${Math.round(boxes.pwd.y)})`
+      );
+
+      // 3) 读 Chrome 窗口左上角屏幕坐标（优先 AppleScript，回退 nut.js）
+      const win = await getChromeWindowOrigin();
+      if (!win) {
+        console.warn('   ⚠️  nut：无法读取 Chrome 窗口位置（检查「自动化/辅助功能」权限）');
+        return 'failed';
+      }
+      console.log(
+        `   🪟 窗口 [${win.via}] bounds=(${win.x},${win.y},${win.width}x${win.height})`
+      );
+
+      // 4) 屏幕坐标换算。
+      //    macOS 上 Chrome 窗口外框顶部含标签栏+地址栏（+书签栏时可达 ~143px），而 Playwright 的
+      //    getBoundingClientRect 是从网页视口顶部算的，所以屏幕 Y = 窗口顶部 + 外壳高度 + 视口Y。
+      //    不能用 window.screenY 反推（它返回外框顶部，会算成 0、点击落地址栏）。
+      //    这里运行时自动校准：在页面注入 mousemove 监听，nut 把鼠标移到窗口几何中心，
+      //    页面回报视口坐标，反推 chromeTop = 窗口高/2 - 视口centerY。可用 ALIPAY_CHROME_TOP 强制覆盖。
+      const envTop = parseInt(process.env.ALIPAY_CHROME_TOP || '', 10);
+      let chromeTop = Number.isFinite(envTop) && envTop > 0 ? envTop : 110;
+      const chromeLeft = 0;
+      if (!(Number.isFinite(envTop) && envTop > 0)) {
+        try {
+          // 注入一次性 mousemove 监听（用 addEventListener，回调内不定义函数名，避免 __name 坑）
+          await page
+            .evaluate(() => {
+              (window as unknown as { __nutMv?: { x: number; y: number } }).__nutMv = undefined;
+              window.addEventListener('mousemove', (e) => {
+                (window as unknown as { __nutMv?: { x: number; y: number } }).__nutMv = {
+                  x: e.clientX,
+                  y: e.clientY,
+                };
+              });
+            })
+            .catch(() => undefined);
+          const cx = Math.round(win.x + win.width / 2);
+          const cy = Math.round(win.y + win.height / 2);
+          await osMoveMouse(cx, cy).catch(() => undefined);
+          await sleep(350);
+          const mv = await page
+            .evaluate(
+              () =>
+                (window as unknown as { __nutMv?: { x: number; y: number } }).__nutMv || null
+            )
+            .catch(() => null);
+          if (mv && Number.isFinite(mv.x) && Number.isFinite(mv.y) && mv.y > 0 && mv.y < win.height) {
+            const calibrated = Math.round(win.height / 2 - mv.y);
+            if (calibrated > 40 && calibrated < 300) {
+              chromeTop = calibrated;
+              console.log(
+                `   🎯 自动校准外壳：上偏移=${chromeTop}px 左偏移=0px（鼠标中心视口坐标 ${Math.round(
+                  mv.x
+                )},${Math.round(mv.y)}）`
+              );
+            }
+          } else {
+            console.log(`   🎯 自动校准未取到视口坐标，回退固定上偏移=${chromeTop}px`);
+          }
+        } catch {
+          /* 校准失败用默认值 */
+        }
+      } else {
+        console.log(`   🧮 使用 ALIPAY_CHROME_TOP 覆盖：上偏移=${chromeTop}px`);
+      }
+      const pwdBox = boxes.pwd;
+      const pwdScreenX = Math.round(win.x + chromeLeft + pwdBox.x);
+      const pwdScreenY = Math.round(win.y + chromeTop + pwdBox.y);
+      const acct = boxes.account;
+      console.log(`   🧮 窗口左上角=(${win.x},${win.y}) 外壳上偏移=${chromeTop}px`);
+      console.log(`   🖱️  OS 点击坐标（密码框）: (${pwdScreenX}, ${pwdScreenY})`);
+
+      // 5) 置顶并真实鼠标点击密码框，把 OS 键盘焦点真正送进网页内容区。
+      //    置顶后窗口位置可能变化，所以这里重新读一次窗口坐标再点。
+      await activateChrome();
+      await sleep(600);
+      const win2 = (await getChromeWindowOrigin()) || win;
+      const clickPwd = async (): Promise<void> => {
+        const x = Math.round(win2.x + chromeLeft + pwdBox.x);
+        const y = Math.round(win2.y + chromeTop + pwdBox.y);
+        await osClickScreen(x, y);
+      };
+      await clickPwd();
+
+      // 6) 复刻 workbuddy 第 5.6 步：OS 点击后校验焦点，没进密码框就用 OS 级 Tab 修正
+      //    （最多 8 次，必须是 OS 级 Tab，不能用 page.keyboard）。此时 DOM 焦点本应已在
+      //    密码框（第 0 步 Tab），OS 点击只是把 OS 键盘焦点送进网页。
+      let activeId = await page
+        .evaluate(() => document.activeElement?.id || document.activeElement?.tagName || '(none)')
+        .catch(() => '(unknown)');
+      console.log(`   🔍 OS 点击密码框后焦点: ${activeId}`);
+      for (let i = 0; i < 8 && activeId !== 'password_rsainput'; i++) {
+        await osPressTab();
+        activeId = await page
+          .evaluate(() => document.activeElement?.id || document.activeElement?.tagName || '(none)')
+          .catch(() => '(unknown)');
+        console.log(`      OS-Tab 修正 #${i + 1} 焦点: ${activeId}`);
+      }
+
+      // 6) 硬件级逐字符输入密码
+      console.log(`   🔐 输入密码（${password.length} 位）...`);
+      await osTypePassword(password);
+
+      // 7) 关键：aliedit 安全控件【不是敲键时实时加密】，而是在点击登录（表单 onsubmit）时
+      //    才把 #password_rsainput 的明文做 RSA 写入隐藏域 #password。所以这里读到 enc=0 是
+      //    正常现象，不能据此判定失败（之前正是这里误判 return，导致没去点登录）。
+      //    真正的成功判据是第 9 步：点登录后是否离开登录页。
+      const encBefore = await page
+        .evaluate(() => {
+          const el = document.querySelector<HTMLInputElement>(
+            '#password, input[name="password"]'
+          );
+          return el && typeof el.value === 'string' ? el.value.length : 0;
+        })
+        .catch(() => 0);
+      console.log(
+        `   ℹ️  密码已输入（提交前加密隐藏域长度=${encBefore}，控件将在点登录时加密，属正常）`
+      );
+
+      // 8) 点登录
+      console.log('   🚪 点击登录按钮...');
+      await this.clickLoginButton(page);
+      await sleep(2500);
+
+      // 8.1) 点登录后再读一次加密域：若 >0 说明控件已接受并加密（诊断用，不阻塞）
+      const encAfter = await page
+        .evaluate(() => {
+          const el = document.querySelector<HTMLInputElement>(
+            '#password, input[name="password"]'
+          );
+          return el && typeof el.value === 'string' ? el.value.length : 0;
+        })
+        .catch(() => 0);
+      console.log(`   🔐 点击登录后加密隐藏域长度=${encAfter}`);
+
+      // 9) 结果：离开登录页=成功；若出现验证码=已提交但需人工
+      if (await this.hasLeftLoginPage(page)) {
+        console.log('   ✅ 已提交登录并离开登录页（可能进入企业选择/二次验证）');
+        return 'submitted';
+      }
+      const captcha = await page
+        .evaluate(() => {
+          const text = document.body.innerText || '';
+          const clickCaptcha = text.includes('请在下图依次点击');
+          const slider = !!document.querySelector('#slide_root_view');
+          const modal = document.querySelector(
+            '.nc-container, .click-captcha, [class*="captcha"], [id*="captcha"]'
+          );
+          return {
+            clickCaptcha,
+            slider,
+            modalVisible: !!(modal && (modal as HTMLElement).offsetParent !== null),
+          };
+        })
+        .catch(() => null);
+      if (captcha && (captcha.clickCaptcha || captcha.slider || captcha.modalVisible)) {
+        console.log('   🧩 检测到验证码，已提交密码，请在浏览器手动完成验证');
+        return 'captcha';
+      }
+      console.warn('   ⚠️  提交后仍在登录页且未检测到验证码');
+      return 'failed';
+    } catch (err) {
+      console.warn('   ⚠️  nut.js 输入密码过程出错：', err);
+      return 'failed';
+    }
+  }
+
+  /**
+   * 实验性：利用 Chrome 已保存的账号密码做浏览器原生自动填充，并检测 aliedit 安全控件
+   * 是否真正把密写进了隐藏域 #password；只有确认密码已填入才自动点登录。
+   *
+   * 原理：Chrome 自动填充由浏览器在用户手势（聚焦/点击输入框）后注入。脚本通过
+   * 点击账号框、聚焦密码框来唤起填充，再轮询检测隐藏域长度。注意自动填充走的不是
+   * 物理按键，安全控件未必识别，因此必须以"隐藏域 #password 非空"为准，否则放弃。
+   *
+   * @returns 是否成功填入密码并触发了登录提交
+   */
+  private async tryChromeAutofillAndSubmit(
+    page: Page,
+    accountInput: Locator
+  ): Promise<boolean> {
+    console.log('   🪪 已开启 Chrome 自动填充(ALIPAY_AUTOFILL)，尝试用已保存账密填充...');
+
+    // 真实密码长度（仅用于判断圆点位数是否合理，密码本身不打印、不写日志）
+    const expectedLen = (process.env.ALIPAY_PASSWORD || '').length;
+
+    // 读取密码框状态：enc=加密隐藏域长度，visible=可见圆点位数
+    const readPwdState = async (): Promise<{ encLen: number; visibleLen: number }> => {
+      return page.evaluate(() => {
+        const enc = document.querySelector<HTMLInputElement>('#password, input[name="password"]');
+        const vis = document.querySelector<HTMLInputElement>('#password_rsainput');
+        return {
+          encLen: enc && typeof enc.value === 'string' ? enc.value.length : 0,
+          visibleLen: vis && typeof vis.value === 'string' ? vis.value.length : 0,
+        };
+      });
+    };
+
+    try {
+      // 1) 点击账号框（唤起 Chrome 凭据选择/自动填充）。账号已由脚本填好，这里不重填。
+      await accountInput.click({ timeout: 2000, force: true }).catch(() => undefined);
+      await page.waitForTimeout(300);
+
+      // 2) 聚焦并点击可见密码框，触发 Chrome 把已保存密码填进来
+      const pwdInput = await this.pickVisibleInput(
+        page,
+        '#password_rsainput, input[type="password"]:not([name="password"]):not(.fn-hide)',
+        3000
+      );
+      if (!pwdInput) {
+        console.warn('   ⚠️  自动填充：未找到可见密码框');
+        return false;
+      }
+      await pwdInput.click({ timeout: 2000, force: true }).catch(() => undefined);
+      await pwdInput.focus().catch(() => undefined);
+
+      // 3) 轮询最多 8 秒，等 Chrome 自动填充把密码写进控件。
+      //    实测 Chrome 自动填充是浏览器原生注入，圆点会立即显示；加密隐藏域 #password
+      //    可能要等失焦/提交时才由控件写入，所以不能再死等 encLen>0，否则会误判"没填上"。
+      let state = { encLen: 0, visibleLen: 0 };
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        state = await readPwdState();
+        if (state.visibleLen > 0) break;
+        await page.waitForTimeout(250);
+      }
+
+      // 失焦一次，促使 aliedit 把控件缓冲写入加密隐藏域（不点击页面坐标，避免误触顶部链接）
+      await page
+        .evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          if (el && typeof el.blur === 'function') el.blur();
+        })
+        .catch(() => undefined);
+      await page.waitForTimeout(300);
+      state = await readPwdState();
+
+      console.log(
+        `   🔍 自动填充检测：可见圆点=${state.visibleLen} 位` +
+          (expectedLen ? `（期望约 ${expectedLen} 位）` : '') +
+          `，加密隐藏域=${state.encLen} 字符`
+      );
+
+      // 判定：圆点位数达标即认为 Chrome 自动填充成功。
+      // - 已知密码长度时，圆点位数需 >= 期望长度（容错 1 位显示差异）；
+      // - 未知密码长度时，只要有圆点（>0）即尝试。
+      // 加密隐藏域为空不阻塞（控件可能提交时才加密），点击后以"是否离开登录页"为准。
+      const looksFilled = expectedLen > 0 ? state.visibleLen >= expectedLen - 1 : state.visibleLen > 0;
+      if (!looksFilled) {
+        return false;
+      }
+
+      // 4) 圆点已就位，自动点登录。能否真正通过以点击后是否离开登录页为准
+      //    （若控件其实没接受，页面会停在登录页并提示"请输入登录密码"，此时回退半自动）。
+      console.log('   ✅ 检测到已填充密码，自动点击登录...');
+      await this.clickLoginButton(page);
+      await page.waitForTimeout(2500);
+      const left = await this.hasLeftLoginPage(page);
+      if (left) {
+        console.log('   ✅ 已提交登录，正在跳转/可能进入二次验证...');
+        return true;
+      }
+      console.warn('   ⚠️  点击后仍停留在登录页（安全控件未接受自动填充或需二次验证），回退半自动');
+      return false;
+    } catch (err) {
+      console.warn('   ⚠️  自动填充过程出错：', err);
+      return false;
+    }
   }
 
   /**
@@ -1095,6 +1531,20 @@ export class AlipayExporter {
       }
     } catch {
       /* fall through to clicking */
+    }
+
+    // 0.6) 优先用支付宝登录按钮的固定 ID（aliedit 登录页实测的提交按钮）。
+    //      按钮本身用 Playwright 可信点击即可触发 React onClick，无需 OS 级点击；
+    //      只有密码输入需要 OS 硬件事件。
+    try {
+      const simBtn = page.locator('#J-login-simulate-btn').first();
+      if (await simBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+        await simBtn.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => undefined);
+        await simBtn.click({ timeout: 4000, force: true });
+        if (await this.waitLoginSubmitResult(page, 2800)) return true;
+      }
+    } catch {
+      /* fall through to text-based candidates */
     }
 
     // 1) 用定位器找【包含】「登录」文案的可点元素（不要求文本严格等于，避免漏掉
@@ -1301,11 +1751,13 @@ export class AlipayExporter {
       // 由脚本触发飞书告警，提醒到终端手动登录一次以刷新会话。
       const ok = await this.waitForLoginCompletion(90_000, false);
       if (!ok) {
-        throw new Error(
-          loginMode === 'assisted'
-            ? '支付宝定时抓取未登录：会话已失效，且密码需真人输入（安全控件拦截自动按键）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts，输入密码完成登录以刷新会话。'
-            : '支付宝定时抓取未登录：90 秒内未完成（可能需要短信/滑块二次验证，或账密有误）。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新会话。'
-        );
+        const hint =
+          loginMode === 'captcha'
+            ? '支付宝定时抓取未登录：已自动填账号密码并提交，但弹出滑块/图文验证码需人工完成。请在终端手动运行一次完成验证以刷新会话。'
+            : loginMode === 'assisted'
+              ? '支付宝定时抓取未登录：会话已失效，且密码需真人输入。请在终端手动运行一次 npx tsx src/exporters/test-alipay-full.ts 完成登录以刷新会话。'
+              : '支付宝定时抓取未登录：90 秒内未完成（可能需要短信/滑块二次验证，或账密有误）。请在终端手动运行一次完成登录以刷新会话。';
+        throw new Error(hint);
       }
       console.log('✅ 定时任务：登录成功，继续抓取');
       await this.page.waitForTimeout(2000);
@@ -1314,7 +1766,9 @@ export class AlipayExporter {
     }
 
     console.log('\n==================================================');
-    if (loginMode === 'assisted') {
+    if (loginMode === 'captcha') {
+      console.log('🧩  账号密码已自动填写并提交，请在浏览器完成滑块/图文验证码');
+    } else if (loginMode === 'assisted') {
       console.log('👤  账号已自动填好，密码框已聚焦');
       console.log('🔑  请在浏览器里【手动输入登录密码】并点击「登录」');
     } else {
@@ -1614,85 +2068,6 @@ export class AlipayExporter {
     console.warn('    ⚠️ 未能在任何承载页找到"小程序分析"入口');
     await this.dumpVisibleMenuItems();
     return false;
-  }
-
-  /**
-   * 点击流量分析页顶部的子 Tab（流量概览/小程序/生活号/粉丝群/其他），同子应用 SPA 切换。
-   * 返回是否点击成功。
-   */
-  /**
-   * 点击流量分析页顶部的子 Tab。
-   * @param tabText 目标 Tab 的显示文字（如"生活号"）
-   * @param expectedPathSeg 点击后 URL 必须包含的路径片段（如 "/traffic-analysis/life-plus"），
-   *        用于校验确实切到了目标子 Tab，而非误点左侧菜单跳到别的子应用（如生活号+分析→life-data）。
-   * @returns true 表示已稳定落在期望路径；false 表示未命中/跳到了错误页面，调用方应深链兜底。
-   */
-  private async clickTrafficTab(tabText: string, expectedPathSeg: string): Promise<boolean> {
-    if (!this.page) return false;
-    try {
-      // 流量5个子Tab都在 /manage-consultant/traffic-analysis/* 下
-      const inTraffic = (u: string): boolean => /\/manage-consultant\/traffic-analysis\//.test(u);
-      if (!inTraffic(this.page.url())) return false;
-
-      // 顶部子 Tab 条：它同时包含"流量概览/小程序流量/生活号+流量/商家粉丝群流量/其他活跃流量"。
-      // 关键：不能只按 top 区域 + 文字匹配，否则会点到左侧导航菜单里同名/近名的项
-      //（左侧"小程序分析/生活号+分析/商家粉丝群分析"），导致 Tab 根本没切、抓成别的页。
-      // 这里先定位"同时含流量概览和目标文字"的最小容器（即 Tab 条本身），再在该容器内点目标。
-      const clicked = await this.page.evaluate((text) => {
-        const all = Array.from(
-          document.querySelectorAll<HTMLElement>(
-            '[role="tab"], .ant-tabs-tab, [class*="tabs"] [class*="tab"], div, span, a, li'
-          )
-        );
-        // 找到 Tab 条：一个可见容器，其文本同时包含"流量概览"和至少另一个子 Tab 名
-        const tabBar = all.find((el) => {
-          const r = el.getBoundingClientRect();
-          if (r.width === 0 || r.height === 0 || r.top > 260) return false;
-          const t = (el.textContent || '').replace(/\s+/g, '');
-          return t.includes('流量概览') && (t.includes('小程序流量') || t.includes('生活号'));
-        });
-        if (!tabBar) return false;
-
-        // 在 Tab 条内找文本最贴近目标的可点击项
-        const items = Array.from(
-          tabBar.querySelectorAll<HTMLElement>('[role="tab"], .ant-tabs-tab, a, li, span, div')
-        );
-        const exact = items.filter((el) => {
-          const t = (el.textContent || '').replace(/\s+/g, '').trim();
-          return t && t.includes(text) && t.length <= 12;
-        });
-        // 取最小的（最内层）元素，避免点到整条 Tab 容器
-        exact.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
-        const target = exact[0];
-        if (!target) return false;
-        target.scrollIntoView({ block: 'center' });
-        target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        return true;
-      }, tabText);
-
-      if (!clicked) return false;
-
-      // 等待 URL 稳定并校验：点击 Tab 后若误中左侧菜单，可能需要 >1.2s 才跳到别的子应用。
-      // 因此轮询最多 ~4s，只要 URL 落到期望路径就算成功；若跳到非 traffic-analysis 或
-      // 流量分析下但路径不匹配，都判失败让调用方深链兜底。
-      const deadline = Date.now() + 4000;
-      while (Date.now() < deadline) {
-        await this.page.waitForTimeout(400);
-        const cur = this.page.url();
-        if (cur.includes(expectedPathSeg)) {
-          await this.waitForDataLoaded(this.page).catch(() => undefined);
-          return true;
-        }
-        // 已跳到其它子应用（如 life-data）——误点左侧菜单，立刻失败
-        if (!inTraffic(cur)) {
-          console.warn(`    ⚠️ 点「${tabText}」后跳到了非流量页（${cur}），疑似误点左侧菜单，将深链兜底`);
-          return false;
-        }
-      }
-      return false;
-    } catch {
-      return false;
-    }
   }
 
   /**

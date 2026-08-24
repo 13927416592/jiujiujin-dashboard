@@ -40,8 +40,20 @@ async function main(): Promise<void> {
   // 导出天数：默认 1（昨天，每日定时任务用）。
   // 首次补历史数据时设 MEITUAN_EXPORT_DAYS=30，会在日期选择器点"近30天"。
   // 导出器内部 7→"近7天"、30→"近30天"，其余→"昨天"。
+  // 历史回填指定某天：设 MEITUAN_TARGET_DATE=YYYY-MM-DD（如 2026-08-21），
+  // 会在双月日历里选单日范围（起止同一天），下载/上传数据日期均为该日。
   const daysToDownload = Number(process.env.MEITUAN_EXPORT_DAYS) || 1;
-  console.log(`📅 导出时间范围：${daysToDownload === 1 ? '昨天' : `近${daysToDownload}天`}`);
+  const targetDate = (process.env.MEITUAN_TARGET_DATE || '').trim() || undefined;
+  if (targetDate && !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    console.error(`❌ MEITUAN_TARGET_DATE 格式错误：${targetDate}，应为 YYYY-MM-DD`);
+    process.exit(1);
+  }
+  const rangeLabel = targetDate
+    ? `指定日（${targetDate}）`
+    : daysToDownload === 1
+    ? '昨天'
+    : `近${daysToDownload}天`;
+  console.log(`📅 导出时间范围：${rangeLabel}`);
 
   const exporter = new MeituanExporter({
     headless,
@@ -54,6 +66,7 @@ async function main(): Promise<void> {
     accountName: DEFAULT_MEITUAN_CONFIG.accountName,
     reportCardName: DEFAULT_MEITUAN_CONFIG.reportCardName,
     daysToDownload,
+    targetDate,
   });
 
   const result = await exporter.export();
@@ -72,11 +85,12 @@ async function main(): Promise<void> {
   console.log('数据条数:', rows.length);
 
   // 写一份 full JSON 留本地备份
-  const dataDate = yesterdayShanghai();
-  const fullJsonPath = path.join(outputDir, `meituan_full_${dataDate}.json`);
+  // 定时任务取昨天；指定回填日时用 targetDate；多行（近7/30天）时用导出当天日期作文件名
+  const backupDate = targetDate || (daysToDownload === 1 ? yesterdayShanghai() : todayShanghai());
+  const fullJsonPath = path.join(outputDir, `meituan_full_${backupDate}.json`);
   const payload = {
     platform: 'meituan',
-    exportDate: dataDate,
+    exportDate: backupDate,
     exportedAt: result.timestamp,
     accountId: result.accountId,
     rowCount: rows.length,
@@ -95,6 +109,23 @@ async function main(): Promise<void> {
     arr.push(r);
     byDate.set(d, arr);
   }
+
+  // 安全闸：指定回填日时，报表内日期必须等于 targetDate，否则说明日历点错了月份，
+  // 直接失败，避免把错误日期的数据 upsert 覆盖到别的快照。
+  if (targetDate) {
+    const dates = [...byDate.keys()];
+    const ok = dates.length === 1 && dates[0] === targetDate;
+    if (!ok) {
+      console.error(
+        `\n❌ 日期校验失败：目标回填 ${targetDate}，但报表内日期为 [${dates.join(', ')}]。`
+      );
+      console.error('   日历可能选错了月份，本次不写入云端，请重跑或检查日期面板。');
+      setTimeout(() => process.exit(1), 300);
+      return;
+    }
+    console.log(`🔒 日期校验通过：报表内日期 = ${targetDate}`);
+  }
+
   const items = [...byDate.entries()].map(([date, dateRows]) => ({
     dataDate: date,
     rawData: {
