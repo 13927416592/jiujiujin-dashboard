@@ -26,6 +26,9 @@ src/exporters/browser-profile-meituan/
 # 抓取输出数据（含真实业务数据）
 src/exporters/output/
 scripts/douyin-export/downloads/
+# SmartBI 完成订单导出：凭据与下载文件
+scripts/smartbi/.smartbi-env
+scripts/smartbi/smartbi_downloads/
 # 飞书/第三方密钥
 feishu*.json
 

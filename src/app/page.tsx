@@ -9,13 +9,15 @@ import {
   FileText, 
   Users, 
   Workflow, 
-  Target 
+  Target,
+  Gem
 } from "lucide-react";
 
 const navItems = [
   { href: "/alipay", label: "支付宝运营", icon: CreditCard, color: "#7C5CFF" },
   { href: "/meituan", label: "美团运营", icon: ShoppingBag, color: "#69E7FF" },
-  { href: "/content", label: "内容矩阵", icon: FileText, color: "#62FAD3" },
+  { href: "/orders", label: "客户回收订单", icon: Gem, color: "#62FAD3" },
+  { href: "/content", label: "内容矩阵", icon: FileText, color: "#FFB86B" },
   { href: "/private-domain", label: "私域运营", icon: Users, color: "#FFB86B" },
   { href: "/collaboration", label: "跨部门协同", icon: Workflow, color: "#FF6B6B" },
   { href: "/actions", label: "行动计划", icon: Target, color: "#7C5CFF" },

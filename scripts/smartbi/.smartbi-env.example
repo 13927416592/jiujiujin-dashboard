@@ -1,0 +1,15 @@
+# SmartBI 完成订单导出凭据模板
+# 复制为同目录 .smartbi-env（已 .gitignore，不会入库），填入真实值后 chmod 600
+#
+# 注意：
+#  - SMARTBI_PASSWORD 含 $ 等特殊字符时，必须用英文单引号包裹（如 'Yxdlw$801015'）
+#  - DASHBOARD_ORDERS_UPLOAD_URL 不带尾斜杠和 /api 路径
+#  - DASHBOARD_INGEST_TOKEN 与支付宝/美团抓取机使用同一个看板上传令牌
+
+export SMARTBI_USERNAME="你的SmartBI账号"
+export SMARTBI_PASSWORD='你的SmartBI密码'
+export DASHBOARD_ORDERS_UPLOAD_URL="https://your-dashboard-domain.com"
+export DASHBOARD_INGEST_TOKEN="与服务端 DASHBOARD_INGEST_TOKEN 相同的值"
+
+# 调试用：设为 0 用有头模式（默认无头）
+# export SMARTBI_HEADLESS=0

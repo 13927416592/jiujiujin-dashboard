@@ -121,6 +121,40 @@
 - 前端：`src/app/alipay/page.tsx`，顶部近 1/7/30 日切换，KPI 显示范围汇总值，下方内联 SVG 每日趋势折线图；
   数据不足 7/30 天时按实际天数展示并提示"仅 N 天数据"。
 
+## 客户回收完成订单模块（SmartBI 闭环）
+
+打通"流量→客资→成交"闭环：各平台（支付宝/美团/抖音）来的流量最终转化成的**完成订单**来自久久金 SmartBI 报表系统「yxd-门店每日完成订单统计」。
+
+### 数据来源与口径
+- 报表是**订单明细行**：表头在第4行（前3行是筛选条件），列：订单编号/门店名称/小程序名称/回收付款/渠道名称/来源名称/回收毛重/回收净重。
+- **一单多行**：一个订单编号可对应多条回收物明细（最多13条），金额/克重是行级。因此**订单数 = count(distinct order_no)**，金额 = sum(amount)。
+- 订单编号前6位 = YYMMDD **建单日**（非完成日）。报表"年月日"筛选的是**完成日期**。
+  - 日度导出：所有行完成日相同 → `data_date` 用筛选日期，`date_basis='completed'`（精确）。
+  - 月度回填：无逐行完成日，用建单日近似，`date_basis='created-seed'`，前端会显示提示。
+- 状态筛选固定为"回收：已完成（同意）"，只统计已完成单。
+
+### 表结构（bi_orders）
+- 定义：`src/storage/database/shared/schema.ts` 的 `biOrders`；建表 SQL 在 `src/storage/database/ensure-bi-orders.ts`（幂等，上传/导入前自动执行）。
+- 唯一键 `(order_no, line_no)`；金额 `amount` 行级；`platform`（成交平台）与 `source_group`（获客来源）是两套归一化维度。
+- 走 `pg` 直连（`src/storage/database/pg-client.ts`），与其他模块一致。
+
+### 模块文件
+- 解析：`src/exporters/bi-order-parser.ts`（纯函数；`parseBiOrdersWorkbook(path)` 给 CLI，`parseBiOrdersBuffer(buf)` 给上传接口）。含 `normalizePlatform`（小程序→alipay/wechat/meituan/xinsai/other）、`normalizeSourceGroup`（来源→douyin/meituan/dianping/alipay/wechat/xiaohongshu/doubao/map/referral/repeat/walkin/other）。
+- 数据访问：`src/storage/database/order-repo.ts`。`replaceDateForImport(date, lines)` 日度整日替换（先删后插，事务，幂等）；`upsertOrderLines(lines)` 月度回填；`getOrderRows(days, filter)` 取近N天明细。
+- 聚合：`src/lib/order-agg.ts`（纯函数，可被 'use client' 导入）。输出 KPI（订单数/金额/克重/客单价/线上占比）、byPlatform、bySource、topStores、trend。客单价=Σ金额/Σ唯一订单数。
+- API：
+  - `GET /api/orders/full?days=1d|7d|30d&platform=&source=&store=`：聚合输出 + 上一周期 KPI（算环比）。
+  - `POST /api/orders/upload`：multipart 上传 xlsx，字段 `file` 必填、`date=YYYY-MM-DD` 可选（传=日度整日替换，不传=月度回填）。**从内存 Buffer 解析**，不要落盘（沙箱落盘跨进程不可见）。
+    - **鉴权**：同源浏览器请求放行（页面手动补传）；跨域脚本回传必须带请求头 `X-Upload-Token: $DASHBOARD_INGEST_TOKEN`（与 `/api/snapshots/upload` 同一共享密钥）。
+- 前端：`src/app/orders/page.tsx`（毛玻璃看板），图表 `src/app/orders/charts.tsx`（recharts）。首页第3张卡片"客户回收订单"入口。
+- 导入脚本：`npx tsx scripts/import-bi-orders.ts <xlsx> [--date=YYYY-MM-DD | --seed]`。建表：`npx tsx scripts/ensure-bi-orders-table.ts`。
+- **每日自动导出（SmartBI）**：`scripts/smartbi/smartbi_auto_export.py`（Python+Playwright，headless，登录 bi.9999jt.com:18080 → 搜报表 → 设昨天 → 导 xlsx → 回传看板）+ `scripts/smartbi/smartbi-daily.sh`（cron 包装，失败飞书告警）。凭据走 `scripts/smartbi/.smartbi-env`（不入库）：`SMARTBI_USERNAME/SMARTBI_PASSWORD/DASHBOARD_ORDERS_UPLOAD_URL/DASHBOARD_INGEST_TOKEN`。详见 `docs/handover.md` 5.4。
+
+### 与各平台看板的闭环关系
+- `platform`（小程序成交渠道）直接对齐支付宝/美团看板：支付宝小程序成交、美团小程序成交。
+- `source_group`（开单手选获客来源）用于跨平台 ROI 归因：抖音/小红书/豆包/地图等内容与投放来源最终成交了多少。
+- 门店名含 `NO.xxx` 的解析为 `store_code`（`线上-XX店NO.xxx` 也算线上单 `is_online=1`），可与美团门店台账做跨表关联。
+
 ## 美团看板与数据聚合
 
 - 聚合引擎：`src/lib/meituan-agg.ts`（COL 列名、筛选、KPI/漏斗/趋势/ROI/排行/城市/服务质量/门店状态分布，全部服务端算好）

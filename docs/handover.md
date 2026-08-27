@@ -183,6 +183,38 @@ curl -X POST -H 'Content-Type: application/json' \
 
 门店账号只覆盖4个平台：**抖音、视频号、快手、小红书**（不含微博、B站、支付宝、高德）
 
+### 5.4 SmartBI 完成订单自动导出（客户回收闭环）
+
+打通"流量→客资→成交"闭环，各平台来的流量最终转化的**完成订单**来自久久金 SmartBI 报表「yxd-门店每日完成订单统计」。
+
+**组件**：`scripts/smartbi/smartbi_auto_export.py`（Python + Playwright，跑在 Linux 服务器，headless）+ `scripts/smartbi/smartbi-daily.sh`（cron 包装，写日志、失败飞书告警）。
+
+**流程**：登录 `bi.9999jt.com:18080` → 搜索报表 → 在 `URLLinkIFrameIdx1` iframe 内按行标签「年月日」把日期设为**昨天** → 导出 xlsx → multipart 上传到看板 `POST /api/orders/upload?date=昨天`（日度整日替换，幂等，`date_basis=completed`）。
+
+**环境变量**（写在 `scripts/smartbi/.smartbi-env`，不入库、权限 600）：
+
+```bash
+export SMARTBI_USERNAME="账号"
+export SMARTBI_PASSWORD='密码（含 $ 必须用英文单引号）'
+export DASHBOARD_ORDERS_UPLOAD_URL="https://看板域名"   # 不带尾斜杠
+export DASHBOARD_INGEST_TOKEN="看板上传token"           # 与支付宝/美团抓取机同一个
+# export SMARTBI_HEADLESS=0                            # 调试时设 0 有头模式
+```
+
+**部署 cron（每天 9:20）**：
+
+```cron
+20 9 * * * /bin/bash /path/to/jiujiujin-dashboard/scripts/smartbi/smartbi-daily.sh
+```
+
+**手动跑一次**：`bash scripts/smartbi/smartbi-daily.sh`，日志在 `logs/smartbi-YYYYMMDD.log`。
+
+**鉴权**：`/api/orders/upload` 同源浏览器请求放行（页面手动补传），跨域脚本回传必须带 `X-Upload-Token: $DASHBOARD_INGEST_TOKEN`。
+
+**Python 依赖**：`pip install playwright` 后 `playwright install chromium`（脚本已兼容服务器固定 chromium 路径 `/root/.cache/ms-playwright/chromium-1228/...`）。
+
+**口径**：一单多行（订单数 distinct、金额/克重 sum 行级）；订单编号前6位=YYMMDD 建单日，但日度导出用筛选的**完成日期**作 `data_date`（精确），月度回填才用建单日近似。详见 AGENTS.md「客户回收完成订单模块」。
+
 ---
 
 ## 六、后续开发建议
