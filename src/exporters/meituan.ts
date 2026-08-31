@@ -1,6 +1,7 @@
 import { chromium, BrowserContext, Page, Frame, ElementHandle, Locator } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { parseMeituanWorkbook, type MeituanRow } from './meituan-parser';
 import { ExportResult, ExportConfig, RawData, UnifiedMetrics } from './types';
 
@@ -616,17 +617,56 @@ export class MeituanExporter {
 
       const [downloadFromCtx, downloadFromPage] = await Promise.all([downloadCtx, downloadPageP]);
       const download = downloadFromCtx || downloadFromPage;
-      if (!download) {
-        const failShot = path.join(this.config.outputDir, `debug-download-fail-${Date.now()}.png`);
-        await reportPage.screenshot({ path: failShot }).catch(() => undefined);
-        console.log(`📸 下载失败截图：${failShot}`);
-        throw new Error('点击下载后 60 秒内未触发浏览器下载（可能是日期未选全、按钮不对或需要二次确认）');
-      }
 
       const fileName = `meituan_report_${dateStr}.xlsx`;
       downloadFilePath = path.join(this.config.outputDir, fileName);
-      await download.saveAs(downloadFilePath);
-      console.log(` 文件已保存：${downloadFilePath}`);
+
+      if (!download) {
+        // download 事件未触发（浏览器在事件注册前就关了），尝试从 Chrome 默认下载目录恢复
+        console.log(`   ⚠️ 未捕获到 download 事件，尝试从 Chrome 下载目录恢复...`);
+        const chromeDownloadDir = path.join(os.homedir(), 'Downloads');
+        const prefix = `meituan_report_${dateStr}`;
+        const candidates = fs.existsSync(chromeDownloadDir)
+          ? fs.readdirSync(chromeDownloadDir).filter((f) => f.startsWith(prefix) && f.endsWith('.xlsx'))
+          : [];
+        if (candidates.length > 0) {
+          candidates.sort();
+          const srcFile = path.join(chromeDownloadDir, candidates[candidates.length - 1]);
+          fs.copyFileSync(srcFile, downloadFilePath);
+          console.log(`   ✅ 从 Chrome 下载目录恢复：${srcFile}`);
+        } else {
+          const failShot = path.join(this.config.outputDir, `debug-download-fail-${Date.now()}.png`);
+          await reportPage.screenshot({ path: failShot }).catch(() => undefined);
+          console.log(` 下载失败截图：${failShot}`);
+          throw new Error('点击下载后 60 秒内未触发浏览器下载，且 Chrome 下载目录无匹配文件');
+        }
+      } else {
+        // 有 download 对象，正常保存；若浏览器中途关闭则从 Chrome 下载目录兜底
+        try {
+          await download.saveAs(downloadFilePath);
+          console.log(` 文件已保存：${downloadFilePath}`);
+        } catch (saveErr) {
+          const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          if (/context|browser|closed|terminated/i.test(saveMsg)) {
+            console.log(`   ⚠️ saveAs 失败（浏览器已关闭），尝试从 Chrome 默认下载目录恢复...`);
+            const chromeDownloadDir = path.join(os.homedir(), 'Downloads');
+            const prefix = `meituan_report_${dateStr}`;
+            const candidates = fs.existsSync(chromeDownloadDir)
+              ? fs.readdirSync(chromeDownloadDir).filter((f) => f.startsWith(prefix) && f.endsWith('.xlsx'))
+              : [];
+            if (candidates.length > 0) {
+              candidates.sort();
+              const srcFile = path.join(chromeDownloadDir, candidates[candidates.length - 1]);
+              fs.copyFileSync(srcFile, downloadFilePath);
+              console.log(`   ✅ 从 Chrome 下载目录恢复：${srcFile}`);
+            } else {
+              throw new Error(`saveAs 失败且 Chrome 下载目录无匹配文件。${saveMsg}`);
+            }
+          } else {
+            throw saveErr;
+          }
+        }
+      }
 
       const data = this.parseExcel(downloadFilePath);
 
