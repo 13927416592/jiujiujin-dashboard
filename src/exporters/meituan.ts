@@ -594,7 +594,9 @@ export class MeituanExporter {
       const downloadCtx = this.context!.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       const downloadPageP = reportPage.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       await downloadBtn.click();
-      await dlFrame.waitForTimeout(1500);
+      // 点击下载后美团后台可能销毁/替换 iframe，不能用 dlFrame.waitForTimeout（会报 "context has been closed"）。
+      // 改用纯延时，不依赖任何页面/ frame 对象。
+      await new Promise((r) => setTimeout(r, 1500));
 
       // 若出现二次确认弹窗（"确定/确认/导出/继续下载"），点掉它
       const confirmSelectors = [
@@ -608,7 +610,7 @@ export class MeituanExporter {
         if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
           console.log(`   🔘 发现二次确认按钮：${sel}，点击`);
           await btn.click().catch(() => undefined);
-          await frame.waitForTimeout(800);
+          await new Promise((r) => setTimeout(r, 800));
         }
       }
 
