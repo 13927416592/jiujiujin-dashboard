@@ -590,16 +590,35 @@ export class MeituanExporter {
         throw new Error(`未找到"下载"按钮（已等待报表加载并跨 frame 查找，截图：${failShot}）`);
       }
 
-      // 关键：跨域 iframe 内触发的下载事件在 context 级别监听最稳，同时也在 page 级别等。
-      // 部分场景会先弹"导出确认/确定"二次弹窗，这里并行监听新弹窗。
+      // 点击下载前，先设置 CDP 拦截下载请求的 URL
+      // 这样即使 Chrome 崩溃，我们也能通过拦截到的 URL 用 Node.js fetch 下载
+      const cdp = await this.context!.newCDPSession(reportPage);
+      await cdp.send('Network.enable');
+
+      let interceptedUrl: string | null = null;
+      let interceptedMethod: string | null = null;
+      let interceptedPostData: string | null = null;
+
+      cdp.on('Network.requestWillBeSent', (params) => {
+        const url = params.request.url;
+        if (
+          (url.includes('/export') || url.includes('/download') || url.includes('/report')) &&
+          (url.endsWith('.xlsx') || url.includes('format=xlsx') || url.includes('type=excel'))
+        ) {
+          interceptedUrl = url;
+          interceptedMethod = params.request.method;
+          interceptedPostData = params.request.postData ?? null;
+          console.log('   🔍 CDP 拦截到下载请求: ' + url.substring(0, 120) + '...');
+        }
+      });
+
+      // 跨域 iframe 内触发的下载事件在 context 级别监听最稳
       const downloadCtx = this.context!.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       const downloadPageP = reportPage.waitForEvent('download', { timeout: 60000 }).catch(() => null);
       await downloadBtn.click();
-      // 点击下载后美团后台可能销毁/替换 iframe，不能用 dlFrame.waitForTimeout（会报 "context has been closed"）。
-      // 改用纯延时，不依赖任何页面/ frame 对象。
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 2000));
 
-      // 若出现二次确认弹窗（"确定/确认/导出/继续下载"），点掉它
+      // 若出现二次确认弹窗，点掉它
       const confirmSelectors = [
         'button:has-text("确定")',
         'button:has-text("确认")',
@@ -609,23 +628,67 @@ export class MeituanExporter {
       for (const sel of confirmSelectors) {
         const btn = frame.locator(sel).last();
         if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
-          console.log(`   🔘 发现二次确认按钮：${sel}，点击`);
+          console.log('   🔘 发现二次确认按钮：' + sel + '，点击');
           await btn.click().catch(() => undefined);
           await new Promise((r) => setTimeout(r, 800));
         }
       }
 
+      const fileName = 'meituan_report_' + dateStr + '.xlsx';
+      downloadFilePath = path.join(this.config.outputDir, fileName);
+
+      // 优先尝试 Playwright download 对象保存
       const [downloadFromCtx, downloadFromPage] = await Promise.all([downloadCtx, downloadPageP]);
       const download = downloadFromCtx || downloadFromPage;
 
-      const fileName = `meituan_report_${dateStr}.xlsx`;
-      downloadFilePath = path.join(this.config.outputDir, fileName);
+      let fileSaved = false;
+      if (download) {
+        try {
+          await download.saveAs(downloadFilePath);
+          console.log(' 文件已保存：' + downloadFilePath);
+          fileSaved = true;
+        } catch (saveErr) {
+          const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          console.log('   ⚠️ saveAs 失败: ' + saveMsg);
+        }
+      }
 
-      if (!download) {
-        // download 事件未触发（浏览器在事件注册前就关了），尝试从 Chrome 默认下载目录恢复
-        console.log(`   ⚠️ 未捕获到 download 事件，尝试从 Chrome 下载目录恢复...`);
+      // 如果 Playwright 下载失败，但 CDP 拦截到了 URL，用 Node.js fetch 下载
+      if (!fileSaved && interceptedUrl) {
+        console.log('    CDP 已拦截 URL，使用 Node.js fetch 下载...');
+        try {
+          const cookies = await this.context!.cookies();
+          const cookieStr = cookies.map((c) => c.name + '=' + c.value).join('; ');
+          const fetchOpts: RequestInit = {
+            method: interceptedMethod || 'GET',
+            headers: {
+              'User-Agent': await reportPage.evaluate(() => navigator.userAgent).catch(() => 'Mozilla/5.0'),
+              'Cookie': cookieStr,
+            },
+          };
+          if (interceptedMethod === 'POST' && interceptedPostData) {
+            (fetchOpts.headers as Record<string, string>)['Content-Type'] = 'application/x-www-form-urlencoded';
+            fetchOpts.body = interceptedPostData;
+          }
+
+          const response = await fetch(interceptedUrl, fetchOpts);
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+          }
+          const buffer = Buffer.from(await response.arrayBuffer());
+          fs.writeFileSync(downloadFilePath, buffer);
+          console.log('   ✅ Node.js fetch 下载成功：' + downloadFilePath + ' (' + (buffer.length / 1024).toFixed(0) + 'KB)');
+          fileSaved = true;
+        } catch (fetchErr) {
+          console.log('   ⚠️ Node.js fetch 也失败: ' + (fetchErr instanceof Error ? fetchErr.message : fetchErr));
+        }
+      }
+
+      // 最后兜底：从 Chrome 默认下载目录恢复
+      if (!fileSaved) {
+        console.log('   ⚠️ 所有下载方式均失败，尝试从 Chrome 下载目录恢复...');
         const chromeDownloadDir = path.join(os.homedir(), 'Downloads');
-        const prefix = `meituan_report_${dateStr}`;
+        const prefix = 'meituan_report_' + dateStr;
         const candidates = fs.existsSync(chromeDownloadDir)
           ? fs.readdirSync(chromeDownloadDir).filter((f) => f.startsWith(prefix) && f.endsWith('.xlsx'))
           : [];
@@ -633,39 +696,16 @@ export class MeituanExporter {
           candidates.sort();
           const srcFile = path.join(chromeDownloadDir, candidates[candidates.length - 1]);
           fs.copyFileSync(srcFile, downloadFilePath);
-          console.log(`   ✅ 从 Chrome 下载目录恢复：${srcFile}`);
-        } else {
-          const failShot = path.join(this.config.outputDir, `debug-download-fail-${Date.now()}.png`);
-          await reportPage.screenshot({ path: failShot }).catch(() => undefined);
-          console.log(` 下载失败截图：${failShot}`);
-          throw new Error('点击下载后 60 秒内未触发浏览器下载，且 Chrome 下载目录无匹配文件');
+          console.log('   ✅ 从 Chrome 下载目录恢复：' + srcFile);
+          fileSaved = true;
         }
-      } else {
-        // 有 download 对象，正常保存；若浏览器中途关闭则从 Chrome 下载目录兜底
-        try {
-          await download.saveAs(downloadFilePath);
-          console.log(` 文件已保存：${downloadFilePath}`);
-        } catch (saveErr) {
-          const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-          if (/context|browser|closed|terminated/i.test(saveMsg)) {
-            console.log(`   ⚠️ saveAs 失败（浏览器已关闭），尝试从 Chrome 默认下载目录恢复...`);
-            const chromeDownloadDir = path.join(os.homedir(), 'Downloads');
-            const prefix = `meituan_report_${dateStr}`;
-            const candidates = fs.existsSync(chromeDownloadDir)
-              ? fs.readdirSync(chromeDownloadDir).filter((f) => f.startsWith(prefix) && f.endsWith('.xlsx'))
-              : [];
-            if (candidates.length > 0) {
-              candidates.sort();
-              const srcFile = path.join(chromeDownloadDir, candidates[candidates.length - 1]);
-              fs.copyFileSync(srcFile, downloadFilePath);
-              console.log(`   ✅ 从 Chrome 下载目录恢复：${srcFile}`);
-            } else {
-              throw new Error(`saveAs 失败且 Chrome 下载目录无匹配文件。${saveMsg}`);
-            }
-          } else {
-            throw saveErr;
-          }
-        }
+      }
+
+      if (!fileSaved) {
+        const failShot = path.join(this.config.outputDir, 'debug-download-fail-' + Date.now() + '.png');
+        await reportPage.screenshot({ path: failShot }).catch(() => undefined);
+        console.log(' 下载失败截图：' + failShot);
+        throw new Error('所有下载方式均失败：Playwright download / CDP+fetch / Chrome 下载目录均无文件');
       }
 
       const data = this.parseExcel(downloadFilePath);
