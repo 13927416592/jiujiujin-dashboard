@@ -32,10 +32,21 @@ function yesterdayShanghai(): string {
 
 async function main(): Promise<void> {
   const headless = process.env.HEADLESS === '1' || process.env.HEADLESS === 'true';
+  const cleanProfile = process.argv.includes('--clean');
   console.log('=== 美团经营宝报表下载 ===');
-  console.log(`模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'}\n`);
+  console.log(`模式: ${headless ? '无头（自动化）' : '有界面（可手动登录）'}${cleanProfile ? ' | 清除浏览器目录' : ''}\n`);
 
   const outputDir = path.join(process.cwd(), 'src', 'exporters', 'output');
+
+  // --clean 模式：清除浏览器用户目录，解决 Chrome 因目录数据积累导致崩溃的问题
+  if (cleanProfile) {
+    const profileDir = path.join(process.cwd(), 'src', 'exporters', 'browser-profile-meituan');
+    if (fs.existsSync(profileDir)) {
+      fs.rmSync(profileDir, { recursive: true, force: true });
+      console.log('🧹 已清除浏览器目录: ' + profileDir);
+      console.log('   ⚠️ 本次需要重新扫码登录\n');
+    }
+  }
 
   // 导出天数：默认 1（昨天，每日定时任务用）。
   // 首次补历史数据时设 MEITUAN_EXPORT_DAYS=30，会在日期选择器点"近30天"。
