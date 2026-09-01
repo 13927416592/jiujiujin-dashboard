@@ -37,6 +37,10 @@ echo "=== 支付宝数据抓取 $(date) ===" >> "$LOG_FILE"
 cd "$PROJECT_DIR"
 
 # 运行抓取脚本（有头模式，依赖已保存的 Cookie，保持与手动测试一致）
+# 每次运行前清除浏览器缓存目录，防止 Chromium 状态数据积累导致下载时崩溃。
+# 登录态由独立的 Cookie 持久化文件（cookies/）维持，清缓存不影响自动登录。
+rm -rf "$PROJECT_DIR/src/exporters/browser-profile"
+
 if npx tsx src/exporters/test-alipay-full.ts >> "$LOG_FILE" 2>&1; then
     echo "✓ 抓取成功 $(date)" >> "$LOG_FILE"
 else
